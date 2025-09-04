@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 // === MVP FRONTEND – versión 2 con cambios solicitados ===
 // - Recepción: agregar courier/estado desde el desplegable; casilla sin placeholder; valor aerolínea (EUR)
 // - Paquetes: exportar a XLSX; gráfico por courier + totales (kg reales / exceso)
-// - Vuelos: exportar a XLSX; editar cajas (quitar/mover); peso y medidas de caja; resumen tipo planilla; volumétrico de caja = A*H*L/6000
+// - Vuelos: exportar a XLSX; editar cajas (quitar/mover); peso y medidas de caja; resumen tipo planilla; volumétrico de caja = A×H×L/6000
 // - Proformas: exportar XLSX por courier; pestaña Extras para asociar cargos por courier+vuelo
 
 const COURIERS_INIT = [
@@ -109,7 +109,7 @@ function ReceptionForm({ currentUser, onAdd, couriers, setCouriers, estados, set
     courier:form.courier, estado:form.estado, casilla:form.casilla, codigo:form.codigo, fecha:form.fecha,
     empresa_envio:form.empresa_envio, nombre_apellido:form.nombre_apellido, tracking:form.tracking, remitente:form.remitente,
     peso_real:form.peso_real, largo:form.largo, ancho:form.ancho, alto:form.alto, descripcion:form.descripcion, valor_aerolinea:form.valor_aerolinea,
-  }).every(([_,v])=>String(v).trim()!=='');
+  }).every(([_,v])=>String(v).trim()!=="");
 
   function submit(){
     if(!allRequired) return;
@@ -194,7 +194,7 @@ function PackagesList({ data, currentUser }){
     </div>}>
     <div className="overflow-auto mb-6">
       <table className="min-w-full text-sm">
-        <thead><tr className="bg-gray-50">{["Courier","Estado","Casilla","Código","Fecha","Nombre","Tracking","Peso real","Facturable","Volumétrico","Exceso","Valor (EUR)","Bodega"].map(h=> <th key={h} className="text-left px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{h}</th>)}</tr></thead>
+        <thead><tr className="bg-gray-50">{"Courier,Estado,Casilla,Código,Fecha,Nombre,Tracking,Peso real,Facturable,Volumétrico,Exceso,Valor (EUR),Bodega".split(",").map(h=> <th key={h} className="text-left px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{h}</th>)}</tr></thead>
         <tbody>
           {rows.map(p=> (<tr key={p.id} className="border-b">
             <td className="px-3 py-2 whitespace-nowrap">{p.courier}</td>
@@ -406,7 +406,7 @@ function Proforma({ packages, flights, extras }){
     {!flight && <div className="text-gray-500">Selecciona un vuelo para ver el cálculo.</div>}
     {flight && <div className="overflow-auto">
       <table className="min-w-full text-sm">
-        <thead><tr className="bg-gray-50">{["Courier","Bultos","Kg real","Kg facturable","Kg exceso","Procesamiento","Flete real","Flete exceso","Despacho","Canje guía","Extras","Comisión 4%","TOTAL USD","Descargar"].map(h=> <th key={h} className="text-left px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{h}</th>)}</tr></thead>
+        <thead><tr className="bg-gray-50">{"Courier,Bultos,Kg real,Kg facturable,Kg exceso,Procesamiento,Flete real,Flete exceso,Despacho,Canje guía,Extras,Comisión 4%,TOTAL USD,Descargar".split(",").map(h=> <th key={h} className="text-left px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{h}</th>)}</tr></thead>
         <tbody>
           {dataByCourier.map(r=>{
             const procesamiento=r.kg_facturable*TARIFFS.procesamiento_usd_kg, fleteReal=r.kg_real*TARIFFS.flete_real_usd_kg, fleteExceso=r.kg_exceso*TARIFFS.flete_exceso_usd_kg, despacho=r.kg_facturable*TARIFFS.despacho_usd_kg; const canje=canjeGuiaUSD(r.kg_facturable); const extrasMonto=extrasFor(r.courier); const comision=0.04*(procesamiento+fleteReal+fleteExceso+extrasMonto); const total=procesamiento+fleteReal+fleteExceso+despacho+canje+extrasMonto+comision;
@@ -456,7 +456,7 @@ function ExtrasTab({ flights, extras, setExtras }){
     </div>
     <div className="flex justify-end"><button onClick={add} className="px-3 py-2 bg-indigo-600 text-white rounded-xl">Agregar</button></div>
     <div className="overflow-auto mt-4">
-      <table className="min-w-full text-sm"><thead><tr className="bg-gray-50">{["Vuelo","Courier","Descripción","Monto"].map(h=> <th key={h} className="text-left px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{h}</th>)}</tr></thead>
+      <table className="min-w-full text-sm"><thead><tr className="bg-gray-50">{"Vuelo,Courier,Descripción,Monto".split(",").map(h=> <th key={h} className="text-left px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{h}</th>)}</tr></thead>
       <tbody>
         {filtered.map(e=> <tr key={e.id} className="border-b"><td className="px-3 py-2">{flights.find(f=>f.id===e.flight_id)?.codigo}</td><td className="px-3 py-2">{e.courier}</td><td className="px-3 py-2">{e.descripcion}</td><td className="px-3 py-2">{e.monto.toFixed(2)}</td></tr>)}
         {filtered.length===0 && <tr><td className="px-3 py-6 text-gray-500" colSpan={4}>Sin extras para el vuelo seleccionado.</td></tr>}

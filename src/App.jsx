@@ -219,7 +219,7 @@ function CargasAdmin({flights,setFlights}){
 
 /* ===== RECEPCIÓN (Paquetes) ===== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
-  const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
+  const vuelosBodega = flights.filter(f=>f.estado==="En bodega"); // ← ÚNICA declaración
   const [flightId,setFlightId]=useState(vuelosBodega[0]?.id||"");
   const [form,setForm]=useState({
     courier: currentUser.role==="COURIER"? currentUser.courier : "",
@@ -334,7 +334,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
   };
 
   const [showMgr,setShowMgr]=useState(false);
-  const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
 
   return (
     <Section

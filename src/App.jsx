@@ -1,13 +1,22 @@
-/*  Europa Envíos – MVP 0.2.3
-    - Bodega: “Carga” en editor (select) mostrando SOLO cargas "En bodega", reimpresión robusta, XLSX con los 15 campos pedidos.
-    - Armado de cajas: seleccionar caja tocando cualquier parte del rectángulo; nombre único por carga; reordenar y eliminar; solo quedan “Seleccionar carga” y “Escanear / ingresar código”.
+/*  Europa Envíos – MVP 0.2.4
+    Cambios en este commit:
+    1) Etiquetas 100×60: impresión robusta con fallback a iframe (evita bloqueos de popup).
+    2) Recepción y Bodega → editor: el campo ESTADO se limita según el prefijo de la CARGA:
+       - AIR…  → solo “Aéreo”
+       - MAR…  → solo “Marítimo”
+       - COMP… → solo “Ofrecer marítimo”
+       (se autoajusta al cambiar de carga).
+    3) Bodega → export XLSX: “Exceso de volumen” antes de “Medidas”.
+    4) Bodega → reimpresión de etiqueta usa el mismo flujo robusto que Recepción.
+    5) Armado de cajas (de versiones previas): seleccionar tocando toda la tarjeta, nombre único,
+       reordenar y eliminar; solo quedan “Seleccionar carga” y “Escanear / ingresar código”.
 */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import * as XLSX from "xlsx-js-style";
 import JsBarcode from "jsbarcode";
 
-/* ========== util básicos ========== */
+/* ========== utils ========== */
 const uuid = () => {
   try { if (window.crypto?.randomUUID) return window.crypto.randomUUID(); } catch {}
   return `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -28,7 +37,7 @@ const fmtMoney = (n) => Number(n||0).toFixed(2).replace(".", ",");
 const sum = (a) => a.reduce((s,x)=>s+Number(x||0),0);
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#14B8A6","#84CC16","#F97316"];
 
-/* Ordenamiento inteligente (número / fecha / string) */
+/* Ordenamiento inteligente */
 const isDateLike = (val) => {
   if (typeof val !== "string") return false;
   const t = Date.parse(val);
@@ -50,7 +59,74 @@ const compareSmart = (a, b, asc = true) => {
   return sa === sb ? 0 : sa > sb ? dir : -dir;
 };
 
-/* ========== estilos XLSX programáticos (fallback si no hay plantilla) ========== */
+/* ========== Impresión robusta de etiquetas ========== */
+/** Construye HTML de la etiqueta 100x60 */
+function buildLabelHTML({codigo, cliente, casilla, pesoKg, medidas, desc, carga, barcodeSvg}) {
+  return `
+  <html><head><meta charset="utf-8"><title>Etiqueta ${codigo||""}</title>
+  <style>
+    @page { size: 100mm 60mm; margin: 5mm; } 
+    body { font-family: Arial, sans-serif; }
+    .box { width: 100mm; height: 60mm; }
+    .line { margin: 2mm 0; font-size: 12pt; }
+    .b { font-weight: bold; }
+  </style></head>
+  <body>
+    <div class="box">
+      <div class="line b">Código: ${codigo||""}</div>
+      <div class="line">${barcodeSvg||""}</div>
+      <div class="line">Cliente: ${cliente||""}</div>
+      <div class="line">Casilla: ${casilla||""}</div>
+      <div class="line">Peso: ${fmtPeso(pesoKg||0)} kg</div>
+      <div class="line">Medidas: ${medidas||""}</div>
+      <div class="line">Desc: ${desc||""}</div>
+      <div class="line">Carga: ${carga||"-"}</div>
+    </div>
+    <script>
+      function go(){ try{window.focus();}catch(e){} try{window.print()}catch(e){} setTimeout(function(){try{window.close()}catch(e){}}, 300); }
+      if (document.readyState === "complete") go(); else window.onload = go;
+    </script>
+  </body></html>`;
+}
+/** Intenta abrir ventana; si falla, imprime en un iframe oculto */
+function printHTML(html) {
+  try {
+    const w = window.open("", "_blank", "noopener,noreferrer");
+    if (w) {
+      w.document.open(); w.document.write(html); w.document.close();
+      return;
+    }
+  } catch {}
+  // Fallback a iframe oculto
+  const iframe = document.createElement("iframe");
+  iframe.style.position="fixed"; iframe.style.right="0"; iframe.style.bottom="0";
+  iframe.style.width="0"; iframe.style.height="0"; iframe.style.border="0";
+  document.body.appendChild(iframe);
+  const doc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (doc) {
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(()=> {
+      try{ iframe.contentWindow?.focus(); iframe.contentWindow?.print(); }catch{}
+      setTimeout(()=>{ try{document.body.removeChild(iframe)}catch{} }, 1500);
+    }, 150);
+  } else {
+    alert("No se pudo generar la etiqueta.");
+  }
+}
+/** Genera SVG de código de barras y dispara la impresión */
+function printLabelData({codigo, cliente, casilla, pesoKg, medidas, desc, carga}) {
+  try {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    JsBarcode(svg, String(codigo||""), { format:"CODE128", displayValue:false, height:50, margin:0 });
+    const barcodeSvg = new XMLSerializer().serializeToString(svg);
+    const html = buildLabelHTML({codigo, cliente, casilla, pesoKg, medidas, desc, carga, barcodeSvg});
+    printHTML(html);
+  } catch {
+    alert("No se pudo generar la etiqueta.");
+  }
+}
+
+/* ========== XLSX helpers (con estilos) ========== */
 const bd = () => ({ top:{style:"thin",color:{rgb:"FFCBD5E1"}}, bottom:{style:"thin",color:{rgb:"FFCBD5E1"}},
   left:{style:"thin",color:{rgb:"FFCBD5E1"}}, right:{style:"thin",color:{rgb:"FFCBD5E1"}} });
 const th = (txt) => ({ v:txt, t:"s", s:{font:{bold:true,color:{rgb:"FFFFFFFF"}},fill:{fgColor:{rgb:"FF1F2937"}},
@@ -70,7 +146,7 @@ function downloadXLSX(filename, sheets){
   XLSX.writeFile(wb, filename);
 }
 
-/* ====== soporte de plantillas XLSX (public/templates/*.xlsx) ====== */
+/* soporte plantillas */
 async function tryLoadTemplate(path){
   try{
     const res = await fetch(path, {cache:"no-store"});
@@ -124,25 +200,20 @@ const Tabs = ({tabs,current,onChange})=>(
     <button key={t} onClick={()=>onChange(t)} className={"px-3 py-2 rounded-xl text-sm "+(current===t?"bg-indigo-600 text-white":"bg-white border")}>{t}</button>
   ))}</div>
 );
-function Modal({open,onClose,title,children}){
-  if(!open) return null;
-  return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow w-full max-w-4xl max-h-[92vh] overflow-auto">
-        <div className="flex items-center justify-between p-4 border-b">
-          <div className="text-lg font-semibold">{title}</div>
-          <button onClick={onClose} className={BTN}>Cerrar</button>
-        </div>
-        <div className="p-4">{children}</div>
-      </div>
-    </div>
-  );
-}
 
 /* ========== datos iniciales ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = ["Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos","FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers","MC Group","Miami Express","One Box","ParaguayBox","Royal Box"];
 const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
+
+/* === Reglas de estado por prefijo de carga === */
+function estadosPorCodigo(codigo){
+  const p = String(codigo||"").toUpperCase();
+  if (p.startsWith("AIR"))  return ["Aéreo"];
+  if (p.startsWith("MAR"))  return ["Marítimo"];
+  if (p.startsWith("COMP")) return ["Ofrecer marítimo"];
+  return ESTADOS_INICIALES;
+}
 
 /* ========== Login ========== */
 function Login({onLogin}){
@@ -238,6 +309,17 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     desc:"", valor_txt:"0,00", foto:null
   });
 
+  const cargaSel = flights.find(f=>f.id===flightId)?.codigo || "";
+  const estadosPermitidos = estadosPorCodigo(cargaSel);
+
+  useEffect(()=>{
+    // Si el estado no es permitido para la carga, ajustarlo automáticamente
+    if (!estadosPermitidos.includes(form.estado)) {
+      setForm(f=>({...f, estado: estadosPermitidos[0] || ""}));
+    }
+    // eslint-disable-next-line
+  }, [flightId]);
+
   const limpiar=(s)=>String(s||"").toUpperCase().replace(/\s+/g,"");
   useEffect(()=>{
     if(!form.courier) return;
@@ -299,35 +381,20 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // etiqueta 100x60
+  // imprimir etiqueta robusto
   const printLabel=()=>{
     const fl = flights.find(f=>f.id===flightId);
     if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completá Código, Casilla, Nombre y Descripción."); return; }
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    JsBarcode(svg, form.codigo, { format:"CODE128", displayValue:false, height:50, margin:0 });
-    const svgHtml = new XMLSerializer().serializeToString(svg);
-    const w=window.open("","_blank");
-    if(!w){ alert("Habilitá ventanas emergentes para imprimir etiquetas."); return; }
     const medidas = `${L}x${A}x${H} cm`;
-    w.document.write(`
-      <html><head><meta charset="utf-8"><title>Etiqueta</title>
-      <style>
-        @page { size: 100mm 60mm; margin: 5mm; } body { font-family: Arial, sans-serif; }
-        .box { width: 100mm; height: 60mm; } .line { margin: 2mm 0; font-size: 12pt; } .b { font-weight: bold; }
-      </style></head><body>
-        <div class="box">
-          <div class="line b">Código: ${form.codigo}</div>
-          <div class="line">${svgHtml}</div>
-          <div class="line">Cliente: ${form.nombre}</div>
-          <div class="line">Casilla: ${form.casilla}</div>
-          <div class="line">Peso: ${fmtPeso(peso)} kg</div>
-          <div class="line">Medidas: ${medidas}</div>
-          <div class="line">Desc: ${form.desc}</div>
-          <div class="line">Carga: ${fl?.codigo || "-"}</div>
-        </div>
-        <script>window.onload=()=>{window.print(); setTimeout(()=>window.close(), 300);}</script>
-      </body></html>`);
-    w.document.close();
+    printLabelData({
+      codigo: form.codigo,
+      cliente: form.nombre,
+      casilla: form.casilla,
+      pesoKg: peso,
+      medidas,
+      desc: form.desc,
+      carga: fl?.codigo || "-"
+    });
   };
 
   // subir archivo
@@ -370,7 +437,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         </Field>
         <Field label="Estado" required>
           <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
-            <option value="">Seleccionar…</option>{ESTADOS_INICIALES.map(s=><option key={s}>{s}</option>)}
+            {estadosPermitidos.map(s=><option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
 
@@ -430,7 +497,7 @@ const InfoBox=({title,value})=>(
 );
 
 /* ========== Paquetes en bodega ========== */
-function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
+function PaquetesBodega({packages, flights, user, onUpdate, couriers}){
   const [q,setQ]=useState("");
   const [flightId,setFlightId]=useState("");
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
@@ -474,6 +541,18 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
     });
     setOpen(true);
   };
+
+  // Al cambiar flight_id en el editor, ajustar estados válidos
+  useEffect(()=>{
+    if(!open || !form) return;
+    const codigoCarga = flights.find(f=>f.id===form.flight_id)?.codigo || "";
+    const permitidos = estadosPorCodigo(codigoCarga);
+    if (!permitidos.includes(form.estado)) {
+      setForm(f=>({...f, estado: permitidos[0] || ""}));
+    }
+  // eslint-disable-next-line
+  }, [form?.flight_id, open]);
+
   const save=()=>{
     const peso = parseComma(form.peso_real_txt);
     const L = parseIntEU(form.L_txt), A = parseIntEU(form.A_txt), H = parseIntEU(form.H_txt);
@@ -523,41 +602,22 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // Reimpresión etiqueta (robusto)
+  // Reimpresión etiqueta (misma rutina robusta)
   const reimprimir = (p)=>{
-    try{
-      const fl = flights.find(f=>f.id===p.flight_id);
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      JsBarcode(svg, p.codigo || "", { format:"CODE128", displayValue:false, height:50, margin:0 });
-      const svgHtml = new XMLSerializer().serializeToString(svg);
-      const w = window.open("", "_blank");
-      if(!w){ alert("Habilitá ventanas emergentes para reimprimir la etiqueta."); return; }
-      const medidas = `${p.largo||0}x${p.ancho||0}x${p.alto||0} cm`;
-      w.document.write(`
-        <html><head><meta charset="utf-8"><title>Etiqueta</title>
-        <style>
-          @page { size: 100mm 60mm; margin: 5mm; } body { font-family: Arial, sans-serif; }
-          .box { width: 100mm; height: 60mm; } .line { margin: 2mm 0; font-size: 12pt; } .b { font-weight: bold; }
-        </style></head><body>
-          <div class="box">
-            <div class="line b">Código: ${p.codigo||""}</div>
-            <div class="line">${svgHtml}</div>
-            <div class="line">Cliente: ${p.nombre_apellido||""}</div>
-            <div class="line">Casilla: ${p.casilla||""}</div>
-            <div class="line">Peso: ${fmtPeso(p.peso_real||0)} kg</div>
-            <div class="line">Medidas: ${medidas}</div>
-            <div class="line">Desc: ${p.descripcion||""}</div>
-            <div class="line">Carga: ${fl?.codigo || "-"}</div>
-          </div>
-          <script>window.onload=()=>{window.print(); setTimeout(()=>window.close(), 300);}</script>
-        </body></html>`);
-      w.document.close();
-    }catch{
-      alert("No se pudo generar la etiqueta.");
-    }
+    const fl = flights.find(f=>f.id===p.flight_id);
+    const medidas = `${p.largo||0}x${p.ancho||0}x${p.alto||0} cm`;
+    printLabelData({
+      codigo: p.codigo,
+      cliente: p.nombre_apellido,
+      casilla: p.casilla,
+      pesoKg: p.peso_real,
+      medidas,
+      desc: p.descripcion,
+      carga: fl?.codigo || "-"
+    });
   };
 
-  // EXPORT: columnas exactas solicitadas
+  // EXPORT: columnas con “Exceso de volumen” ANTES que “Medidas”
   async function exportXLSX(){
     const header = [
       th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"), th("Fecha"),
@@ -698,7 +758,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
                 </select>
               </Field>
 
-              {/* Courier/Estado como selects */}
+              {/* Courier/Estado como selects con reglas */}
               <Field label="Courier">
                 <select className="w-full rounded-xl border px-3 py-2" value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})}>
                   <option value="">Seleccionar…</option>
@@ -706,10 +766,15 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
                 </select>
               </Field>
               <Field label="Estado">
-                <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
-                  <option value="">Seleccionar…</option>
-                  {ESTADOS_INICIALES.map(s=><option key={s} value={s}>{s}</option>)}
-                </select>
+                {(() => {
+                  const codigo = flights.find(f=>f.id===form.flight_id)?.codigo || "";
+                  const opciones = estadosPorCodigo(codigo);
+                  return (
+                    <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
+                      {opciones.map(s=><option key={s} value={s}>{s}</option>)}
+                    </select>
+                  );
+                })()}
               </Field>
 
               <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})}/></Field>
@@ -772,14 +837,11 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [activeBoxId,setActiveBoxId]=useState(null);
   const [scan,setScan]=useState("");
 
-  const volCaja=(c)=> (parseIntEU(c.A)*parseIntEU(c.H)*parseIntEU(c.L))/6000 || 0;
-
   const nombreExiste = (name, omitId=null)=>{
     const n = String(name||"").trim().toLowerCase();
     if (!flight) return false;
     return flight.cajas.some(c=>c.id!==omitId && String(c.codigo||"").trim().toLowerCase()===n);
   };
-
   const nombreUnicoSiguiente = ()=>{
     let i = 1;
     while (nombreExiste(`Caja ${i}`)) i++;
@@ -796,7 +858,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     })));
     setActiveBoxId(id);
   }
-
   function renameBox(id, name){
     const nuevo = String(name||"").trim();
     if(!nuevo) return;
@@ -806,14 +867,12 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
       cajas: f.cajas.map(c=>c.id!==id?c:{...c, codigo:nuevo})
     })));
   }
-
   function updBoxField(id, field, value){
     setFlights(prev=>prev.map(f=>f.id!==flightId ? f : ({
       ...f,
       cajas: f.cajas.map(c=>c.id!==id?c:{...c,[field]:value})
     })));
   }
-
   function removeBox(id){
     setFlights(prev=>prev.map(f=>f.id!==flightId ? f : ({
       ...f,
@@ -821,7 +880,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     })));
     if(activeBoxId===id) setActiveBoxId(null);
   }
-
   function moveBox(id, dir){
     if(!flight) return;
     const i = flight.cajas.findIndex(c=>c.id===id);
@@ -842,16 +900,13 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     const pkg = packages.find(p=> p.flight_id===flightId && p.codigo.toUpperCase()===code);
     if(!pkg){ alert("No existe ese código en esta carga."); setScan(""); return; }
     if(flight.cajas.some(c=>c.paquetes.includes(pkg.id))){ alert("Ese paquete ya está en una caja."); setScan(""); return; }
-    setFlights(prev=>prev.map(f=>f.id!==flightId?f=>{
-      return f;
-    }:{
+    setFlights(prev=>prev.map(f=>f.id!==flightId?f:({
       ...f,
       cajas:f.cajas.map(c=>c.id!==activeBoxId?c:{...c,paquetes:[...c.paquetes, pkg.id]})
-    }));
+    })));
     onAssign(pkg.id);
     setScan("");
   }
-
   function move(pid, fromId, toId){
     if(!toId||!flight || fromId===toId) return;
     setFlights(prev=>prev.map(f=>{
@@ -881,7 +936,8 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
       rows.push([th("CONTROL DE PAQUETES")]);
       rows.push([td(`CAJA: ${caja.codigo}`), td(`CANT PAQUETES: ${caja.paquetes.length}`)]);
       const peso = parseComma(caja.peso||"0"), L=parseIntEU(caja.L||0), A=parseIntEU(caja.A||0), H=parseIntEU(caja.H||0);
-      rows.push([td(`Peso: ${fmtPeso(peso)} kg`), td(`Medidas: ${L}x${A}x${H} cm`), td(`Vol: ${fmtPeso((parseIntEU(caja.A)*parseIntEU(caja.H)*parseIntEU(caja.L))/6000 || 0)} kg`)]);
+      const vol = (parseIntEU(caja.A)*parseIntEU(caja.H)*parseIntEU(caja.L))/6000 || 0;
+      rows.push([td(`Peso: ${fmtPeso(peso)} kg`), td(`Medidas: ${L}x${A}x${H} cm`), td(`Vol: ${fmtPeso(vol)} kg`)]);
       rows.push(headers.map(h=>th(h)));
       for(let r=0;r<max;r++) rows.push(headers.map(h=>td(byCourier[h][r]||"")));
       const { ws } = sheetFromAOAStyled(caja.codigo, rows, {
@@ -906,7 +962,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
 
   return (
     <Section title="Armado de cajas">
-      {/* Solo los 2 controles solicitados */}
       <div className="grid md:grid-cols-2 gap-4">
         <Field label="Seleccionar carga" required>
           <select
@@ -1135,7 +1190,7 @@ function CargasEnviadas({packages, flights}){
   );
 }
 
-/* ========== Proformas y Extras (igual que antes, con botón Eliminar en Extras) ========== */
+/* ========== Proformas y Extras ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
@@ -1369,7 +1424,7 @@ function App(){
           <main className="max-w-7xl mx-auto px-4 py-6">
             <Tabs tabs={tabs} current={tab} onChange={setTab}/>
             {tab==="Recepción" && <Reception currentUser={user} couriers={couriers} setCouriers={setCouriers} estados={estados} setEstados={setEstados} flights={flights} onAdd={addPackage}/>}
-            {tab==="Paquetes en bodega" && <PaquetesBodega packages={packages} flights={flights} user={user} onUpdate={updatePackage} couriers={couriers} estados={estados}/>}
+            {tab==="Paquetes en bodega" && <PaquetesBodega packages={packages} flights={flights} user={user} onUpdate={updatePackage} couriers={couriers}/>}
             {tab==="Armado de cajas" && <ArmadoCajas packages={packages} flights={flights} setFlights={setFlights} onAssign={assignToBox}/>}
             {tab==="Cargas enviadas" && <CargasEnviadas packages={packages} flights={flights}/>}
             {tab==="Gestión de cargas" && <CargasAdmin flights={flights} setFlights={setFlights}/>}
@@ -1401,5 +1456,4 @@ function ManageList({label, items, setItems}){
   );
 }
 
-/* ✅ Export default */
 export default App;

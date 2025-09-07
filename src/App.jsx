@@ -1,10 +1,6 @@
-/*  Europa Envíos – MVP 0.2.2
-    - Recepción: renombrados, cámara/archivo, etiqueta.
-    - Paquetes en Bodega: editor con selects Courier/Estado, reimprimir etiqueta, foto, ordenamiento, export.
-    - Armado de cajas: sólo “Seleccionar carga” y “Escanear / ingresar código” arriba.
-      Nombre/peso/medidas se editan en cada caja. Nombre único por carga (advertencia).
-      Reordenar ↑/↓, eliminar, mover paquetes sin duplicar. Export mantiene nombre de caja.
-    - Cargas enviadas/Proformas/Extras: igual, “OK” quitado en Extras.
+/*  Europa Envíos – MVP 0.2.3
+    - Bodega: “Carga” en editor (select) mostrando SOLO cargas "En bodega", reimpresión robusta, XLSX con los 15 campos pedidos.
+    - Armado de cajas: seleccionar caja tocando cualquier parte del rectángulo; nombre único por carga; reordenar y eliminar; solo quedan “Seleccionar carga” y “Escanear / ingresar código”.
 */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
@@ -311,6 +307,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     JsBarcode(svg, form.codigo, { format:"CODE128", displayValue:false, height:50, margin:0 });
     const svgHtml = new XMLSerializer().serializeToString(svg);
     const w=window.open("","_blank");
+    if(!w){ alert("Habilitá ventanas emergentes para imprimir etiquetas."); return; }
     const medidas = `${L}x${A}x${H} cm`;
     w.document.write(`
       <html><head><meta charset="utf-8"><title>Etiqueta</title>
@@ -483,6 +480,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
     const fact = Math.max(0.2, peso||0);
     const vol = A&&H&&L ? (A*H*L)/5000 : 0;
     const exc = Math.max(0, vol - fact);
+    const fl = flights.find(f=>f.id===form.flight_id);
     const upd = {
       ...form,
       peso_real: peso, largo:L, ancho:A, alto:H,
@@ -490,6 +488,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
       peso_volumetrico: Number(vol.toFixed(3)),
       exceso_volumen: Number(exc.toFixed(3)),
       valor_aerolinea: parseComma(form.valor_txt),
+      codigo_full: `${fl?.codigo||"CARGA"}-${form.codigo}`,
     };
     onUpdate(upd); setOpen(false);
   };
@@ -524,54 +523,71 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // Reimpresión etiqueta desde editor
+  // Reimpresión etiqueta (robusto)
   const reimprimir = (p)=>{
-    const fl = flights.find(f=>f.id===p.flight_id);
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    JsBarcode(svg, p.codigo || "", { format:"CODE128", displayValue:false, height:50, margin:0 });
-    const svgHtml = new XMLSerializer().serializeToString(svg);
-    const w=window.open("","_blank");
-    const medidas = `${p.largo||0}x${p.ancho||0}x${p.alto||0} cm`;
-    w.document.write(`
-      <html><head><meta charset="utf-8"><title>Etiqueta</title>
-      <style>
-        @page { size: 100mm 60mm; margin: 5mm; } body { font-family: Arial, sans-serif; }
-        .box { width: 100mm; height: 60mm; } .line { margin: 2mm 0; font-size: 12pt; } .b { font-weight: bold; }
-      </style></head><body>
-        <div class="box">
-          <div class="line b">Código: ${p.codigo}</div>
-          <div class="line">${svgHtml}</div>
-          <div class="line">Cliente: ${p.nombre_apellido||""}</div>
-          <div class="line">Casilla: ${p.casilla||""}</div>
-          <div class="line">Peso: ${fmtPeso(p.peso_real)} kg</div>
-          <div class="line">Medidas: ${medidas}</div>
-          <div class="line">Desc: ${p.descripcion||""}</div>
-          <div class="line">Carga: ${fl?.codigo || "-"}</div>
-        </div>
-        <script>window.onload=()=>{window.print(); setTimeout(()=>window.close(), 300);}</script>
-      </body></html>`);
-    w.document.close();
+    try{
+      const fl = flights.find(f=>f.id===p.flight_id);
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      JsBarcode(svg, p.codigo || "", { format:"CODE128", displayValue:false, height:50, margin:0 });
+      const svgHtml = new XMLSerializer().serializeToString(svg);
+      const w = window.open("", "_blank");
+      if(!w){ alert("Habilitá ventanas emergentes para reimprimir la etiqueta."); return; }
+      const medidas = `${p.largo||0}x${p.ancho||0}x${p.alto||0} cm`;
+      w.document.write(`
+        <html><head><meta charset="utf-8"><title>Etiqueta</title>
+        <style>
+          @page { size: 100mm 60mm; margin: 5mm; } body { font-family: Arial, sans-serif; }
+          .box { width: 100mm; height: 60mm; } .line { margin: 2mm 0; font-size: 12pt; } .b { font-weight: bold; }
+        </style></head><body>
+          <div class="box">
+            <div class="line b">Código: ${p.codigo||""}</div>
+            <div class="line">${svgHtml}</div>
+            <div class="line">Cliente: ${p.nombre_apellido||""}</div>
+            <div class="line">Casilla: ${p.casilla||""}</div>
+            <div class="line">Peso: ${fmtPeso(p.peso_real||0)} kg</div>
+            <div class="line">Medidas: ${medidas}</div>
+            <div class="line">Desc: ${p.descripcion||""}</div>
+            <div class="line">Carga: ${fl?.codigo || "-"}</div>
+          </div>
+          <script>window.onload=()=>{window.print(); setTimeout(()=>window.close(), 300);}</script>
+        </body></html>`);
+      w.document.close();
+    }catch{
+      alert("No se pudo generar la etiqueta.");
+    }
   };
 
-  // EXPORT: intenta usar plantilla
+  // EXPORT: columnas exactas solicitadas
   async function exportXLSX(){
-    const header = [th("CARGA"),th("CÓDIGO"),th("CASILLA"),th("FECHA"),th("NOMBRE"),th("TRACKING"),th("PESO REAL"),th("MEDIDAS"),th("EXCESO DE VOLUMEN"),th("DESCRIPCIÓN"),th("FOTO")];
+    const header = [
+      th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"), th("Fecha"),
+      th("Empresa de envío"), th("Nombre y apellido"), th("Tracking"), th("Remitente"),
+      th("Peso facturable (mín 0,200 kg)"), th("Exceso de volumen"), th("Medidas"),
+      th("Descripción"), th("Precio (EUR)")
+    ];
     const body = rows.map(p=>{
       const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "";
-      const medidas = `${p.largo}x${p.ancho}x${p.alto} cm`;
-      return [td(carga),td(p.codigo),td(p.casilla),td(p.fecha),td(p.nombre_apellido||""),td(p.tracking),td(fmtPeso(p.peso_real)),td(medidas),td(fmtPeso(p.exceso_volumen)),td(p.descripcion),td(p.foto?"Sí":"")];
+      const medidas = `${p.largo||0}x${p.ancho||0}x${p.alto||0} cm`;
+      return [
+        td(carga), td(p.courier||""), td(p.estado||""), td(p.casilla||""), td(p.codigo||""),
+        td(p.fecha||""), td(p.empresa_envio||""), td(p.nombre_apellido||""), td(p.tracking||""),
+        td(p.remitente||""), td(fmtPeso(p.peso_facturable||0)), td(fmtPeso(p.exceso_volumen||0)),
+        td(medidas), td(p.descripcion||""), td(fmtMoney(p.valor_aerolinea||0))
+      ];
     });
 
     const tpl = await tryLoadTemplate("/templates/bodega.xlsx");
     if(tpl){
-      replacePlaceholdersInWB(tpl, { CARGA: flights.find(f=>f.id===flightId)?.codigo || "", FECHA: new Date().toISOString().slice(0,10) });
-      appendSheet(tpl, "DATA", [header, ...body], {cols:[{wch:12},{wch:14},{wch:10},{wch:12},{wch:24},{wch:16},{wch:12},{wch:14},{wch:16},{wch:28},{wch:8}]});
+      replacePlaceholdersInWB(tpl, { FECHA: new Date().toISOString().slice(0,10) });
+      appendSheet(tpl, "DATA", [header, ...body], {
+        cols:[{wch:12},{wch:16},{wch:14},{wch:10},{wch:16},{wch:12},{wch:20},{wch:22},{wch:16},{wch:16},{wch:18},{wch:16},{wch:14},{wch:28},{wch:12}]
+      });
       XLSX.writeFile(tpl, "Paquetes_en_bodega.xlsx");
       return;
     }
     const { ws } = sheetFromAOAStyled("Bodega", [header, ...body], {
-      cols: [{wch:12},{wch:14},{wch:10},{wch:12},{wch:24},{wch:16},{wch:12},{wch:14},{wch:16},{wch:28},{wch:8}],
-      rows: [{hpt:24}]
+      cols:[{wch:12},{wch:16},{wch:14},{wch:10},{wch:16},{wch:12},{wch:20},{wch:22},{wch:16},{wch:16},{wch:18},{wch:16},{wch:14},{wch:28},{wch:12}],
+      rows:[{hpt:24}]
     });
     downloadXLSX("Paquetes_en_bodega.xlsx", [{name:"Bodega", ws}]);
   }
@@ -664,6 +680,24 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
         {form && (
           <>
             <div className="grid md:grid-cols-3 gap-3">
+              {/* Carga: SOLO "En bodega" */}
+              <Field label="Carga">
+                <select
+                  className="w-full rounded-xl border px-3 py-2"
+                  value={form.flight_id}
+                  onChange={e=>setForm({...form,flight_id:e.target.value})}
+                >
+                  {vuelosBodega.length === 0 && (
+                    <option value="">— No hay cargas En bodega —</option>
+                  )}
+                  {vuelosBodega.map(f=>(
+                    <option key={f.id} value={f.id}>
+                      {f.codigo} · {f.fecha_salida}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
               {/* Courier/Estado como selects */}
               <Field label="Courier">
                 <select className="w-full rounded-xl border px-3 py-2" value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})}>
@@ -677,12 +711,12 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
                   {ESTADOS_INICIALES.map(s=><option key={s} value={s}>{s}</option>)}
                 </select>
               </Field>
-              <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})}/></Field>
 
+              <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})}/></Field>
               <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value.toUpperCase()})}/></Field>
               <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></Field>
-              <Field label="Empresa de envío"><Input value={form.empresa_envio} onChange={e=>setForm({...form,empresa_envio:e.target.value})}/></Field>
 
+              <Field label="Empresa de envío"><Input value={form.empresa_envio} onChange={e=>setForm({...form,empresa_envio:e.target.value})}/></Field>
               <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})}/></Field>
               <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})}/></Field>
               <Field label="Remitente"><Input value={form.remitente} onChange={e=>setForm({...form,remitente:e.target.value})}/></Field>
@@ -731,7 +765,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers, estados}){
   );
 }
 
-/* ========== Armado de cajas (nuevo) ========== */
+/* ========== Armado de cajas (clic en toda la tarjeta) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -747,7 +781,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   };
 
   const nombreUnicoSiguiente = ()=>{
-    // Caja 1, Caja 2, ... saltando repetidos
     let i = 1;
     while (nombreExiste(`Caja ${i}`)) i++;
     return `Caja ${i}`;
@@ -809,7 +842,9 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     const pkg = packages.find(p=> p.flight_id===flightId && p.codigo.toUpperCase()===code);
     if(!pkg){ alert("No existe ese código en esta carga."); setScan(""); return; }
     if(flight.cajas.some(c=>c.paquetes.includes(pkg.id))){ alert("Ese paquete ya está en una caja."); setScan(""); return; }
-    setFlights(prev=>prev.map(f=>f.id!==flightId?f:{
+    setFlights(prev=>prev.map(f=>f.id!==flightId?f=>{
+      return f;
+    }:{
       ...f,
       cajas:f.cajas.map(c=>c.id!==activeBoxId?c:{...c,paquetes:[...c.paquetes, pkg.id]})
     }));
@@ -846,7 +881,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
       rows.push([th("CONTROL DE PAQUETES")]);
       rows.push([td(`CAJA: ${caja.codigo}`), td(`CANT PAQUETES: ${caja.paquetes.length}`)]);
       const peso = parseComma(caja.peso||"0"), L=parseIntEU(caja.L||0), A=parseIntEU(caja.A||0), H=parseIntEU(caja.H||0);
-      rows.push([td(`Peso: ${fmtPeso(peso)} kg`), td(`Medidas: ${L}x${A}x${H} cm`), td(`Vol: ${fmtPeso(volCaja(caja))} kg`)]);
+      rows.push([td(`Peso: ${fmtPeso(peso)} kg`), td(`Medidas: ${L}x${A}x${H} cm`), td(`Vol: ${fmtPeso((parseIntEU(caja.A)*parseIntEU(caja.H)*parseIntEU(caja.L))/6000 || 0)} kg`)]);
       rows.push(headers.map(h=>th(h)));
       for(let r=0;r<max;r++) rows.push(headers.map(h=>td(byCourier[h][r]||"")));
       const { ws } = sheetFromAOAStyled(caja.codigo, rows, {
@@ -860,7 +895,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     const tpl = await tryLoadTemplate("/templates/cajas.xlsx");
     if(tpl){
       replacePlaceholdersInWB(tpl, { CARGA: flight.codigo, FECHA: flight.fecha_salida||"" });
-      const resumen = flight.cajas.map((c)=> [ c.codigo, fmtPeso(parseComma(c.peso||"0")), String(parseIntEU(c.L||0)), String(parseIntEU(c.A||0)), String(parseIntEU(c.H||0)), fmtPeso(volCaja(c)) ]);
+      const resumen = flight.cajas.map((c)=> [ c.codigo, fmtPeso(parseComma(c.peso||"0")), String(parseIntEU(c.L||0)), String(parseIntEU(c.A||0)), String(parseIntEU(c.H||0)), fmtPeso((parseIntEU(c.A)*parseIntEU(c.H)*parseIntEU(c.L))/6000 || 0) ]);
       appendSheet(tpl, "RESUMEN", [[th("Caja"),th("Peso"),th("L"),th("A"),th("H"),th("Vol")], ...resumen]);
       sheets.forEach(s=>XLSX.utils.book_append_sheet(tpl, s.ws, s.name));
       XLSX.writeFile(tpl, `Armado_de_cajas_${flight.codigo}.xlsx`);
@@ -890,7 +925,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
         </Field>
       </div>
 
-      {/* Botón crear caja (nombre auto-único). No es un campo arriba. */}
       <div className="flex justify-end mt-3">
         <button onClick={addBox} disabled={!flightId} className={BTN_PRIMARY+" disabled:opacity-50"}>Nueva caja</button>
       </div>
@@ -904,7 +938,11 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
           const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
           const activa = activeBoxId===c.id;
           return (
-            <div key={c.id} className={`border rounded-2xl p-3 mb-3 ${activa?"ring-2 ring-indigo-500":""}`}>
+            <div
+              key={c.id}
+              className={`border rounded-2xl p-3 mb-3 ${activa?"ring-2 ring-indigo-500":""} cursor-pointer`}
+              onClick={()=>setActiveBoxId(c.id)}
+            >
               {/* Cabecera + acciones */}
               <div className="flex items-center justify-between gap-3">
                 <div className="flex-1">
@@ -912,31 +950,31 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                   <input
                     className="w-full rounded-xl border px-3 py-2"
                     value={c.codigo}
-                    onClick={()=>setActiveBoxId(c.id)}
                     onChange={(e)=>renameBox(c.id, e.target.value)}
+                    onClick={(e)=>e.stopPropagation()}
                   />
                 </div>
 
                 <div className="hidden md:flex items-center gap-2">
-                  <button className={BTN} onClick={()=>moveBox(c.id,-1)} title="Subir">↑</button>
-                  <button className={BTN} onClick={()=>moveBox(c.id, 1)} title="Bajar">↓</button>
-                  <button className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white" onClick={()=>removeBox(c.id)}>Eliminar</button>
+                  <button className={BTN} onClick={(e)=>{e.stopPropagation(); moveBox(c.id,-1);}} title="Subir">↑</button>
+                  <button className={BTN} onClick={(e)=>{e.stopPropagation(); moveBox(c.id, 1);}} title="Bajar">↓</button>
+                  <button className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white" onClick={(e)=>{e.stopPropagation(); removeBox(c.id);}}>Eliminar</button>
                 </div>
               </div>
 
               {/* Datos editables dentro de la caja */}
               <div className="grid md:grid-cols-4 gap-2 mt-2">
                 <Field label="Peso (kg)">
-                  <Input value={c.peso||""} onChange={e=>updBoxField(c.id,"peso",e.target.value)} placeholder="3,128"/>
+                  <Input value={c.peso||""} onChange={e=>updBoxField(c.id,"peso",e.target.value)} onClick={(e)=>e.stopPropagation()} placeholder="3,128"/>
                 </Field>
                 <Field label="Largo (cm)">
-                  <Input value={c.L||""} onChange={e=>updBoxField(c.id,"L",e.target.value)}/>
+                  <Input value={c.L||""} onChange={e=>updBoxField(c.id,"L",e.target.value)} onClick={(e)=>e.stopPropagation()}/>
                 </Field>
                 <Field label="Ancho (cm)">
-                  <Input value={c.A||""} onChange={e=>updBoxField(c.id,"A",e.target.value)}/>
+                  <Input value={c.A||""} onChange={e=>updBoxField(c.id,"A",e.target.value)} onClick={(e)=>e.stopPropagation()}/>
                 </Field>
                 <Field label="Alto (cm)">
-                  <Input value={c.H||""} onChange={e=>updBoxField(c.id,"H",e.target.value)}/>
+                  <Input value={c.H||""} onChange={e=>updBoxField(c.id,"H",e.target.value)} onClick={(e)=>e.stopPropagation()}/>
                 </Field>
               </div>
 
@@ -949,7 +987,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                 {c.paquetes.map(pid=>{
                   const p=packages.find(x=>x.id===pid); if(!p) return null;
                   return (
-                    <li key={pid} className="flex items-center gap-2 py-1 border-b">
+                    <li key={pid} className="flex items-center gap-2 py-1 border-b" onClick={(e)=>e.stopPropagation()}>
                       <span className="font-mono">{p.codigo}</span><span className="text-gray-600">{p.courier}</span>
                       <button className="text-red-600 text-xs" onClick={()=>setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(x=>x.id!==c.id?x:{...x,paquetes:x.paquetes.filter(z=>z!==pid)})}))}>Quitar</button>
                       {flight.cajas.length>1 && (
@@ -961,11 +999,11 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                     </li>
                   );
                 })}
-                {c.paquetes.length===0 && <li className="text-gray-500">—</li>}
+                {c.paquetes.length===0 && <li className="text-gray-500" onClick={(e)=>e.stopPropagation()}>—</li>}
               </ul>
 
               {/* Acciones móviles */}
-              <div className="flex md:hidden items-center gap-2 mt-2">
+              <div className="flex md:hidden items-center gap-2 mt-2" onClick={(e)=>e.stopPropagation()}>
                 <button className={BTN} onClick={()=>moveBox(c.id,-1)} title="Subir">↑</button>
                 <button className={BTN} onClick={()=>moveBox(c.id, 1)} title="Bajar">↓</button>
                 <button className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white" onClick={()=>removeBox(c.id)}>Eliminar</button>
@@ -1097,7 +1135,7 @@ function CargasEnviadas({packages, flights}){
   );
 }
 
-/* ========== Proformas ========== */
+/* ========== Proformas y Extras (igual que antes, con botón Eliminar en Extras) ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
@@ -1206,7 +1244,6 @@ function Proformas({packages, flights, extras}){
   );
 }
 
-/* ========== Extras (eliminar incluido) ========== */
 function Extras({flights, couriers, extras, setExtras}){
   const [flightId,setFlightId]=useState("");
   const [courier,setCourier]=useState("");
@@ -1358,11 +1395,7 @@ function ManageList({label, items, setItems}){
         <button onClick={add} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Agregar</button>
       </div>
       <div className="flex flex-wrap gap-2 mt-2">
-        {items.map(v=>(
-          <span key={v} className="text-xs bg-white border rounded-xl px-2 py-1">
-            {v} <button onClick={()=>del(v)} className="text-red-600 ml-1">✕</button>
-          </span>
-        ))}
+        {items.map(v=>(<span key={v} className="text-xs bg-white border rounded-xl px-2 py-1">{v} <button onClick={()=>del(v)} className="text-red-600 ml-1">✕</button></span>))}
       </div>
     </div>
   );

@@ -1,15 +1,10 @@
 /*  Europa Envíos – MVP 0.2.4
-    Cambios en este commit:
-    1) Etiquetas 100×60: impresión robusta con fallback a iframe (evita bloqueos de popup).
-    2) Recepción y Bodega → editor: el campo ESTADO se limita según el prefijo de la CARGA:
-       - AIR…  → solo “Aéreo”
-       - MAR…  → solo “Marítimo”
-       - COMP… → solo “Ofrecer marítimo”
-       (se autoajusta al cambiar de carga).
-    3) Bodega → export XLSX: “Exceso de volumen” antes de “Medidas”.
-    4) Bodega → reimpresión de etiqueta usa el mismo flujo robusto que Recepción.
-    5) Armado de cajas: seleccionar tocando toda la tarjeta, nombre único, reordenar y eliminar;
-       solo quedan “Seleccionar carga” y “Escanear / ingresar código”.
+    Cambios:
+    - Impresión robusta (Recepción y Bodega) con fallback a iframe.
+    - Recepción/Bodega: Estado restringido por prefijo de Carga (AIR= Aéreo, MAR= Marítimo, COMP= Ofrecer marítimo).
+    - Bodega: export XLSX reordenado (Exceso de volumen antes de Medidas); editor agrega selector de Carga.
+    - Bodega: ordenamiento configurable.
+    - Armado de cajas: seleccionar tocando toda la tarjeta, nombre único, reordenar, eliminar, “Nueva caja”.
 */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
@@ -122,7 +117,7 @@ function printLabelData({codigo, cliente, casilla, pesoKg, medidas, desc, carga}
   }
 }
 
-/* ========== XLSX helpers (con estilos) ========== */
+/* ========== XLSX helpers ========== */
 const bd = () => ({ top:{style:"thin",color:{rgb:"FFCBD5E1"}}, bottom:{style:"thin",color:{rgb:"FFCBD5E1"}},
   left:{style:"thin",color:{rgb:"FFCBD5E1"}}, right:{style:"thin",color:{rgb:"FFCBD5E1"}} });
 const th = (txt) => ({ v:txt, t:"s", s:{font:{bold:true,color:{rgb:"FFFFFFFF"}},fill:{fgColor:{rgb:"FF1F2937"}},
@@ -195,7 +190,7 @@ const Tabs = ({tabs,current,onChange})=>(
   ))}</div>
 );
 
-/* >>>>>>>>>>  Modal (FALTABA Y ROMPÍA EL RENDER) <<<<<<<<<< */
+/* Modal */
 function Modal({open,onClose,title,children}){
   if(!open) return null;
   return (
@@ -216,7 +211,7 @@ const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = ["Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos","FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers","MC Group","Miami Express","One Box","ParaguayBox","Royal Box"];
 const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
 
-/* === Reglas de estado por prefijo de carga === */
+/* Reglas de estado por prefijo de carga */
 function estadosPorCodigo(codigo){
   const p = String(codigo||"").toUpperCase();
   if (p.startsWith("AIR"))  return ["Aéreo"];
@@ -826,7 +821,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, couriers}){
   );
 }
 
-/* ========== Armado de cajas (clic en toda la tarjeta) ========== */
+/* ========== Armado de cajas ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -1067,20 +1062,321 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   );
 }
 
-/* ========== Cargas enviadas / Proformas / Extras ==========
-   (SIN CAMBIOS RESPECTO A LA VERSIÓN ANTERIOR, MANTENIDOS)  */
+/* ========== Cargas enviadas ========== */
+function CargasEnviadas({packages, flights}){
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
+  const [estado,setEstado]=useState("");
+  const [flightId,setFlightId]=useState("");
+  const list = flights
+    .filter(f=>f.estado!=="En bodega")
+    .filter(f=>!from || f.fecha_salida>=from)
+    .filter(f=>!to || f.fecha_salida<=to)
+    .filter(f=>!estado || f.estado===estado);
+  const flight = flights.find(f=>f.id===flightId);
+
+  const resumen = useMemo(()=>{
+    if(!flight) return [];
+    return flight.cajas.map((c,i)=>{
+      const peso=parseComma(c.peso||"0");
+      const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
+      const vol=(A*H*L)/6000 || 0;
+      const couriers = new Set(c.paquetes.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
+      const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
+      return {n:i+1, courier:etiqueta, peso, L,A,H, vol};
+    });
+  },[flight,packages]);
+  const totPeso=sum(resumen.map(r=>r.peso));
+  const totVol=sum(resumen.map(r=>r.vol));
+
+  async function exportTodo(){
+    if(!flight) return;
+    const headerP=[th("COURIER"),th("CÓDIGO"),th("CASILLA"),th("FECHA"),th("NOMBRE"),th("TRACKING"),th("PESO REAL"),th("FACTURABLE"),th("VOLUMÉTRICO"),th("EXCESO"),th("DESCRIPCIÓN")];
+    const bodyP=packages.filter(p=>p.flight_id===flightId).map(p=>[td(p.courier),td(p.codigo),td(p.casilla),td(p.fecha),td(p.nombre_apellido),td(p.tracking),td(fmtPeso(p.peso_real)),td(fmtPeso(p.peso_facturable)),td(fmtPeso(p.peso_volumetrico)),td(fmtPeso(p.exceso_volumen)),td(p.descripcion)]);
+
+    const tpl = await tryLoadTemplate("/templates/cargas_enviadas.xlsx");
+    if(tpl){
+      replacePlaceholdersInWB(tpl, { CARGA: flight.codigo, FECHA: flight.fecha_salida||"" });
+      appendSheet(tpl, "PAQUETES", [headerP,...bodyP], {cols:[{wch:16},{wch:14},{wch:10},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:14},{wch:12},{wch:28}]});
+      appendSheet(tpl, "CAJAS", [[th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")], ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]), [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]]);
+      XLSX.writeFile(tpl, `Detalle_${flight.codigo}.xlsx`);
+      return;
+    }
+
+    const shP=sheetFromAOAStyled("Paquetes", [headerP,...bodyP], {cols:[{wch:16},{wch:14},{wch:10},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:14},{wch:12},{wch:28}],rows:[{hpt:26}]});
+    const shC=sheetFromAOAStyled("Cajas", [[th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")], ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]), [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]]);
+    downloadXLSX(`Detalle_${flight.codigo}.xlsx`, [shP, shC]);
+  }
+
+  return (
+    <Section title="Cargas enviadas">
+      <div className="grid md:grid-cols-5 gap-3">
+        <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
+        <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+        <Field label="Estado">
+          <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
+            <option value="">Todos</option><option>En tránsito</option><option>Arribado</option>
+          </select>
+        </Field>
+        <Field label="Carga">
+          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+            <option value="">Seleccionar…</option>
+            {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
+          </select>
+        </Field>
+        <div className="flex items-end"><button onClick={exportTodo} disabled={!flight} className={BTN_PRIMARY+" w-full disabled:opacity-50"}>Exportar XLSX</button></div>
+      </div>
+
+      {!flight ? <div className="text-gray-500 mt-4">Elegí una carga para ver contenido.</div> : (
+        <>
+          <div className="mt-4 text-sm text-gray-600">Paquetes del vuelo <b>{flight.codigo}</b></div>
+          <div className="overflow-auto mb-6">
+            <table className="min-w-full text-sm">
+              <thead><tr className="bg-gray-50">{["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Facturable","Volumétrico","Exceso"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <tbody>
+                {packages.filter(p=>p.flight_id===flightId).map(p=>(
+                  <tr key={p.id} className="border-b">
+                    <td className="px-3 py-2">{p.courier}</td>
+                    <td className="px-3 py-2 font-mono">{p.codigo}</td>
+                    <td className="px-3 py-2">{p.casilla}</td>
+                    <td className="px-3 py-2">{p.fecha}</td>
+                    <td className="px-3 py-2">{p.nombre_apellido}</td>
+                    <td className="px-3 py-2 font-mono">{p.tracking}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_real)}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_facturable)}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_volumetrico)}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="overflow-auto">
+            <table className="min-w-full text-sm">
+              <thead><tr className="bg-gray-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <tbody>
+                {resumen.map(r=>(
+                  <tr key={r.n} className="border-b">
+                    <td className="px-3 py-2">{r.n}</td>
+                    <td className="px-3 py-2">{r.courier}</td>
+                    <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
+                    <td className="px-3 py-2">{r.L}</td>
+                    <td className="px-3 py-2">{r.A}</td>
+                    <td className="px-3 py-2">{r.H}</td>
+                    <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
+                  </tr>
+                ))}
+                <tr><td></td><td className="px-3 py-2 font-semibold">Totales</td><td className="px-3 py-2 font-semibold">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2 font-semibold">{fmtPeso(totVol)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+
+/* ========== Proformas ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
-function CargasEnviadas({packages, flights}){ /* ... igual que versión enviada ... */ }
-/*  Para ahorrar espacio aquí, deja este bloque igual a la versión que ya pegaste,
-    no afecta al problema del pantallazo blanco.  */
+function Proformas({packages, flights, extras}){
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
+  const [flightId,setFlightId]=useState("");
+  const list = flights.filter(f=>!from || f.fecha_salida>=from).filter(f=>!to || f.fecha_salida<=to);
+  const flight = flights.find(f=>f.id===flightId);
 
-/* === Usa las definiciones completas que ya tenías para CargasEnviadas, Proformas y Extras === */
-/* ... (PEGA AQUÍ los mismos bloques de la versión anterior: CargasEnviadas, Proformas, Extras) ... */
+  const porCourier = useMemo(()=>{
+    if(!flight) return [];
+    const m=new Map();
+    flight.cajas.forEach(c=>c.paquetes.forEach(pid=>{
+      const p=packages.find(x=>x.id===pid); if(!p) return;
+      if(!m.has(p.courier)) m.set(p.courier,{courier:p.courier,kg_real:0,kg_fact:0,kg_exc:0});
+      const a=m.get(p.courier); a.kg_real+=p.peso_real; a.kg_fact+=p.peso_facturable; a.kg_exc+=p.exceso_volumen;
+    }));
+    return Array.from(m.values());
+  },[flight,packages]);
+
+  const extrasDeCourier = (courier)=> extras.filter(e=>e.flight_id===flightId && e.courier===courier);
+
+  async function exportX(r){
+    const proc = r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
+    const canje=canjeGuiaUSD(r.kg_fact);
+    const extrasList = extrasDeCourier(r.courier);
+    const extrasMonto = extrasList.reduce((s,e)=>s+parseComma(e.monto),0);
+    const com = 0.04*(proc+fr+fe+extrasMonto);
+    const total = proc+fr+fe+desp+canje+extrasMonto+com;
+
+    const tpl = await tryLoadTemplate("/templates/proforma.xlsx");
+    if(tpl){
+      replacePlaceholdersInWB(tpl, { COURIER:r.courier, CARGA:flight?.codigo||"", FECHA:new Date().toISOString().slice(0,10), TOTAL:fmtMoney(total) });
+      const detalle = [
+        ["Procesamiento", fmtPeso(r.kg_fact), fmtMoney(T.proc), fmtMoney(proc)],
+        ["Flete peso real", fmtPeso(r.kg_real), fmtMoney(T.fleteReal), fmtMoney(fr)],
+        ["Flete exceso de volumen", fmtPeso(r.kg_exc), fmtMoney(T.fleteExc), fmtMoney(fe)],
+        ["Servicio de despacho", fmtPeso(r.kg_fact), fmtMoney(T.despacho), fmtMoney(desp)],
+        ["Comisión por canje de guía", "1", fmtMoney(canje), fmtMoney(canje)],
+        ...extrasList.map(e=>[e.descripcion, "1", fmtMoney(parseComma(e.monto)), fmtMoney(parseComma(e.monto))]),
+        ["Comisión por transferencia (4%)","", "", fmtMoney(com)],
+      ];
+      appendSheet(tpl, "DETALLE", [["Descripción","Cantidad","P. unitario","Total"], ...detalle, ["","","TOTAL USD", fmtMoney(total)]]);
+      XLSX.writeFile(tpl, `proforma_${(flight?.codigo||"carga")}_${r.courier}.xlsx`);
+      return;
+    }
+
+    const rows = [
+      [td("")],[td("Europa Envíos")],[td("LAMAQUINALOGISTICA, SOCIEDAD LIMITADA")],[td("N.I.F.: B56340656")],
+      [td("CALLE ESTEBAN SALAZAR CHAPELA, NUM 20, PUERTA 87, NAVE 87")],[td("29004 MÁLAGA (ESPAÑA)")],[td("(34) 633 74 08 31")],
+      [td("")],[th("Factura Proforma")],[td("Fecha: "+new Date().toISOString().slice(0,10))],[td("")],
+      [th("Cliente"),th(""),th("Forma de pago"),th(""),th("Nº factura")],
+      [td(r.courier),td(""),td(""),td(""),td("—")],[td("")],[td("")],
+      [th("Descripción"),th("Cantidad"),th("Precio unitario"),th("Precio total")],
+      [td("Procesamiento"),td(fmtPeso(r.kg_fact)),td(fmtMoney(T.proc)),td(fmtMoney(proc))],
+      [td("Flete peso real"),td(fmtPeso(r.kg_real)),td(fmtMoney(T.fleteReal)),td(fmtMoney(fr))],
+      [td("Flete exceso de volumen"),td(fmtPeso(r.kg_exc)),td(fmtMoney(T.fleteExc)),td(fmtMoney(fe))],
+      [td("Servicio de despacho"),td(fmtPeso(r.kg_fact)),td(fmtMoney(T.despacho)),td(fmtMoney(desp))],
+      [td("Comisión por canje de guía"),td("1"),td(fmtMoney(canje)),td(fmtMoney(canje))],
+      ...extrasList.map(e=>[td(e.descripcion), td("1"), td(fmtMoney(parseComma(e.monto))), td(fmtMoney(parseComma(e.monto)))]),
+      [td("Comisión por transferencia (4%)"),td(""),td(""),td(fmtMoney(com))],
+      [th("TOTAL USD"),th(""),th(""),th(fmtMoney(total))]
+    ];
+    const { ws } = sheetFromAOAStyled("Factura", rows, {cols:[{wch:40},{wch:12},{wch:16},{wch:16}], rows:[{hpt:26}]});
+    downloadXLSX(`proforma_${(flight?.codigo||"carga")}_${r.courier}.xlsx`, [{name:"Factura", ws}]);
+  }
+
+  return (
+    <Section title="Proformas por courier"
+      right={
+        <div className="flex gap-2 items-end">
+          <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
+          <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+          <select className="rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+            <option value="">Seleccionar carga…</option>
+            {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
+          </select>
+        </div>
+      }
+    >
+      {!flight ? <div className="text-gray-500">Seleccioná una carga.</div> : (
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead><tr className="bg-gray-50">{["Courier","Kg facturable","Kg exceso","TOTAL USD","XLSX"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+            <tbody>
+              {porCourier.map(r=>{
+                const proc=r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
+                const canje=canjeGuiaUSD(r.kg_fact), extrasMonto=extrasDeCourier(r.courier).reduce((s,e)=>s+parseComma(e.monto),0);
+                const com=0.04*(proc+fr+fe+extrasMonto); const tot = proc+fr+fe+desp+canje+extrasMonto+com;
+                return (
+                  <tr key={r.courier} className="border-b">
+                    <td className="px-3 py-2">{r.courier}</td>
+                    <td className="px-3 py-2">{fmtPeso(r.kg_fact)} kg</td>
+                    <td className="px-3 py-2">{fmtPeso(r.kg_exc)} kg</td>
+                    <td className="px-3 py-2 font-semibold">{fmtMoney(tot)}</td>
+                    <td className="px-3 py-2"><button className="px-2 py-1 border rounded" onClick={()=>exportX(r)}>Descargar</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/* ========== Extras ========== */
+function Extras({flights, couriers, extras, setExtras}){
+  const [flightId,setFlightId]=useState("");
+  const [courier,setCourier]=useState("");
+  const [desc,setDesc]=useState("");
+  const [monto,setMonto]=useState("");
+  const [estado,setEstado]=useState("Pendiente");
+  const [fecha,setFecha]=useState(new Date().toISOString().slice(0,10));
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
+
+  const add=()=>{
+    if(!(flightId && courier && desc && monto)) return;
+    setExtras([...extras,{ id:uuid(), flight_id:flightId, courier, descripcion:desc, monto, estado, fecha }]);
+    setDesc(""); setMonto("");
+  };
+  const filtered = extras
+    .filter(e=>!from || (e.fecha || (flights.find(f=>f.id===e.flight_id)?.fecha_salida)||"")>=from)
+    .filter(e=>!to || (e.fecha || (flights.find(f=>f.id===e.flight_id)?.fecha_salida)||"")<=to)
+    .filter(e=>!flightId || e.flight_id===flightId);
+
+  const upd=(id,patch)=> setExtras(extras.map(e=>e.id===id?{...e,...patch}:e));
+  const del=(id)=> setExtras(extras.filter(e=>e.id!==id));
+
+  return (
+    <Section title="Trabajos extras">
+      <div className="grid md:grid-cols-6 gap-2 mb-2">
+        <Field label="Carga">
+          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+            <option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
+          </select>
+        </Field>
+        <Field label="Courier">
+          <select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}>
+            <option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Descripción"><Input value={desc} onChange={e=>setDesc(e.target.value)}/></Field>
+        <Field label="Monto (USD)"><Input value={monto} onChange={e=>setMonto(e.target.value)} placeholder="10,00"/></Field>
+        <Field label="Estado">
+          <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
+            <option>Pendiente</option><option>Cobrado</option>
+          </select>
+        </Field>
+        <Field label="Fecha"><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>
+      </div>
+      <div className="flex justify-end mb-4">
+        <button onClick={add} className={BTN_PRIMARY}>Agregar</button>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-2 mb-3">
+        <Field label="Filtrar desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
+        <Field label="Filtrar hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+        <div />
+      </div>
+
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead><tr className="bg-gray-50">{["Fecha","Carga","Courier","Descripción","Monto (USD)","Estado","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.map(e=>{
+              const carga = flights.find(f=>f.id===e.flight_id)?.codigo || "";
+              return (
+                <tr key={e.id} className="border-b">
+                  <td className="px-3 py-2">{e.fecha || flights.find(f=>f.id===e.flight_id)?.fecha_salida || ""}</td>
+                  <td className="px-3 py-2">{carga}</td>
+                  <td className="px-3 py-2">{e.courier}</td>
+                  <td className="px-3 py-2"><Input value={e.descripcion} onChange={ev=>upd(e.id,{descripcion:ev.target.value})}/></td>
+                  <td className="px-3 py-2"><Input value={e.monto} onChange={ev=>upd(e.id,{monto:ev.target.value})}/></td>
+                  <td className="px-3 py-2">
+                    <select className="border rounded px-2 py-1" value={e.estado} onChange={ev=>upd(e.id,{estado:ev.target.value})}>
+                      <option>Pendiente</option><option>Cobrado</option>
+                    </select>
+                  </td>
+                  <td className="px-3 py-2 flex gap-2">
+                    <button className={BTN} onClick={()=>{/* guardado en vivo */}}>OK</button>
+                    <button className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white" onClick={()=>del(e.id)}>Eliminar</button>
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length===0 && <tr><td colSpan={7} className="text-center text-gray-500 py-6">Sin extras.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
 
 /* ========== App root ========== */
-function App(){
+export default function App(){
   const [user,setUser]=useState(null);
   const [couriers,setCouriers]=useState(COURIERS_INICIALES);
   const [estados,setEstados]=useState(ESTADOS_INICIALES);
@@ -1116,7 +1412,13 @@ function App(){
           </header>
           <main className="max-w-7xl mx-auto px-4 py-6">
             <Tabs tabs={tabs} current={tab} onChange={setTab}/>
-            {/* Pega aquí las vistas completas como en la versión anterior */}
+            {tab==="Recepción" && <Reception currentUser={user} couriers={couriers} setCouriers={setCouriers} estados={estados} setEstados={setEstados} flights={flights} onAdd={addPackage}/>}
+            {tab==="Paquetes en bodega" && <PaquetesBodega packages={packages} flights={flights} user={user} onUpdate={updatePackage} couriers={couriers}/>}
+            {tab==="Armado de cajas" && <ArmadoCajas packages={packages} flights={flights} setFlights={setFlights} onAssign={assignToBox}/>}
+            {tab==="Cargas enviadas" && <CargasEnviadas packages={packages} flights={flights}/>}
+            {tab==="Gestión de cargas" && <CargasAdmin flights={flights} setFlights={setFlights}/>}
+            {tab==="Proformas" && <Proformas packages={packages} flights={flights} extras={extras}/>}
+            {tab==="Extras" && <Extras flights={flights} couriers={couriers} extras={extras} setExtras={setExtras}/>}
           </main>
         </>
       )}
@@ -1142,5 +1444,3 @@ function ManageList({label, items, setItems}){
     </div>
   );
 }
-
-export default App;

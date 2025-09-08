@@ -1,5 +1,6 @@
-/*  Europa Envíos – MVP 0.2.4 (simplificado)
-    - Misma funcionalidad, código ordenado y sin duplicaciones de etiquetas.
+/*  Europa Envíos – MVP 0.2.4 (con fixes y mejoras)
+    - Fix: códigos/etiquetas sin acentos (couriers con tilde ya no rompen el CODE128).
+    - Proformas: cantidades con 3 decimales, unitario/total con 2; extras y 4% con Cantidad=1,000 y Unitario=Total.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -35,6 +36,9 @@ const sum = (a) => a.reduce((s, x) => s + Number(x || 0), 0);
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#14B8A6","#84CC16","#F97316"];
 const MIN_FACTURABLE = 0.2;
 
+/* helper para generar códigos a partir del courier (sin acentos ni espacios) */
+const limpiar = (s) => deaccent(String(s || "")).toUpperCase().replace(/\s+/g, "");
+
 /* ========== impresión sin about:blank ========== */
 function printHTMLInIframe(html){
   const iframe = document.createElement("iframe");
@@ -59,14 +63,16 @@ function printHTMLInIframe(html){
   }, 60);
 }
 
-/* ========== Etiquetas: utilidades reutilizables (evita duplicados) ========== */
+/* ========== Etiquetas: utilidades reutilizables (FIX acentos) ========== */
 function barcodeSVG(text){
+  // FIX: deacentuar antes de pasarlo a CODE128 (solo ASCII)
+  const safe = deaccent(String(text)).toUpperCase();
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  JsBarcode(svg, String(text).toUpperCase(), { format:"CODE128", displayValue:false, height:50, margin:0 });
+  JsBarcode(svg, safe, { format:"CODE128", displayValue:false, height:50, margin:0 });
   return new XMLSerializer().serializeToString(svg);
 }
 function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt }){
-  const svgHtml = barcodeSVG(codigo);
+  const svgHtml = barcodeSVG(codigo); // ahora ya entra sin acentos
   return `
     <html><head><meta charset="utf-8"><title>Etiqueta</title>
     <style>
@@ -201,6 +207,15 @@ function replacePlaceholdersExcelJS(ws, map){
     }
   }
 }
+
+/* 
+  Proforma con plantilla nueva:
+  - Cantidad: 3 decimales
+  - Unitario/Total: 2 decimales
+  - Extras y "Comisión por transferencia (4%)": Cantidad=1,000 y Unitario=Total
+  - TOTAL se escribe en la fila donde el template tenga el texto "TOTAL" (si existe), 
+    si no, se coloca debajo del último ítem cargado.
+*/
 async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nombreArchivo, datosFactura }){
   const wb = new ExcelJS.Workbook();
   const ab = await (await fetch(plantillaUrl, { cache: "no-store" })).arrayBuffer();
@@ -239,32 +254,14 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     });
   }catch(e){ console.warn("No se pudo insertar el logo:", e); }
 
-  // Hoja DETALLE (ayuda visual)
-  const wsDet = wb.getWorksheet("DETALLE") || wb.addWorksheet("DETALLE");
-  wsDet.getRow(1).values = ["Descripción","Cantidad","P. unitario","Total"];
-  datosFactura.detalleParaSheet.forEach((row, i)=>{
-    const r = wsDet.getRow(2+i);
-    r.getCell(1).value = row[0];
-    if(row[1] !== "" && row[1] !== null && row[1] !== undefined){
-      r.getCell(2).value = Number(row[1]); r.getCell(2).numFmt = "0.000";
-    }
-    if(row[2] !== "" && row[2] !== null && row[2] !== undefined){
-      r.getCell(3).value = Number(row[2]); r.getCell(3).numFmt = "0.00";
-    }
-    if(row[3] !== "" && row[3] !== null && row[3] !== undefined){
-      r.getCell(4).value = Number(row[3]); r.getCell(4).numFmt = "0.00";
-    }
-  });
-
-  // Relleno tabla en "Factura" (respeta formatos)
-  // localizar fila siguiente a "Descripción"
+  // localizar cabecera "Descripción"
   let startRow = 16, colDesc = 1;
   outer:
-  for(let r=1; r<=50; r++){
-    for(let c=1; c<=15; c++){
+  for(let r=1; r<=80; r++){
+    for(let c=1; c<=20; c++){
       const v = wsFactura.getCell(r,c).value;
       const txt = typeof v === "object" && v?.richText ? v.richText.map(t=>t.text).join("") : v;
-      if(String(txt).trim() === "Descripción"){
+      if(String(txt).trim().toLowerCase() === "descripción"){
         startRow = r + 1; colDesc = c; break outer;
       }
     }
@@ -273,8 +270,8 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
   const COL_UNIT = colDesc + 2;
   const COL_SUB  = colDesc + 3;
 
-  // Limpiar área previa
-  const maxFilas = 40;
+  // Limpiar área previa (sin tocar formatos)
+  const maxFilas = 60;
   for (let r = startRow; r < startRow + maxFilas; r++) {
     wsFactura.getCell(r, colDesc).value = "";
     wsFactura.getCell(r, COL_CANT).value = "";
@@ -282,34 +279,52 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     wsFactura.getCell(r, COL_SUB).value  = "";
   }
 
+  // Relleno con formatos (Cantidad 0.000, Unitario/Total 0.00)
   const filas = [
     ["Procesamiento", datosFactura.kg_fact, datosFactura.pu_proc, datosFactura.sub_proc],
     ["Flete peso real", datosFactura.kg_real, datosFactura.pu_real, datosFactura.sub_real],
     ["Flete exceso de volumen", datosFactura.kg_exc, datosFactura.pu_exc, datosFactura.sub_exc],
     ["Servicio de despacho", datosFactura.kg_fact, datosFactura.pu_desp, datosFactura.sub_desp],
     ["Comisión por canje de guía", 1, datosFactura.canje, datosFactura.canje],
-    ...datosFactura.extras,
-    ["Comisión por transferencia (4%)","", "", datosFactura.comision]
+    // Extras: Cantidad=1, Unitario=Total
+    ...datosFactura.extras.map(([desc, , , total]) => [desc, 1, total, total]),
+    // 4%: Cantidad=1, Unitario=Total
+    ["Comisión por transferencia (4%)", 1, datosFactura.comision, datosFactura.comision]
   ];
+
   filas.forEach((row, i)=>{
     wsFactura.getCell(startRow+i, colDesc).value = String(row[0]);
-    const [ , qty, unit, sub ] = row;
+
+    const qty = row[1];
     if(qty !== "" && qty !== null && qty !== undefined){
       wsFactura.getCell(startRow+i, COL_CANT).value = Number(qty);
       wsFactura.getCell(startRow+i, COL_CANT).numFmt = "0.000";
     }
+
+    const unit = row[2];
     if(unit !== "" && unit !== null && unit !== undefined){
       wsFactura.getCell(startRow+i, COL_UNIT).value = Number(unit);
       wsFactura.getCell(startRow+i, COL_UNIT).numFmt = "0.00";
     }
+
+    const sub = row[3];
     if(sub !== "" && sub !== null && sub !== undefined){
       wsFactura.getCell(startRow+i, COL_SUB).value = Number(sub);
       wsFactura.getCell(startRow+i, COL_SUB).numFmt = "0.00";
     }
   });
 
-  // TOTAL dinámico: debajo de la última línea escrita
-  const totalRow = startRow + filas.length;
+  // TOTAL: buscar una fila con la palabra "TOTAL" en la columna Descripción; si no existe, usar la siguiente libre
+  let totalRow = null;
+  for(let r = startRow; r <= startRow + 120; r++){
+    const v = wsFactura.getCell(r, colDesc).value;
+    const txt = typeof v === "object" && v?.richText ? v.richText.map(t=>t.text).join("") : v;
+    if(String(txt || "").toUpperCase().includes("TOTAL")){
+      totalRow = r; break;
+    }
+  }
+  if(!totalRow) totalRow = startRow + filas.length;
+
   wsFactura.getCell(totalRow, colDesc).value = "TOTAL USD";
   wsFactura.getCell(totalRow, COL_CANT).value = "";
   wsFactura.getCell(totalRow, COL_UNIT).value = "";
@@ -319,10 +334,10 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
   const buffer = await wb.xlsx.writeBuffer();
   downloadBufferAsXlsx(buffer, nombreArchivo);
 }
-
 /* ========== UI base ========== */
 const BTN = "px-3 py-2 rounded-xl border bg-white hover:bg-gray-50";
 const BTN_PRIMARY = "px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white";
+
 const Section = ({title,right,children})=>(
   <div className="bg-white rounded-2xl shadow p-4 mb-6">
     <div className="flex items-center justify-between mb-3">
@@ -332,11 +347,15 @@ const Section = ({title,right,children})=>(
 );
 const Field = ({label,required,children})=>(
   <label className="block">
-    <div className="text-sm text-gray-700 mb-1">{label}{required && <span className="text-red-500"> *</span>}</div>
+    <div className="text-sm text-gray-700 mb-1">
+      {label}{required && <span className="text-red-500"> *</span>}
+    </div>
     {children}
   </label>
 );
-const Input = (p)=>(<input {...p} className={"w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 ring-indigo-500 "+(p.className||"")} />);
+const Input = (p)=>(
+  <input {...p} className={"w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 ring-indigo-500 "+(p.className||"")} />
+);
 function Modal({open,onClose,title,children}){
   if(!open) return null;
   return (
@@ -352,9 +371,13 @@ function Modal({open,onClose,title,children}){
   );
 }
 
-/* ========== datos iniciales ========== */
+/* ========== datos iniciales (listas) ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
-const COURIERS_INICIALES = ["Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos","FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers","MC Group","Miami Express","One Box","ParaguayBox","Royal Box"];
+const COURIERS_INICIALES = [
+  "Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos",
+  "FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers",
+  "MC Group","Miami Express","One Box","ParaguayBox","Royal Box"
+];
 const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
 
 function estadosPermitidosPorCarga(codigo){
@@ -364,6 +387,7 @@ function estadosPermitidosPorCarga(codigo){
   if (s.startsWith("COMP")) return ["Ofrecer marítimo"];
   return ESTADOS_INICIALES;
 }
+
 /* ========== Login ========== */
 function Login({onLogin}){
   const [email,setEmail]=useState("");
@@ -374,20 +398,32 @@ function Login({onLogin}){
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white rounded-2xl shadow p-6 w-full max-w-md">
         <h1 className="text-2xl font-semibold mb-4">Acceso al sistema</h1>
-        <Field label="Email" required><Input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@empresa.com"/></Field>
+        <Field label="Email" required>
+          <Input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@empresa.com"/>
+        </Field>
         <Field label="Rol" required>
           <select className="w-full rounded-xl border px-3 py-2" value={role} onChange={(e)=>setRole(e.target.value)}>
             <option>ADMIN</option><option>COURIER</option>
           </select>
         </Field>
-        {role==="COURIER" && <Field label="Courier" required><Input value={courier} onChange={e=>setCourier(e.target.value)}/></Field>}
-        <button onClick={()=>onLogin({email,role,courier: role==="ADMIN"?null:courier})} disabled={!canSubmit} className={BTN_PRIMARY+" w-full mt-2 disabled:opacity-50"}>Entrar</button>
+        {role==="COURIER" && (
+          <Field label="Courier" required>
+            <Input value={courier} onChange={e=>setCourier(e.target.value)}/>
+          </Field>
+        )}
+        <button
+          onClick={()=>onLogin({email,role,courier: role==="ADMIN"?null:courier})}
+          disabled={!canSubmit}
+          className={BTN_PRIMARY+" w-full mt-2 disabled:opacity-50"}
+        >
+          Entrar
+        </button>
       </div>
     </div>
   );
 }
 
-/* ========== Gestión de cargas ========== */
+/* ========== Gestión de cargas (con ELIMINAR) ========== */
 function CargasAdmin({flights,setFlights, packages}){
   const [code,setCode]=useState("");
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
@@ -423,7 +459,17 @@ function CargasAdmin({flights,setFlights, packages}){
     setFlights(flights.map(f=>f.id===id?{...f,[field]:value}:f));
   }
 
-  const list = flights.filter(f=>!from || f.fecha_salida>=from).filter(f=>!to || f.fecha_salida<=to);
+  function del(id){
+    const f = flights.find(x=>x.id===id);
+    const nombre = f?.codigo || "esta carga";
+    const confirmar = window.confirm(`¿Eliminar "${nombre}"? Esta acción no se puede deshacer.`);
+    if(!confirmar) return;
+    setFlights(flights.filter(f=>f.id!==id));
+  }
+
+  const list = flights
+    .filter(f=>!from || f.fecha_salida>=from)
+    .filter(f=>!to || f.fecha_salida<=to);
 
   return (
     <Section title="Gestión de cargas"
@@ -441,7 +487,13 @@ function CargasAdmin({flights,setFlights, packages}){
       }>
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
-          <thead><tr className="bg-gray-50">{["Código","Fecha salida","Estado","AWB","Factura Cacesa","Cajas"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+          <thead>
+            <tr className="bg-gray-50">
+              {["Código","Fecha salida","Estado","AWB","Factura Cacesa","Cajas","Acciones"].map(h=>
+                <th key={h} className="text-left px-3 py-2">{h}</th>
+              )}
+            </tr>
+          </thead>
           <tbody>
             {list.map(f=>(
               <tr key={f.id} className="border-b">
@@ -455,16 +507,22 @@ function CargasAdmin({flights,setFlights, packages}){
                 <td className="px-3 py-2"><Input value={f.awb||""} onChange={e=>upd(f.id,"awb",e.target.value)}/></td>
                 <td className="px-3 py-2"><Input value={f.factura_cacesa||""} onChange={e=>upd(f.id,"factura_cacesa",e.target.value)}/></td>
                 <td className="px-3 py-2">{f.cajas.length}</td>
+                <td className="px-3 py-2">
+                  <button className="px-2 py-1 border rounded text-red-600" onClick={()=>del(f.id)}>Eliminar</button>
+                </td>
               </tr>
             ))}
-            {list.length===0 && <tr><td colSpan={6} className="text-center text-gray-500 py-6">Sin resultados.</td></tr>}
+            {list.length===0 && (
+              <tr>
+                <td colSpan={7} className="text-center text-gray-500 py-6">Sin resultados.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
     </Section>
   );
 }
-
 /* ========== Recepción ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
@@ -478,7 +536,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     desc:"", valor_txt:"0,00", foto:null
   });
 
-  const limpiar=(s)=>String(s||"").toUpperCase().replace(/\s+/g,"");
+  // Usar la versión global de "limpiar" (quita acentos y espacios)
   useEffect(()=>{
     if(!form.courier) return;
     const key="seq_"+limpiar(form.courier);
@@ -513,6 +571,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     const p={
       id: uuid(), flight_id: flightId,
       courier: form.courier, estado: form.estado, casilla: form.casilla,
+      // codigo ya sale sin acentos por "limpiar"
       codigo: form.codigo,
       codigo_full: `${fl?.codigo||"CARGA"}-${form.codigo}`,
       fecha: form.fecha, empresa_envio: form.empresa, nombre_apellido: form.nombre,
@@ -548,7 +607,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // etiqueta 100x60 (sin acentos, uso de helper)
+  // etiqueta 100x60 (usa labelHTML que ya deacentúa internamente)
   const printLabel=()=>{
     const fl = flights.find(f=>f.id===flightId);
     if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completá Código, Casilla, Nombre y Descripción."); return; }
@@ -609,7 +668,9 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         </Field>
 
         <Field label="Casilla" required><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})}/></Field>
-        <Field label="Código de paquete" required><Input value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value.toUpperCase()})} placeholder="BOSSBOX1"/></Field>
+        <Field label="Código de paquete" required>
+          <Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} placeholder="BOSSBOX1"/>
+        </Field>
         <Field label="Fecha" required><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></Field>
 
         <Field label="Empresa de envío" required><Input value={form.empresa} onChange={e=>setForm({...form,empresa:e.target.value})}/></Field>
@@ -656,6 +717,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     </Section>
   );
 }
+
 const InfoBox=({title,value})=>(
   <div className="bg-gray-50 rounded-xl p-3">
     <div className="text-sm text-gray-600">{title}</div>
@@ -797,7 +859,12 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
                   <td className="px-3 py-2">
                     {p.foto ? <img alt="foto" src={p.foto} className="w-14 h-14 object-cover rounded cursor-pointer" onClick={()=>setViewer(p.foto)} /> : "—"}
                   </td>
-                  <td className="px-3 py-2"><button className="px-2 py-1 border rounded" onClick={()=>start(p)}>Editar</button></td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <button className="px-2 py-1 border rounded" onClick={()=>start(p)}>Editar</button>
+                      <button className="px-2 py-1 border rounded" onClick={()=>printPkgLabel(p)}>Etiqueta</button>
+                    </div>
+                  </td>
                 </tr>
               );
             })}
@@ -851,7 +918,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
             </Field>
 
             <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})}/></Field>
-            <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value.toUpperCase()})}/></Field>
+            <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})}/></Field>
             <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></Field>
 
             <Field label="Empresa de envío"><Input value={form.empresa_envio||""} onChange={e=>setForm({...form,empresa_envio:e.target.value})}/></Field>
@@ -962,7 +1029,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
         </Field>
 
         <Field label="Escanear / ingresar código">
-          <Input value={scan} onChange={e=>setScan(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&assign()} placeholder="BOSSBOX1"/>
+          <Input value={scan} onChange={e=>setScan(limpiar(e.target.value))} onKeyDown={e=>e.key==="Enter"&&assign()} placeholder="BOSSBOX1"/>
         </Field>
 
         <div className="flex items-end">
@@ -1170,7 +1237,7 @@ function CargasEnviadas({packages, flights}){
   );
 }
 
-/* ========== Proformas ========== */
+/* ========== Proformas (cant 3 decimales; unit/sub 2; extras y 4% con cant=1) ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
@@ -1207,18 +1274,19 @@ function Proformas({packages, flights, extras}){
     const com = 0.04*(proc+fr+fe+extrasMonto);
     const total = proc+fr+fe+desp+canje+extrasMonto+com;
 
+    // detalleParaSheet: lo usamos para hoja DETALLE (ayuda), pero ExcelJS para "Factura" ya fuerza formatos
     const detalle = [
       ["Procesamiento", Number(r.kg_fact.toFixed(3)), Number(T.proc.toFixed(2)), Number(proc.toFixed(2))],
       ["Flete peso real", Number(r.kg_real.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))],
       ["Flete exceso de volumen", Number(r.kg_exc.toFixed(3)), Number(T.fleteExc.toFixed(2)), Number(fe.toFixed(2))],
       ["Servicio de despacho", Number(r.kg_fact.toFixed(3)), Number(T.despacho.toFixed(2)), Number(desp.toFixed(2))],
       ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))],
-      ...extrasList.map(e=>[e.descripcion, "", "", Number(parseComma(e.monto).toFixed(2))]),
-      ["Comisión por transferencia (4%)","", "", Number(com.toFixed(2))],
+      ...extrasList.map(e=>[e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))]),
+      ["Comisión por transferencia (4%)", 1, Number(com.toFixed(2)), Number(com.toFixed(2))],
     ];
 
     await exportProformaExcelJS_usingTemplate({
-      plantillaUrl: "/templates/proforma.xlsx",
+      plantillaUrl: "/templates/proforma.xlsx", // coloca aquí tu nueva plantilla en /public/templates
       logoUrl: "/logo.png",
       nombreArchivo: `proforma_${flight.codigo}_${r.courier}.xlsx`,
       datosFactura: {
@@ -1399,9 +1467,8 @@ function App(){
   const [couriers,setCouriers]=useState(COURIERS_INICIALES);
   const [estados,setEstados]=useState(ESTADOS_INICIALES);
 
-  const [flights,setFlights]=useState([
-    { id:uuid(), codigo:"AIRSEP1 · 2025-09-07", fecha_salida:"2025-09-07", estado:"En bodega", awb:"", factura_cacesa:"", cajas:[] },
-  ]);
+  // ✅ Sin carga por defecto: empieza vacío
+  const [flights,setFlights]=useState([]);
   const [packages,setPackages]=useState([]);
   const [extras,setExtras]=useState([]);
 

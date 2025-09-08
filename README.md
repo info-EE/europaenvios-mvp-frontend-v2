@@ -1,11 +1,19 @@
-# Europa Envíos – MVP Frontend
+# Europa Envíos — Gestor de Paquetes (MVP 0.2.4)
 
-Proyecto React (Vite) con Tailwind por CDN.
+Aplicación web para gestionar paquetes y cargas de Europa Envíos.  
+Hecha con **React + Vite + Tailwind**, con exportación a **Excel** y etiquetas con **JsBarcode**.
 
-## Scripts
-- `npm install`
-- `npm run dev`
-- `npm run build`
-- `npm run preview`
+## 🚀 Funciones
+- Recepción de paquetes (código, pesos, medidas, fotos, etiqueta 100x60 mm).
+- Paquetes en bodega (edición, reimpresión de etiqueta, export a Excel, gráficos).
+- Armado de cajas (crear, editar, mover paquetes sin duplicar).
+- Gestión de cargas (En bodega / En tránsito / Arribado).
+- Cargas enviadas (resumen y export a Excel).
+- Proformas por courier (basadas en plantilla Excel).
+- Extras (trabajos adicionales, filtros y eliminación).
 
-En producción (Vercel), solo necesita `npm install` y `npm run build`.
+## 🔧 Instalación
+```bash
+git clone https://github.com/nicolasdibe/europaenvios-mvp-frontend.git
+cd europaenvios-mvp-frontend
+npm install

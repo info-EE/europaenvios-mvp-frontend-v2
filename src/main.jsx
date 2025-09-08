@@ -1,44 +1,19 @@
-// src/main.jsx
 import React from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App.jsx";
 
-// Pequeño guard para que no quede pantalla blanca si hay runtime error:
-function ErrorBoundary({ children }) {
-  const [err, setErr] = React.useState(null);
+// Import defensivo: toma default o named export
+import * as AppModule from "./App";
+const RootApp = AppModule?.default ?? AppModule?.App;
 
-  React.useEffect(() => {
-    const handler = (e) => {
-      console.error("Uncaught error:", e?.error || e);
-      setErr(e?.error || e);
-    };
-    window.addEventListener("error", handler);
-    window.addEventListener("unhandledrejection", handler);
-    return () => {
-      window.removeEventListener("error", handler);
-      window.removeEventListener("unhandledrejection", handler);
-    };
-  }, []);
-
-  if (err) {
-    return (
-      <div style={{ padding: 16, fontFamily: "system-ui" }}>
-        <h1 style={{ fontSize: 20, marginBottom: 8 }}>Ocurrió un error</h1>
-        <pre style={{ whiteSpace: "pre-wrap" }}>
-          {String(err?.message || err)}
-        </pre>
-        <p>Revisá la consola del navegador (F12) para el stacktrace.</p>
-      </div>
-    );
-  }
-  return children;
+if (!RootApp) {
+  // Esto evita la pantalla en blanco silente y te deja un error claro en consola.
+  throw new Error(
+    'No se encontró el componente App. Asegúrate de que "src/App.jsx" exporte `export default App` (o `export const App = ...`).'
+  );
 }
 
-const root = createRoot(document.getElementById("root"));
-root.render(
+createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <RootApp />
   </React.StrictMode>
 );

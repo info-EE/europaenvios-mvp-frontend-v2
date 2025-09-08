@@ -773,20 +773,20 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
   const totalReal = sum(dataReal.map(d=>d.kg_real));
   const totalExc = sum(dataExc.map(d=>d.kg_exceso));
 
-  function printPkgLabel(p){
-    const L = p.largo||0, A=p.ancho||0, H=p.alto||0;
-    const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "-";
-    const html = labelHTML({
-      codigo: p.codigo,
-      nombre: p.nombre_apellido || "",
-      casilla: p.casilla || "",
-      pesoKg: p.peso_real || 0,
-      medidasTxt: `${L}x${A}x${H} cm`,
-      desc: p.descripcion || "",
-      cargaTxt: carga
-    });
-    printHTMLInIframe(html);
-  }
+function printPkgLabel(p) {
+  const L = p.largo || 0, A = p.ancho || 0, H = p.alto || 0;
+  const carga = flights.find(f => f.id === p.flight_id)?.codigo || "-";
+  const html = labelHTML({
+    codigo: p.codigo,
+    nombre: p.nombre_apellido || "",
+    casilla: p.casilla || "",
+    pesoKg: p.peso_real || 0,
+    medidasTxt: `${L}x${A}x${H} cm`,
+    desc: p.descripcion || "",
+    cargaTxt: carga
+  });
+  printHTMLInIframe(html);
+}
 
   return (
     <Section title="Paquetes en bodega"

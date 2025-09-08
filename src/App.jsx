@@ -572,22 +572,25 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // etiqueta 100x60 (sin acentos, uso de helper)
-  const printLabel=()=>{
-    const fl = flights.find(f=>f.id===flightId);
-    if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completá Código, Casilla, Nombre y Descripción."); return; }
-    const medidas = `${L}x${A}x${H} cm`;
-    const html = labelHTML({
-      codigo: form.codigo,
-      nombre: form.nombre,
-      casilla: form.casilla,
-      pesoKg: peso,
-      medidasTxt: medidas,
-      desc: form.desc,
-      cargaTxt: fl?.codigo || "-"
-    });
-    printHTMLInIframe(html);
-  };
+ // etiqueta 100x60 usando helper labelHTML
+const printLabel = () => {
+  const fl = flights.find(f => f.id === flightId);
+  if (!(form.codigo && form.desc && form.casilla && form.nombre)) {
+    alert("Completá Código, Casilla, Nombre y Descripción.");
+    return;
+  }
+  const medidas = `${L}x${A}x${H} cm`;
+  const html = labelHTML({
+    codigo: form.codigo,
+    nombre: form.nombre,
+    casilla: form.casilla,
+    pesoKg: peso,
+    medidasTxt: medidas,
+    desc: form.desc,
+    cargaTxt: fl?.codigo || "-"
+  });
+  printHTMLInIframe(html);
+};
 
   const fileRef = useRef(null);
   const onFile = (e)=>{

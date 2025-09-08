@@ -1,8 +1,9 @@
-/*  Europa Envíos – MVP 0.2.4 (proforma dinámica + ajustes celdas)
-    Cambios:
-    - Logo centrado en rectángulo B1:D8 (anclaje en B1).
+/*  Europa Envíos – MVP 0.2.4 (ajustes recepción/bodega/proforma)
+    Cambios en PROFORMA:
+    - Logo centrado en B1:D8 (anclaje en B1).
     - D15 = "Precio Total".
-    - A28 = "TOTAL USD" y D28 = total (0.00).
+    - A28 = "Total".
+    - D28 = total numérico formateado 0.00.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -59,7 +60,7 @@ function printHTMLInIframe(html){
   }, 60);
 }
 
-/* ========== Etiquetas (fix acentos) ========== */
+/* ========== Etiquetas (sanitize para código con acentos) ========== */
 function barcodeSVG(text){
   const safe = deaccent(String(text)).toUpperCase(); // CODE128 solo ASCII
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -143,7 +144,7 @@ function appendSheet(wb, name, rows, opts={}){
 }
 
 /* ========== ExcelJS helpers (proforma con logo/formatos) ========== */
-// Nuevo rectángulo para el logo: B1:D8 (centrado)
+// Rectángulo para el logo: B1:D8 (centrado)
 const LOGO_TL = { col: 2, row: 1 };   // B1
 const LOGO_BR = { col: 4, row: 8 };   // D8
 
@@ -245,7 +246,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
 
   // *** Cabeceras/overrides pedidos ***
   wsFactura.getCell("D15").value = "Precio Total"; // título de la última columna
-  wsFactura.getCell("A28").value = "TOTAL USD";    // etiqueta de total (no toca estilos)
+  wsFactura.getCell("A28").value = "Total";        // etiqueta de total (nuevo pedido)
 
   // LOGO centrado dentro del rectángulo B1:D8 (anclaje en B1)
   try{
@@ -533,14 +534,16 @@ function CargasAdmin({flights,setFlights, packages}){
 /* ========== Recepción ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
-  const [flightId,setFlightId]=useState(vuelosBodega[0]?.id||"");
+  // ❗ Sin preselección de carga
+  const [flightId,setFlightId]=useState("");
   const [form,setForm]=useState({
     courier: currentUser.role==="COURIER"? currentUser.courier : "",
     estado:"", casilla:"", codigo:"",
     fecha:new Date().toISOString().slice(0,10),
     empresa:"", nombre:"", tracking:"", remitente:"",
     peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
-    desc:"", valor_txt:"0,00", foto:null
+    desc:"", valor_txt:"", // ❗ sin valor por defecto
+    foto:null
   });
 
   // Generar código basado en courier SIN acentos/espacios (ej: "EUROPAENVIOS23")
@@ -568,12 +571,23 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
   const vol = A && H && L ? (A*H*L)/5000 : 0;
   const exc = Math.max(0, vol - fact);
 
-  const ok = ()=>["courier","estado","casilla","codigo","fecha","empresa","nombre","tracking","remitente","peso_real_txt","L_txt","A_txt","H_txt","desc","valor_txt"].every(k=>String(form[k]||"").trim()!=="");
+  // ❗ Validaciones: requiere flightId y foto
+  const ok = ()=>[
+      "courier","estado","casilla","codigo","fecha","empresa","nombre",
+      "tracking","remitente","peso_real_txt","L_txt","A_txt","H_txt","desc","valor_txt"
+    ].every(k=>String(form[k]||"").trim()!=="")
+    && !!flightId
+    && !!form.foto;
+
   const submit=()=>{
+    if(!flightId){ alert("Seleccioná una Carga."); return; }
+    if(!form.foto){ alert("La foto del paquete es obligatoria (subí una imagen o tomá una foto)."); return; }
     if(!ok()){ alert("Faltan campos."); return; }
+
     const key="seq_"+limpiar(form.courier);
     let cur=(Number(localStorage.getItem(key))||0)+1; if(cur>999) cur=1;
     localStorage.setItem(key,String(cur));
+
     const fl = flights.find(f=>f.id===flightId);
     const p={
       id: uuid(), flight_id: flightId,
@@ -588,7 +602,17 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       foto: form.foto, estado_bodega: "En bodega",
     };
     onAdd(p);
-    setForm({...form, casilla:"", codigo:"", empresa:"", nombre:"", tracking:"", remitente:"", peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"", desc:"", valor_txt:"0,00", foto:null });
+
+    // ❗ Reset: vuelve Carga a "Seleccionar…" y limpia el formulario
+    setFlightId("");
+    setForm({
+      ...form,
+      estado:"",
+      casilla:"", codigo:"",
+      empresa:"", nombre:"", tracking:"", remitente:"",
+      peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
+      desc:"", valor_txt:"", foto:null
+    });
   };
 
   // Cámara
@@ -613,9 +637,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // Etiqueta 100x60: labelHTML deacentúa todo (soluciona acentos en courier/código)
+  // Etiqueta 100x60
   const printLabel=()=>{
-    const fl = flights.find(f=>f.id===flightId);
     if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completá Código, Casilla, Nombre y Descripción."); return; }
     const medidas = `${L}x${A}x${H} cm`;
     const html = labelHTML({
@@ -625,7 +648,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       pesoKg: peso,
       medidasTxt: medidas,
       desc: form.desc,
-      cargaTxt: fl?.codigo || "-"
+      cargaTxt: flights.find(f=>f.id===flightId)?.codigo || "-"
     });
     printHTMLInIframe(html);
   };
@@ -656,20 +679,38 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       )}
 
       <div className="grid md:grid-cols-3 gap-4">
+        {/* ❗ Carga: placeholder "Seleccionar…" y sin preselección */}
         <Field label="Carga" required>
-          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
-            {vuelosBodega.length===0 && <option value="">— No hay cargas En bodega —</option>}
+          <select
+            className="w-full rounded-xl border px-3 py-2"
+            value={flightId}
+            onChange={e=>setFlightId(e.target.value)}
+          >
+            <option value="">Seleccionar…</option>
             {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
         </Field>
+
         <Field label="Courier" required>
-          <select className="w-full rounded-xl border px-3 py-2" value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})} disabled={currentUser.role==="COURIER"}>
-            <option value="">Seleccionar…</option>{COURIERS_INICIALES.map(c=><option key={c}>{c}</option>)}
+          <select
+            className="w-full rounded-xl border px-3 py-2"
+            value={form.courier}
+            onChange={e=>setForm({...form,courier:e.target.value})}
+            disabled={currentUser.role==="COURIER"}
+          >
+            <option value="">Seleccionar…</option>
+            {COURIERS_INICIALES.map(c=><option key={c}>{c}</option>)}
           </select>
         </Field>
+
         <Field label="Estado" required>
-          <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
-            <option value="">Seleccionar…</option>{estadosPermitidos.map(s=><option key={s}>{s}</option>)}
+          <select
+            className="w-full rounded-xl border px-3 py-2"
+            value={form.estado}
+            onChange={e=>setForm({...form,estado:e.target.value})}
+          >
+            <option value="">Seleccionar…</option>
+            {estadosPermitidos.map(s=><option key={s}>{s}</option>)}
           </select>
         </Field>
 
@@ -690,13 +731,17 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         <Field label="Alto (cm)" required><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} placeholder="20"/></Field>
 
         <Field label="Descripción" required><Input value={form.desc} onChange={e=>setForm({...form,desc:e.target.value})}/></Field>
-        <Field label="Precio (EUR)" required><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} placeholder="10,00"/></Field>
+        <Field label="Precio (EUR)" required>
+          <Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} placeholder="10,00"/>
+        </Field>
 
-        <Field label="Foto del paquete">
-          <div className="flex gap-2">
+        {/* ❗ Foto obligatoria */}
+        <Field label="Foto del paquete" required>
+          <div className="flex gap-2 items-center">
             <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
             <button type="button" onClick={()=>fileRef.current?.click()} className={BTN}>Seleccionar archivo</button>
             <button type="button" onClick={()=>setCamOpen(true)} className={BTN}>Tomar foto</button>
+            {form.foto ? <span className="text-green-600 text-sm">✓ foto cargada</span> : <span className="text-red-600 text-sm">Obligatoria</span>}
           </div>
         </Field>
       </div>
@@ -730,17 +775,64 @@ const InfoBox=({title,value})=>(
     <div className="text-2xl font-semibold">{value}</div>
   </div>
 );
-/* ========== Paquetes en bodega ========== */
-function PaquetesBodega({packages, flights, user, onUpdate}){
+/* ========== Paquetes en bodega (Eliminar + ordenar + filtro fechas) ========== */
+function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   const [q,setQ]=useState("");
   const [flightId,setFlightId]=useState("");
+  const [dateFrom,setDateFrom]=useState("");
+  const [dateTo,setDateTo]=useState("");
+
+  const [sort, setSort] = useState({ key: null, dir: "asc" });
+  const toggleSort = (key) => {
+    setSort(s => s.key===key ? {key, dir: (s.dir==="asc"?"desc":"asc")} : {key, dir:"asc"});
+  };
+  const Arrow = ({col})=>{
+    if(sort.key!==col) return <span className="ml-1 text-gray-400">↕</span>;
+    return <span className="ml-1">{sort.dir==="asc"?"▲":"▼"}</span>;
+  };
+
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
 
-  const rows = packages
+  const baseRows = packages
     .filter(p => flights.find(f=>f.id===p.flight_id)?.estado==="En bodega")
     .filter(p => !flightId || p.flight_id===flightId)
+    .filter(p => !dateFrom || (p.fecha||"") >= dateFrom)
+    .filter(p => !dateTo   || (p.fecha||"") <= dateTo)
     .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()))
     .filter(p => user.role!=="COURIER" || p.courier===user.courier);
+
+  const getSortVal = (p, key)=>{
+    switch(key){
+      case "carga": {
+        const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "";
+        return carga.toLowerCase();
+      }
+      case "codigo": return (p.codigo||"").toLowerCase();
+      case "casilla": return (p.casilla||"").toLowerCase();
+      case "fecha": return p.fecha || "";
+      case "nombre": return (p.nombre_apellido||"").toLowerCase();
+      case "tracking": return (p.tracking||"").toLowerCase();
+      case "peso_real": return Number(p.peso_real||0);
+      case "medidas": return Number((p.largo||0)*(p.ancho||0)*(p.alto||0)); // volumen como criterio
+      case "exceso": return Number(p.exceso_volumen||0);
+      case "descripcion": return (p.descripcion||"").toLowerCase();
+      default: return 0;
+    }
+  };
+
+  const rows = useMemo(()=>{
+    const arr = [...baseRows];
+    if(sort.key){
+      arr.sort((a,b)=>{
+        const va = getSortVal(a, sort.key);
+        const vb = getSortVal(b, sort.key);
+        if(va<vb) return sort.dir==="asc"?-1:1;
+        if(va>vb) return sort.dir==="asc"? 1:-1;
+        return 0;
+      });
+    }
+    return arr;
+  },[baseRows, sort]);
 
   // editor
   const [open,setOpen]=useState(false);
@@ -773,7 +865,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
 
   const [viewer,setViewer]=useState(null);
 
-  // EXPORT bodega
+  // EXPORT bodega (se mantiene)
   async function exportXLSX(){
     const header = [
       th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"),
@@ -806,7 +898,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
     downloadXLSX("Paquetes_en_bodega.xlsx", [{name:"Bodega", ws}]);
   }
 
-  // agregados
+  // agregados (se mantienen)
   const aggReal = {}; const aggExc = {};
   rows.forEach(p=>{ aggReal[p.courier]=(aggReal[p.courier]||0)+p.peso_real; aggExc[p.courier]=(aggExc[p.courier]||0)+p.exceso_volumen; });
   const dataReal = Object.entries(aggReal).map(([courier,kg_real])=>({courier,kg_real}));
@@ -822,21 +914,34 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
       nombre: p.nombre_apellido || "",
       casilla: p.casilla || "",
       pesoKg: p.peso_real || 0,
-      medidasTxt: `${L}x${A}x${H} cm`,
+      medidasTxt: `${L}x${A}x{H} cm`.replace("{H}", H),
       desc: p.descripcion || "",
       cargaTxt: carga
     });
     printHTMLInIframe(html);
   }
 
+  const requestDelete = (p)=>{
+    const ok = window.confirm(`¿Eliminar el paquete ${p.codigo}? Esta acción no se puede deshacer.`);
+    if(!ok) return;
+    if(typeof onDelete === "function") onDelete(p.id);
+    else alert("onDelete no provisto en PaquetesBodega.");
+  };
+
   return (
     <Section title="Paquetes en bodega"
       right={
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-end">
           <select className="rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Todas las cargas (En bodega)</option>
             {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
           </select>
+          <Field label="Desde">
+            <Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} />
+          </Field>
+          <Field label="Hasta">
+            <Input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} />
+          </Field>
           <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
           <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
         </div>
@@ -844,9 +949,22 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
     >
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
-          <thead><tr className="bg-gray-50">
-            {["Carga","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Medidas","Exceso de volumen","Descripción","Foto","Editar"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}
-          </tr></thead>
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("carga")}>Carga<Arrow col="carga"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("codigo")}>Código<Arrow col="codigo"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("casilla")}>Casilla<Arrow col="casilla"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("fecha")}>Fecha<Arrow col="fecha"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("nombre")}>Nombre<Arrow col="nombre"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("tracking")}>Tracking<Arrow col="tracking"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("peso_real")}>Peso real<Arrow col="peso_real"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("medidas")}>Medidas<Arrow col="medidas"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("exceso")}>Exceso de volumen<Arrow col="exceso"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("descripcion")}>Descripción<Arrow col="descripcion"/></th>
+              <th className="text-left px-3 py-2">Foto</th>
+              <th className="text-left px-3 py-2">Editar</th>
+            </tr>
+          </thead>
           <tbody>
             {rows.map(p=>{
               const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "";
@@ -869,6 +987,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
                     <div className="flex gap-2">
                       <button className="px-2 py-1 border rounded" onClick={()=>start(p)}>Editar</button>
                       <button className="px-2 py-1 border rounded" onClick={()=>printPkgLabel(p)}>Etiqueta</button>
+                      <button className="px-2 py-1 border rounded text-red-600" onClick={()=>requestDelete(p)}>Eliminar</button>
                     </div>
                   </td>
                 </tr>
@@ -879,7 +998,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
         </table>
       </div>
 
-      {/* Gráficos */}
+      {/* Gráficos (se mantienen) */}
       <div className="grid md:grid-cols-2 gap-6 mt-6">
         {[{data:dataReal,key:"kg_real",title:`Kg reales por courier. Total: `,total:totalReal},
           {data:dataExc,key:"kg_exceso",title:`Exceso volumétrico por courier. Total: `,total:totalExc}].map((g,ix)=>(
@@ -901,7 +1020,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
         ))}
       </div>
 
-      {/* Modal edición */}
+      {/* Modal edición (se mantiene) */}
       <Modal open={open} onClose={()=>setOpen(false)} title="Editar paquete">
         {form && (
           <div className="grid md:grid-cols-3 gap-3">
@@ -950,7 +1069,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
         )}
       </Modal>
 
-      {/* Visor de foto */}
+      {/* Visor de foto (se mantiene) */}
       <Modal open={!!viewer} onClose={()=>setViewer(null)} title="Foto">
         {viewer && <img src={viewer} alt="foto" className="max-w-full rounded-xl" />}
       </Modal>
@@ -958,7 +1077,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
   );
 }
 
-/* ========== Armado de cajas (Editar / Guardar y caja activa) ========== */
+/* ========== Armado de cajas (igual que antes) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -967,7 +1086,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [editingBoxId, setEditingBoxId] = useState(null);
 
   useEffect(()=>{
-    // cuando cambia la carga, establecer la primera caja activa
     if(flight && flight.cajas.length>0){
       setActiveBoxId(flight.cajas[0].id);
       setEditingBoxId(null);
@@ -986,7 +1104,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     },0);
   }
   function updBox(id,field,val){ if(!flightId||!id) return;
-    // valida nombre único
     if(field==="codigo"){
       const dup = flight.cajas.some(c=>c.id!==id && String(c.codigo).trim().toLowerCase()===String(val).trim().toLowerCase());
       if(dup){ alert("El nombre de la caja no puede repetirse para esta carga."); return; }
@@ -1243,7 +1360,7 @@ function CargasEnviadas({packages, flights}){
   );
 }
 
-/* ========== Proformas (cant 3 decimales; unit/sub 2; extras y 4% con cant=1) ========== */
+/* ========== Proformas (cant 3 dec; unit/sub 2; extras y 4% con cant=1) ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
@@ -1472,7 +1589,7 @@ function App(){
   const [couriers,setCouriers]=useState(COURIERS_INICIALES);
   const [estados,setEstados]=useState(ESTADOS_INICIALES);
 
-  // Sin carga por defecto
+  // ❗ Sin carga por defecto
   const [flights,setFlights]=useState([]);
   const [packages,setPackages]=useState([]);
   const [extras,setExtras]=useState([]);
@@ -1512,6 +1629,7 @@ function App(){
             flights={flights}
             user={currentUser}
             onUpdate={(p)=>setPackages(packages.map(x=>x.id===p.id?p:x))}
+            onDelete={(id)=>setPackages(packages.filter(p=>p.id!==id))} // ← elimina sin tocar correlatividad
           />
         )}
 

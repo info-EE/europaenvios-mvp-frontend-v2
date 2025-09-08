@@ -1384,3 +1384,4 @@ function Extras({flights, couriers, extras, setExtras}){
     </Section>
   );
 }
+export default App;

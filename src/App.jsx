@@ -1,15 +1,5 @@
-/*  Europa Envíos – MVP 0.2.4
-    Cambios incluidos:
-    - Impresión por iframe oculto (sin about:blank) en Recepción y Bodega.
-    - Se quitan acentos automáticamente en las etiquetas impresas (evita errores).
-    - “Estado” restringido por prefijo de carga (AIR/MAR/COMP) en Recepción y editor de Bodega.
-    - Gestión de cargas: aviso si faltan paquetes sin escanear al pasar a En tránsito/Arribado.
-    - Bodega: export XLSX con columnas pedidas y orden correcto (Exceso antes que Medidas).
-    - Armado de cajas: selección clara con botones “Editar/Guardar”, escaneo va a la caja activa,
-      reordenar y eliminar. Valida nombre único por carga.
-    - Proformas: usa plantilla /templates/proforma.xlsx (pestaña Factura), coloca logo *real* sin estirar
-      en B2:D8, respeta formatos (Cantidad 0.000, Precios 0.00), TOTAL sólo en A22/D22, reemplaza
-      {{FECHA}} (fecha de la carga) y {{COURIER}} (courier).
+/*  Europa Envíos – MVP 0.2.4 (simplificado)
+    - Misma funcionalidad, código ordenado y sin duplicaciones de etiquetas.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -27,7 +17,7 @@ const uuid = () => {
 const deaccent = (s) => String(s ?? "")
   .normalize("NFD")
   .replace(/[\u0300-\u036f]/g, "")
-  .replace(/ñ/gi, m => m === "ñ" ? "n" : "N"); // por si acaso
+  .replace(/ñ/g, "n").replace(/Ñ/g, "N");
 const parseComma = (txt) => {
   if (txt === null || txt === undefined) return 0;
   const s = String(txt).trim().replace(/\./g, "").replace(",", ".");
@@ -39,28 +29,22 @@ const parseIntEU = (txt) => {
   const n = parseInt(s, 10);
   return Number.isFinite(n) ? n : 0;
 };
-const fmtPeso = (n) => Number(n||0).toFixed(3).replace(".", ",");
-const fmtMoney = (n) => Number(n||0).toFixed(2).replace(".", ",");
-const sum = (a) => a.reduce((s,x)=>s+Number(x||0),0);
+const fmtPeso = (n) => Number(n || 0).toFixed(3).replace(".", ",");
+const fmtMoney = (n) => Number(n || 0).toFixed(2).replace(".", ",");
+const sum = (a) => a.reduce((s, x) => s + Number(x || 0), 0);
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#14B8A6","#84CC16","#F97316"];
+const MIN_FACTURABLE = 0.2;
 
 /* ========== impresión sin about:blank ========== */
 function printHTMLInIframe(html){
   const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
+  Object.assign(iframe.style, { position:"fixed", right:"0", bottom:"0", width:"0", height:"0", border:"0" });
   document.body.appendChild(iframe);
 
   const cleanup = () => setTimeout(()=> { try{ document.body.removeChild(iframe); }catch{} }, 500);
 
   const doc = iframe.contentWindow.document;
-  doc.open();
-  doc.write(html);
-  doc.close();
+  doc.open(); doc.write(html); doc.close();
 
   setTimeout(() => {
     try{
@@ -73,6 +57,37 @@ function printHTMLInIframe(html){
       alert("No se pudo generar la etiqueta.");
     }
   }, 60);
+}
+
+/* ========== Etiquetas: utilidades reutilizables (evita duplicados) ========== */
+function barcodeSVG(text){
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  JsBarcode(svg, String(text).toUpperCase(), { format:"CODE128", displayValue:false, height:50, margin:0 });
+  return new XMLSerializer().serializeToString(svg);
+}
+function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt }){
+  const svgHtml = barcodeSVG(codigo);
+  return `
+    <html><head><meta charset="utf-8"><title>Etiqueta</title>
+    <style>
+      @page { size: 100mm 60mm; margin: 5mm; }
+      body { font-family: Arial, sans-serif; }
+      .box { width: 100mm; height: 60mm; }
+      .line { margin: 2mm 0; font-size: 12pt; }
+      .b { font-weight: bold; }
+      svg { width: 90mm; height: 18mm; }
+    </style></head><body>
+      <div class="box">
+        <div class="line b">Codigo: ${deaccent(codigo ?? "")}</div>
+        <div class="line">${svgHtml}</div>
+        <div class="line">Cliente: ${deaccent(nombre ?? "")}</div>
+        <div class="line">Casilla: ${deaccent(casilla ?? "")}</div>
+        <div class="line">Peso: ${fmtPeso(pesoKg)} kg</div>
+        <div class="line">Medidas: ${deaccent(medidasTxt ?? "")}</div>
+        <div class="line">Desc: ${deaccent(desc ?? "")}</div>
+        <div class="line">Carga: ${deaccent(cargaTxt ?? "-")}</div>
+      </div>
+    </body></html>`;
 }
 
 /* ========== estilos XLSX programáticos (fallback) ========== */
@@ -115,9 +130,7 @@ function replacePlaceholdersInWB(wb, map){
         const cell = ws[addr];
         if(cell && typeof cell.v==="string"){
           let txt = cell.v;
-          Object.entries(map).forEach(([k,v])=>{
-            txt = txt.replaceAll(`{{${k}}}`, v ?? "");
-          });
+          Object.entries(map).forEach(([k,v])=>{ txt = txt.replaceAll(`{{${k}}}`, v ?? ""); });
           if(txt!==cell.v) ws[addr] = {...cell, v: txt, t:"s"};
         }
       }
@@ -132,23 +145,11 @@ function appendSheet(wb, name, rows, opts={}){
 /* ========== ExcelJS (proformas con logo real y formatos) ========== */
 const LOGO_TL = { col: 2, row: 2 };   // B2
 const LOGO_BR = { col: 4, row: 8 };   // D8
-const TOTAL_ROW = 22;
-const TOTAL_LABEL_COL = 1;            // A
-const TOTAL_VALUE_COL = 4;            // D
-
 const PX_PER_CHAR = 7.2;
 const PX_PER_POINT = 96/72;
 
-function colWidthPx(ws, col){
-  const c = ws.getColumn(col);
-  const w = c.width ?? 8.43;
-  return Math.round(w * PX_PER_CHAR);
-}
-function rowHeightPx(ws, row){
-  const r = ws.getRow(row);
-  const h = r.height ?? 15;
-  return Math.round(h * PX_PER_POINT);
-}
+function colWidthPx(ws, col){ const c = ws.getColumn(col); const w = c.width ?? 8.43; return Math.round(w * PX_PER_CHAR); }
+function rowHeightPx(ws, row){ const r = ws.getRow(row); const h = r.height ?? 15; return Math.round(h * PX_PER_POINT); }
 function boxSizePx(ws, tl, br){
   let w=0,h=0;
   for(let c=tl.col; c<=br.col; c++) w += colWidthPx(ws, c);
@@ -191,19 +192,12 @@ function replacePlaceholdersExcelJS(ws, map){
       const cell = ws.getCell(r,c);
       const v = cell.value;
       let txt;
-      if (v && typeof v === "object" && v.richText) {
-        txt = v.richText.map(t=>t.text).join("");
-      } else {
-        txt = (v ?? "").toString();
-      }
+      if (v && typeof v === "object" && v.richText) txt = v.richText.map(t=>t.text).join("");
+      else txt = (v ?? "").toString();
       if (!txt) continue;
       let changed = txt;
-      Object.entries(map).forEach(([k,val])=>{
-        changed = changed.replaceAll(`{{${k}}}`, val ?? "");
-      });
-      if (changed !== txt) {
-        cell.value = changed;
-      }
+      Object.entries(map).forEach(([k,val])=>{ changed = changed.replaceAll(`{{${k}}}`, val ?? ""); });
+      if (changed !== txt) cell.value = changed;
     }
   }
 }
@@ -245,27 +239,24 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     });
   }catch(e){ console.warn("No se pudo insertar el logo:", e); }
 
-  // Hoja DETALLE (para ver todo claro)
+  // Hoja DETALLE (ayuda visual)
   const wsDet = wb.getWorksheet("DETALLE") || wb.addWorksheet("DETALLE");
   wsDet.getRow(1).values = ["Descripción","Cantidad","P. unitario","Total"];
   datosFactura.detalleParaSheet.forEach((row, i)=>{
     const r = wsDet.getRow(2+i);
     r.getCell(1).value = row[0];
     if(row[1] !== "" && row[1] !== null && row[1] !== undefined){
-      r.getCell(2).value = Number(row[1]);
-      r.getCell(2).numFmt = "0.000";
+      r.getCell(2).value = Number(row[1]); r.getCell(2).numFmt = "0.000";
     }
     if(row[2] !== "" && row[2] !== null && row[2] !== undefined){
-      r.getCell(3).value = Number(row[2]);
-      r.getCell(3).numFmt = "0.00";
+      r.getCell(3).value = Number(row[2]); r.getCell(3).numFmt = "0.00";
     }
     if(row[3] !== "" && row[3] !== null && row[3] !== undefined){
-      r.getCell(4).value = Number(row[3]);
-      r.getCell(4).numFmt = "0.00";
+      r.getCell(4).value = Number(row[3]); r.getCell(4).numFmt = "0.00";
     }
   });
 
-  // Rellenar tabla en "Factura" (respeta formatos)
+  // Relleno tabla en "Factura" (respeta formatos)
   // localizar fila siguiente a "Descripción"
   let startRow = 16, colDesc = 1;
   outer:
@@ -281,16 +272,16 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
   const COL_CANT = colDesc + 1;
   const COL_UNIT = colDesc + 2;
   const COL_SUB  = colDesc + 3;
-    
-// --- LIMPIEZA DEL ÁREA DE DETALLE ---
-// evita que queden restos cuando antes había más líneas
-const maxFilas = 40; // margen generoso
-for (let r = startRow; r < startRow + maxFilas; r++) {
-  wsFactura.getCell(r, colDesc).value = "";
-  wsFactura.getCell(r, COL_CANT).value = "";
-  wsFactura.getCell(r, COL_UNIT).value = "";
-  wsFactura.getCell(r, COL_SUB).value  = "";
-}
+
+  // Limpiar área previa
+  const maxFilas = 40;
+  for (let r = startRow; r < startRow + maxFilas; r++) {
+    wsFactura.getCell(r, colDesc).value = "";
+    wsFactura.getCell(r, COL_CANT).value = "";
+    wsFactura.getCell(r, COL_UNIT).value = "";
+    wsFactura.getCell(r, COL_SUB).value  = "";
+  }
+
   const filas = [
     ["Procesamiento", datosFactura.kg_fact, datosFactura.pu_proc, datosFactura.sub_proc],
     ["Flete peso real", datosFactura.kg_real, datosFactura.pu_real, datosFactura.sub_real],
@@ -302,31 +293,28 @@ for (let r = startRow; r < startRow + maxFilas; r++) {
   ];
   filas.forEach((row, i)=>{
     wsFactura.getCell(startRow+i, colDesc).value = String(row[0]);
-
-    const qty = row[1];
+    const [ , qty, unit, sub ] = row;
     if(qty !== "" && qty !== null && qty !== undefined){
       wsFactura.getCell(startRow+i, COL_CANT).value = Number(qty);
       wsFactura.getCell(startRow+i, COL_CANT).numFmt = "0.000";
     }
-    const unit = row[2];
     if(unit !== "" && unit !== null && unit !== undefined){
       wsFactura.getCell(startRow+i, COL_UNIT).value = Number(unit);
       wsFactura.getCell(startRow+i, COL_UNIT).numFmt = "0.00";
     }
-    const sub = row[3];
     if(sub !== "" && sub !== null && sub !== undefined){
       wsFactura.getCell(startRow+i, COL_SUB).value = Number(sub);
       wsFactura.getCell(startRow+i, COL_SUB).numFmt = "0.00";
     }
   });
 
-// --- TOTAL dinámico: debajo de la última línea escrita ---
-const totalRow = startRow + filas.length;
-wsFactura.getCell(totalRow, colDesc).value = "TOTAL USD";
-wsFactura.getCell(totalRow, COL_CANT).value = "";
-wsFactura.getCell(totalRow, COL_UNIT).value = "";
-wsFactura.getCell(totalRow, COL_SUB).value  = Number(datosFactura.total.toFixed(2));
-wsFactura.getCell(totalRow, COL_SUB).numFmt = "0.00";
+  // TOTAL dinámico: debajo de la última línea escrita
+  const totalRow = startRow + filas.length;
+  wsFactura.getCell(totalRow, colDesc).value = "TOTAL USD";
+  wsFactura.getCell(totalRow, COL_CANT).value = "";
+  wsFactura.getCell(totalRow, COL_UNIT).value = "";
+  wsFactura.getCell(totalRow, COL_SUB).value  = Number(datosFactura.total.toFixed(2));
+  wsFactura.getCell(totalRow, COL_SUB).numFmt = "0.00";
 
   const buffer = await wb.xlsx.writeBuffer();
   downloadBufferAsXlsx(buffer, nombreArchivo);
@@ -376,7 +364,6 @@ function estadosPermitidosPorCarga(codigo){
   if (s.startsWith("COMP")) return ["Ofrecer marítimo"];
   return ESTADOS_INICIALES;
 }
-
 /* ========== Login ========== */
 function Login({onLogin}){
   const [email,setEmail]=useState("");
@@ -512,7 +499,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
   const peso = parseComma(form.peso_real_txt);
   const L = parseIntEU(form.L_txt), A=parseIntEU(form.A_txt), H=parseIntEU(form.H_txt);
-  const fact = Math.max(0.2, peso||0);
+  const fact = Math.max(MIN_FACTURABLE, peso||0);
   const vol = A && H && L ? (A*H*L)/5000 : 0;
   const exc = Math.max(0, vol - fact);
 
@@ -561,32 +548,20 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // etiqueta 100x60 (se quitan acentos en todos los textos)
+  // etiqueta 100x60 (sin acentos, uso de helper)
   const printLabel=()=>{
     const fl = flights.find(f=>f.id===flightId);
     if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completá Código, Casilla, Nombre y Descripción."); return; }
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    JsBarcode(svg, String(form.codigo).toUpperCase(), { format:"CODE128", displayValue:false, height:50, margin:0 });
-    const svgHtml = new XMLSerializer().serializeToString(svg);
     const medidas = `${L}x${A}x${H} cm`;
-    const html = `
-      <html><head><meta charset="utf-8"><title>Etiqueta</title>
-      <style>
-        @page { size: 100mm 60mm; margin: 5mm; } body { font-family: Arial, sans-serif; }
-        .box { width: 100mm; height: 60mm; } .line { margin: 2mm 0; font-size: 12pt; } .b { font-weight: bold; }
-        svg { width: 90mm; height: 18mm; }
-      </style></head><body>
-        <div class="box">
-          <div class="line b">Codigo: ${deaccent(form.codigo)}</div>
-          <div class="line">${svgHtml}</div>
-          <div class="line">Cliente: ${deaccent(form.nombre)}</div>
-          <div class="line">Casilla: ${deaccent(form.casilla)}</div>
-          <div class="line">Peso: ${fmtPeso(peso)} kg</div>
-          <div class="line">Medidas: ${deaccent(medidas)}</div>
-          <div class="line">Desc: ${deaccent(form.desc)}</div>
-          <div class="line">Carga: ${deaccent(fl?.codigo || "-")}</div>
-        </div>
-      </body></html>`;
+    const html = labelHTML({
+      codigo: form.codigo,
+      nombre: form.nombre,
+      casilla: form.casilla,
+      pesoKg: peso,
+      medidasTxt: medidas,
+      desc: form.desc,
+      cargaTxt: fl?.codigo || "-"
+    });
     printHTMLInIframe(html);
   };
 
@@ -687,7 +662,6 @@ const InfoBox=({title,value})=>(
     <div className="text-2xl font-semibold">{value}</div>
   </div>
 );
-
 /* ========== Paquetes en bodega ========== */
 function PaquetesBodega({packages, flights, user, onUpdate}){
   const [q,setQ]=useState("");
@@ -715,7 +689,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
   const save=()=>{
     const peso = parseComma(form.peso_real_txt);
     const L = parseIntEU(form.L_txt), A = parseIntEU(form.A_txt), H = parseIntEU(form.H_txt);
-    const fact = Math.max(0.2, peso||0);
+    const fact = Math.max(MIN_FACTURABLE, peso||0);
     const vol = A&&H&&L ? (A*H*L)/5000 : 0;
     const exc = Math.max(0, vol - fact);
     const upd = {
@@ -774,29 +748,16 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
 
   function printPkgLabel(p){
     const L = p.largo||0, A=p.ancho||0, H=p.alto||0;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    JsBarcode(svg, String(p.codigo).toUpperCase(), { format:"CODE128", displayValue:false, height:50, margin:0 });
-    const svgHtml = new XMLSerializer().serializeToString(svg);
-    const medidas = `${L}x${A}x${H} cm`;
     const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "-";
-    const html = `
-      <html><head><meta charset="utf-8"><title>Etiqueta</title>
-      <style>
-        @page { size: 100mm 60mm; margin: 5mm; } body { font-family: Arial, sans-serif; }
-        .box { width: 100mm; height: 60mm; } .line { margin: 2mm 0; font-size: 12pt; } .b { font-weight: bold; }
-        svg { width: 90mm; height: 18mm; }
-      </style></head><body>
-        <div class="box">
-          <div class="line b">Codigo: ${deaccent(p.codigo)}</div>
-          <div class="line">${svgHtml}</div>
-          <div class="line">Cliente: ${deaccent(p.nombre_apellido||"")}</div>
-          <div class="line">Casilla: ${deaccent(p.casilla||"")}</div>
-          <div class="line">Peso: ${fmtPeso(p.peso_real||0)} kg</div>
-          <div class="line">Medidas: ${deaccent(medidas)}</div>
-          <div class="line">Desc: ${deaccent(p.descripcion||"")}</div>
-          <div class="line">Carga: ${deaccent(carga)}</div>
-        </div>
-      </body></html>`;
+    const html = labelHTML({
+      codigo: p.codigo,
+      nombre: p.nombre_apellido || "",
+      casilla: p.casilla || "",
+      pesoKg: p.peso_real || 0,
+      medidasTxt: `${L}x${A}x${H} cm`,
+      desc: p.descripcion || "",
+      cargaTxt: carga
+    });
     printHTMLInIframe(html);
   }
 
@@ -1074,18 +1035,19 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     </Section>
   );
 }
-
 /* ========== Cargas enviadas ========== */
 function CargasEnviadas({packages, flights}){
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
   const [estado,setEstado]=useState("");
   const [flightId,setFlightId]=useState("");
+
   const list = flights
     .filter(f=>f.estado!=="En bodega")
     .filter(f=>!from || f.fecha_salida>=from)
     .filter(f=>!to || f.fecha_salida<=to)
     .filter(f=>!estado || f.estado===estado);
+
   const flight = flights.find(f=>f.id===flightId);
 
   const resumen = useMemo(()=>{
@@ -1099,25 +1061,43 @@ function CargasEnviadas({packages, flights}){
       return {n:i+1, courier:etiqueta, peso, L,A,H, vol};
     });
   },[flight,packages]);
+
   const totPeso=sum(resumen.map(r=>r.peso));
   const totVol=sum(resumen.map(r=>r.vol));
 
   async function exportTodo(){
     if(!flight) return;
     const headerP=[th("COURIER"),th("CÓDIGO"),th("CASILLA"),th("FECHA"),th("NOMBRE"),th("TRACKING"),th("PESO REAL"),th("FACTURABLE"),th("VOLUMÉTRICO"),th("EXCESO"),th("DESCRIPCIÓN")];
-    const bodyP=packages.filter(p=>p.flight_id===flightId).map(p=>[td(p.courier),td(p.codigo),td(p.casilla),td(p.fecha),td(p.nombre_apellido),td(p.tracking),td(fmtPeso(p.peso_real)),td(fmtPeso(p.peso_facturable)),td(fmtPeso(p.peso_volumetrico)),td(fmtPeso(p.exceso_volumen)),td(p.descripcion)]);
+    const bodyP=packages
+      .filter(p=>p.flight_id===flightId)
+      .map(p=>[
+        td(p.courier),td(p.codigo),td(p.casilla),td(p.fecha),td(p.nombre_apellido),
+        td(p.tracking),td(fmtPeso(p.peso_real)),td(fmtPeso(p.peso_facturable)),
+        td(fmtPeso(p.peso_volumetrico)),td(fmtPeso(p.exceso_volumen)),td(p.descripcion)
+      ]);
 
     const tpl = await tryLoadTemplate("/templates/cargas_enviadas.xlsx");
     if(tpl){
       replacePlaceholdersInWB(tpl, { CARGA: flight.codigo, FECHA: flight.fecha_salida||"" });
       appendSheet(tpl, "PAQUETES", [headerP,...bodyP], {cols:[{wch:16},{wch:14},{wch:10},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:14},{wch:12},{wch:28}]});
-      appendSheet(tpl, "CAJAS", [[th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")], ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]), [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]]);
+      appendSheet(tpl, "CAJAS", [
+        [th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")],
+        ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]),
+        [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]
+      ]);
       XLSX.writeFile(tpl, `Detalle_${flight.codigo}.xlsx`);
       return;
     }
 
-    const shP=sheetFromAOAStyled("Paquetes", [headerP,...bodyP], {cols:[{wch:16},{wch:14},{wch:10},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:14},{wch:12},{wch:28}],rows:[{hpt:26}]});
-    const shC=sheetFromAOAStyled("Cajas", [[th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")], ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]), [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]]);
+    const shP=sheetFromAOAStyled("Paquetes", [headerP,...bodyP], {
+      cols:[{wch:16},{wch:14},{wch:10},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:14},{wch:12},{wch:28}],
+      rows:[{hpt:26}]
+    });
+    const shC=sheetFromAOAStyled("Cajas", [
+      [th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")],
+      ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]),
+      [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]
+    ]);
     downloadXLSX(`Detalle_${flight.codigo}.xlsx`, [shP, shC]);
   }
 
@@ -1190,9 +1170,7 @@ function CargasEnviadas({packages, flights}){
   );
 }
 
-/* ========== Proformas ==========
-   Plantilla: /public/templates/proforma.xlsx (con placeholders {{FECHA}} y {{COURIER}})
-*/
+/* ========== Proformas ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
@@ -1200,7 +1178,11 @@ function Proformas({packages, flights, extras}){
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
   const [flightId,setFlightId]=useState("");
-  const list = flights.filter(f=>!from || f.fecha_salida>=from).filter(f=>!to || f.fecha_salida<=to);
+
+  const list = flights
+    .filter(f=>!from || f.fecha_salida>=from)
+    .filter(f=>!to || f.fecha_salida<=to);
+
   const flight = flights.find(f=>f.id===flightId);
 
   const porCourier = useMemo(()=>{
@@ -1231,10 +1213,7 @@ function Proformas({packages, flights, extras}){
       ["Flete exceso de volumen", Number(r.kg_exc.toFixed(3)), Number(T.fleteExc.toFixed(2)), Number(fe.toFixed(2))],
       ["Servicio de despacho", Number(r.kg_fact.toFixed(3)), Number(T.despacho.toFixed(2)), Number(desp.toFixed(2))],
       ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))],
-      ...extrasList.map(e=>{
-        const val = parseComma(e.monto);
-        return [e.descripcion, "", "", Number(val.toFixed(2))];
-      }),
+      ...extrasList.map(e=>[e.descripcion, "", "", Number(parseComma(e.monto).toFixed(2))]),
       ["Comisión por transferencia (4%)","", "", Number(com.toFixed(2))],
     ];
 

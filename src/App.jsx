@@ -1457,14 +1457,111 @@ function CargasEnviadas({ packages, flights }) {
   );
 }
 
-/* ===== Proformas (mantiene colores plantilla; sin IMAGE/IMAGEN) ===== */
-const TARIFAS = { proc: 5, real: 9, exc: 9, despacho: 10 }; // USD
-const canjeGuiaUSD = (kg) => (kg <= 5 ? 10 : kg <= 10 ? 13.5 : kg <= 30 ? 17 : kg <= 50 ? 37 : kg <= 100 ? 57 : 100);
+/* === REEMPLAZA DESDE AQUÍ — Proformas (completo y actualizado) === */
 
+const TARIFAS = { proc: 5, real: 9, exc: 9, despacho: 10 }; // USD
+const canjeGuiaUSD = (kg) =>
+  kg <= 5 ? 10 : kg <= 10 ? 13.5 : kg <= 30 ? 17 : kg <= 50 ? 37 : kg <= 100 ? 57 : 100;
+
+/** Escribe SOLO texto y números en la hoja "Factura" del template.
+ *  - NO escribe logo (evita IMAGE/IMAGEN).
+ *  - Cantidades con #,##0.000  |  precios con #,##0.00
+ *  - 5 filas reservadas para EXTRAS debajo del 4%
+ *  - TOTAL en A(22+5)/D(22+5)
+ */
+function writeFacturaSheet(wb, flight, resumenCourier, extrasDeCourier) {
+  const ws = wb.Sheets["Factura"];
+  if (!ws) return;
+
+  // 1) FECHA y COURIER (placeholders de texto del template)
+  // (los placeholders {{FECHA}} y {{COURIER}} se reemplazan arriba con replacePlaceholdersInWB)
+  // Aun así, por seguridad, si existen A9/A12 los sobreescribimos con el valor final.
+  const fecha = flight?.fecha_salida || new Date().toISOString().slice(0, 10);
+  ws["A9"] = { v: fecha, t: "s", s: ws["A9"]?.s || {} };
+  ws["A12"] = { v: resumenCourier.courier, t: "s", s: ws["A12"]?.s || {} };
+
+  // 2) Armar líneas de detalle
+  const fmtQty = "#,##0.000";
+  const fmtMoney = "#,##0.00";
+  const start = 16; // primera fila de detalle en tu plantilla
+
+  // Limpieza de 16..(16+40) por las dudas
+  for (let i = 0; i < 40; i++) {
+    ["A", "B", "C", "D"].forEach((col) => {
+      const addr = `${col}${start + i}`;
+      if (ws[addr]) ws[addr].v = "";
+    });
+  }
+
+  const r = resumenCourier;
+  const proc = r.kg_fact * TARIFAS.proc;
+  const fr = r.kg_real * TARIFAS.real;
+  const fe = r.kg_exc * TARIFAS.exc;
+  const desp = r.kg_fact * TARIFAS.despacho;
+  const canje = canjeGuiaUSD(r.kg_fact);
+
+  const extrasList = extrasDeCourier(resumenCourier.courier);
+  const extrasMonto = extrasList.reduce((s, e) => s + parseComma(e.monto), 0);
+  const comisionBase = 0.04 * (proc + fr + fe + extrasMonto);
+
+  // Orden exacto como en tu diseño
+  const lines = [
+    ["Procesamiento", r.kg_fact, TARIFAS.proc, proc],
+    ["Flete peso real", r.kg_real, TARIFAS.real, fr],
+    ["Flete exceso de volumen", r.kg_exc, TARIFAS.exc, fe],
+    ["Servicio de despacho", r.kg_fact, TARIFAS.despacho, desp],
+    ["Comision por canje de guia", 1, canje, canje],
+    ["Comision por transferencia (4%)", 0, 0, comisionBase],
+  ];
+
+  // 5 filas vacías reservadas:
+  for (let i = 0; i < 5; i++) lines.push(["", "", "", ""]);
+
+  // Extras (cantidad 1,000 y unitario = total)
+  extrasList.forEach((e) => {
+    const total = parseComma(e.monto);
+    lines.push([e.descripcion, 1, total, total]);
+  });
+
+  // 3) Escribir líneas (manteniendo estilos existentes cuando se pueda)
+  lines.forEach((ln, i) => {
+    const row = start + i;
+    const [desc, qty, unit, total] = ln;
+    ws[`A${row}`] = { v: desc, t: "s", s: ws[`A${row}`]?.s || {} };
+    if (qty === "" || qty === null || qty === undefined) {
+      ws[`B${row}`] = { v: "", t: "s", s: ws[`B${row}`]?.s || {} };
+    } else {
+      ws[`B${row}`] = { v: Number(qty), t: "n", z: fmtQty, s: ws[`B${row}`]?.s || {} };
+    }
+    if (unit === "" || unit === null || unit === undefined) {
+      ws[`C${row}`] = { v: "", t: "s", s: ws[`C${row}`]?.s || {} };
+    } else {
+      ws[`C${row}`] = { v: Number(unit), t: "n", z: fmtMoney, s: ws[`C${row}`]?.s || {} };
+    }
+    if (total === "" || total === null || total === undefined) {
+      ws[`D${row}`] = { v: "", t: "s", s: ws[`D${row}`]?.s || {} };
+    } else {
+      ws[`D${row}`] = { v: Number(total), t: "n", z: fmtMoney, s: ws[`D${row}`]?.s || {} };
+    }
+  });
+
+  // 4) TOTAL — lo ponemos a 5 filas por debajo de la fila 22 (para respetar el “espacio” de extras)
+  //    Si tu template trae “TOTAL USD” en A22, acá lo movemos y lo reescribimos con el mismo estilo.
+  const totalRow = 22 + 5; // ej. 27
+  // Borrar posible "TOTAL USD" previo en A22 para que no se duplique
+  if (ws["A22"]) ws["A22"].v = "";
+
+  const totalNum = lines.reduce((s, ln) => s + (Number(ln[3]) || 0), 0);
+  ws[`A${totalRow}`] = { v: "TOTAL USD", t: "s", s: ws[`A${totalRow}`]?.s || ws["A22"]?.s || {} };
+  ws[`D${totalRow}`] = { v: totalNum, t: "n", z: fmtMoney, s: ws[`D${totalRow}`]?.s || ws["D22"]?.s || {} };
+}
+
+/* === Componente Proformas === */
 function Proformas({ packages, flights, extras }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [flightId, setFlightId] = useState("");
+
   const list = flights.filter((f) => (!from || f.fecha_salida >= from) && (!to || f.fecha_salida <= to));
   const flight = flights.find((f) => f.id === flightId);
 
@@ -1485,90 +1582,34 @@ function Proformas({ packages, flights, extras }) {
     return Array.from(m.values());
   }, [flight, packages]);
 
-  const extrasDeCourier = (courier) => extras.filter((e) => e.flight_id === flightId && e.courier === courier);
-
-  function writeFacturaSheet(wb, r) {
-    const ws = wb.Sheets["Factura"];
-    if (!ws) return;
-
-    // FECHA y COURIER
-    ws["A9"] = { v: flight?.fecha_salida || new Date().toISOString().slice(0, 10), t: "s", s: ws["A9"]?.s || {} };
-    ws["A12"] = { v: r.courier, t: "s", s: ws["A12"]?.s || {} };
-
-    // Inicio del detalle
-    const start = 16;
-    const slotsReservados = 5;
-    const fmtQty = "#,##0.000";
-    const fmtMoney = "#,##0.00";
-
-    // Limpio rango amplio
-    for (let i = 0; i < 60; i++) {
-      ["A", "B", "C", "D"].forEach((col) => {
-        const addr = `${col}${start + i}`;
-        if (ws[addr]) ws[addr].v = "";
-      });
-    }
-
-    const proc = r.kg_fact * TARIFAS.proc;
-    const fr = r.kg_real * TARIFAS.real;
-    const fe = r.kg_exc * TARIFAS.exc;
-    const desp = r.kg_fact * TARIFAS.despacho;
-    const canje = canjeGuiaUSD(r.kg_fact);
-
-    const listExtras = extrasDeCourier(r.courier);
-    const montoExtras = listExtras.reduce((s, e) => s + parseComma(e.monto), 0);
-    const comision4 = 0.04 * (proc + fr + fe + montoExtras);
-
-    let lines = [
-      ["Procesamiento", r.kg_fact, TARIFAS.proc, proc],
-      ["Flete peso real", r.kg_real, TARIFAS.real, fr],
-      ["Flete exceso de volumen", r.kg_exc, TARIFAS.exc, fe],
-      ["Servicio de despacho", r.kg_fact, TARIFAS.despacho, desp],
-      ["Comision por canje de guia", 1, canje, canje],
-      ["Comision por transferencia (4%)", 0, 0, comision4],
-      ...Array.from({ length: slotsReservados }, () => ["", "", "", ""]),
-    ];
-
-    listExtras.forEach((e) => {
-      const total = parseComma(e.monto);
-      lines.push([e.descripcion, 1, total, total]);
-    });
-
-    lines.forEach((ln, idx) => {
-      const row = start + idx;
-      const [desc, qty, unit, tot] = ln;
-      ws[`A${row}`] = { v: desc, t: "s", s: ws[`A${row}`]?.s || {} };
-      ws[`B${row}`] = { v: typeof qty === "number" ? qty : qty || "", t: "n", z: fmtQty, s: ws[`B${row}`]?.s || {} };
-      ws[`C${row}`] = { v: typeof unit === "number" ? unit : unit || "", t: "n", z: fmtMoney, s: ws[`C${row}`]?.s || {} };
-      ws[`D${row}`] = { v: typeof tot === "number" ? tot : tot || "", t: "n", z: fmtMoney, s: ws[`D${row}`]?.s || {} };
-    });
-
-    const totalNum = lines.reduce((s, ln) => s + (Number(ln[3]) || 0), 0);
-    const totalRow = start + lines.length;
-    ws[`A${totalRow}`] = { v: "TOTAL USD", t: "s", s: ws[`A${totalRow}`]?.s || {} };
-    ws[`D${totalRow}`] = { v: totalNum, t: "n", z: fmtMoney, s: ws[`D${totalRow}`]?.s || {} };
-  }
+  const extrasDeCourier = (courier) =>
+    extras.filter((e) => e.flight_id === flightId && e.courier === courier);
 
   async function exportX(r) {
+    // 1) Intentar usar la PLANTILLA con colores
     const tpl = await tryLoadTemplate("/templates/proforma.xlsx");
     if (tpl) {
+      // Reemplazar placeholders de texto
       replacePlaceholdersInWB(tpl, {
         FECHA: flight?.fecha_salida || new Date().toISOString().slice(0, 10),
         COURIER: r.courier,
       });
-      writeFacturaSheet(tpl, r);
+
+      // Escribir cuerpo (sin tocar el logo)
+      writeFacturaSheet(tpl, flight, r, extrasDeCourier);
+
       XLSX.writeFile(tpl, `proforma_${(flight?.codigo || "carga")}_${r.courier}.xlsx`);
       return;
     }
 
-    // Fallback sin plantilla
+    // 2) Fallback (sin plantilla) — mantiene formatos básicos
     const proc = r.kg_fact * TARIFAS.proc;
     const fr = r.kg_real * TARIFAS.real;
     const fe = r.kg_exc * TARIFAS.exc;
     const desp = r.kg_fact * TARIFAS.despacho;
     const canje = canjeGuiaUSD(r.kg_fact);
-    const listExtras = extrasDeCourier(r.courier);
-    const extrasMonto = listExtras.reduce((s, e) => s + parseComma(e.monto), 0);
+    const extrasList = extrasDeCourier(r.courier);
+    const extrasMonto = extrasList.reduce((s, e) => s + parseComma(e.monto), 0);
     const com = 0.04 * (proc + fr + fe + extrasMonto);
     const total = proc + fr + fe + desp + canje + extrasMonto + com;
 
@@ -1583,9 +1624,8 @@ function Proformas({ packages, flights, extras }) {
       [th("Factura Proforma")],
       [td("Fecha: " + (flight?.fecha_salida || new Date().toISOString().slice(0, 10)))],
       [td("")],
-      [th("Cliente"), th(""), th("Forma de pago"), th(""), th("Nº factura")],
-      [td(r.courier), td(""), td(""), td(""), td("—")],
-      [td("")],
+      [th("Cliente"), th(""), th(""), th("Nº factura")],
+      [td(r.courier), td(""), td(""), td("—")],
       [td("")],
       [th("Descripcion"), th("Cantidad"), th("Precio unitario"), th("Precio total")],
       [td("Procesamiento"), td(fmtPeso(r.kg_fact)), td(fmt2(TARIFAS.proc)), td(fmt2(proc))],
@@ -1593,10 +1633,11 @@ function Proformas({ packages, flights, extras }) {
       [td("Flete exceso de volumen"), td(fmtPeso(r.kg_exc)), td(fmt2(TARIFAS.exc)), td(fmt2(fe))],
       [td("Servicio de despacho"), td(fmtPeso(r.kg_fact)), td(fmt2(TARIFAS.despacho)), td(fmt2(desp))],
       [td("Comision por canje de guia"), td("1,000"), td(fmt2(canje)), td(fmt2(canje))],
-      ...listExtras.map((e) => [td(e.descripcion), td("1,000"), td(fmt2(parseComma(e.monto))), td(fmt2(parseComma(e.monto)))]),
+      ...extrasList.map((e) => [td(e.descripcion), td("1,000"), td(fmt2(parseComma(e.monto))), td(fmt2(parseComma(e.monto)))]),
       [td("Comision por transferencia (4%)"), td(""), td(""), td(fmt2(com))],
       [th("TOTAL USD"), th(""), th(""), th(fmt2(total))],
     ];
+
     const { ws } = sheetFromAOAStyled("Factura", rows, {
       cols: [{ wch: 40 }, { wch: 12 }, { wch: 16 }, { wch: 16 }],
       rows: [{ hpt: 26 }],
@@ -1609,18 +1650,12 @@ function Proformas({ packages, flights, extras }) {
       title="Proformas por courier"
       right={
         <div className="flex gap-2 items-end">
-          <Field label="Desde">
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </Field>
-          <Field label="Hasta">
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </Field>
+          <Field label="Desde"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+          <Field label="Hasta"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
           <select className="rounded-xl border px-3 py-2" value={flightId} onChange={(e) => setFlightId(e.target.value)}>
             <option value="">Seleccionar carga…</option>
             {list.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.codigo} · {f.fecha_salida}
-              </option>
+              <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>
             ))}
           </select>
         </div>
@@ -1634,18 +1669,16 @@ function Proformas({ packages, flights, extras }) {
             <thead>
               <tr className="bg-gray-50">
                 {["Courier", "Kg facturable", "Kg exceso", "TOTAL USD", "XLSX"].map((h) => (
-                  <th key={h} className="text-left px-3 py-2">
-                    {h}
-                  </th>
+                  <th key={h} className="text-left px-3 py-2">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {porCourier.map((r) => {
-                const proc = r.kg_fact * TARIFAS.proc,
-                  fr = r.kg_real * TARIFAS.real,
-                  fe = r.kg_exc * TARIFAS.exc,
-                  desp = r.kg_fact * TARIFAS.despacho;
+                const proc = r.kg_fact * TARIFAS.proc;
+                const fr = r.kg_real * TARIFAS.real;
+                const fe = r.kg_exc * TARIFAS.exc;
+                const desp = r.kg_fact * TARIFAS.despacho;
                 const extrasMonto = extrasDeCourier(r.courier).reduce((s, e) => s + parseComma(e.monto), 0);
                 const com = 0.04 * (proc + fr + fe + extrasMonto);
                 const tot = proc + fr + fe + desp + canjeGuiaUSD(r.kg_fact) + extrasMonto + com;
@@ -1656,9 +1689,7 @@ function Proformas({ packages, flights, extras }) {
                     <td className="px-3 py-2">{fmtPeso(r.kg_exc)} kg</td>
                     <td className="px-3 py-2 font-semibold">{fmt2(tot)}</td>
                     <td className="px-3 py-2">
-                      <button className="px-2 py-1 border rounded" onClick={() => exportX(r)}>
-                        Descargar
-                      </button>
+                      <button className="px-2 py-1 border rounded" onClick={() => exportX(r)}>Descargar</button>
                     </td>
                   </tr>
                 );
@@ -1670,6 +1701,7 @@ function Proformas({ packages, flights, extras }) {
     </Section>
   );
 }
+/* === HASTA AQUÍ — Proformas actualizado === */
 
 /* ===== Extras ===== */
 function Extras({ flights, couriers, extras, setExtras }) {

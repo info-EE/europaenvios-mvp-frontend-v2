@@ -1,7 +1,6 @@
 /*  Europa Envíos – MVP 0.2.4 (simplificado)
     - Misma funcionalidad, código ordenado y sin duplicaciones de etiquetas.
 */
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import * as XLSX from "xlsx-js-style";
@@ -35,30 +34,6 @@ const sum = (a) => a.reduce((s, x) => s + Number(x || 0), 0);
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#14B8A6","#84CC16","#F97316"];
 const MIN_FACTURABLE = 0.2;
 
-const labelHTML = ({codigo,nombre,casilla,pesoKg,medidasTxt,desc,cargaTxt}) => {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  JsBarcode(svg, String(codigo).toUpperCase(), { format:"CODE128", displayValue:false, height:50, margin:0 });
-  const svgHtml = new XMLSerializer().serializeToString(svg);
-  return `
-    <html><head><meta charset="utf-8"><title>Etiqueta</title>
-    <style>
-      @page { size: 100mm 60mm; margin: 5mm; } body { font-family: Arial, sans-serif; }
-      .box { width: 100mm; height: 60mm; } .line { margin: 2mm 0; font-size: 12pt; } .b { font-weight: bold; }
-      svg { width: 90mm; height: 18mm; }
-    </style></head><body>
-      <div class="box">
-        <div class="line b">Codigo: ${deaccent(codigo)}</div>
-        <div class="line">${svgHtml}</div>
-        <div class="line">Cliente: ${deaccent(nombre||"")}</div>
-        <div class="line">Casilla: ${deaccent(casilla||"")}</div>
-        <div class="line">Peso: ${fmtPeso(pesoKg||0)} kg</div>
-        <div class="line">Medidas: ${deaccent(medidasTxt||"")}</div>
-        <div class="line">Desc: ${deaccent(desc||"")}</div>
-        <div class="line">Carga: ${deaccent(cargaTxt||"-")}</div>
-      </div>
-    </body></html>`;
-};
-
 /* ========== impresión sin about:blank ========== */
 function printHTMLInIframe(html){
   const iframe = document.createElement("iframe");
@@ -83,7 +58,7 @@ function printHTMLInIframe(html){
   }, 60);
 }
 
-/* ========== Etiquetas: utilidades reutilizables (evita duplicados) ========== */
+/* ========== Etiquetas: utilidades reutilizables (UNA sola implementación) ========== */
 function barcodeSVG(text){
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   JsBarcode(svg, String(text).toUpperCase(), { format:"CODE128", displayValue:false, height:50, margin:0 });
@@ -165,7 +140,6 @@ function appendSheet(wb, name, rows, opts={}){
   const { ws } = sheetFromAOAStyled(name, rows, opts);
   XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
 }
-
 /* ========== ExcelJS (proformas con logo real y formatos) ========== */
 const LOGO_TL = { col: 2, row: 2 };   // B2
 const LOGO_BR = { col: 4, row: 8 };   // D8
@@ -281,7 +255,6 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
   });
 
   // Relleno tabla en "Factura" (respeta formatos)
-  // localizar fila siguiente a "Descripción"
   let startRow = 16, colDesc = 1;
   outer:
   for(let r=1; r<=50; r++){
@@ -332,7 +305,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     }
   });
 
-  // TOTAL dinámico: debajo de la última línea escrita
+  // TOTAL dinámico
   const totalRow = startRow + filas.length;
   wsFactura.getCell(totalRow, colDesc).value = "TOTAL USD";
   wsFactura.getCell(totalRow, COL_CANT).value = "";
@@ -375,7 +348,6 @@ function Modal({open,onClose,title,children}){
     </div>
   );
 }
-
 /* ========== datos iniciales ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = ["Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos","FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers","MC Group","Miami Express","One Box","ParaguayBox","Royal Box"];
@@ -388,6 +360,7 @@ function estadosPermitidosPorCarga(codigo){
   if (s.startsWith("COMP")) return ["Ofrecer marítimo"];
   return ESTADOS_INICIALES;
 }
+
 /* ========== Login ========== */
 function Login({onLogin}){
   const [email,setEmail]=useState("");
@@ -572,25 +545,25 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
- // etiqueta 100x60 usando helper labelHTML
-const printLabel = () => {
-  const fl = flights.find(f => f.id === flightId);
-  if (!(form.codigo && form.desc && form.casilla && form.nombre)) {
-    alert("Completá Código, Casilla, Nombre y Descripción.");
-    return;
-  }
-  const medidas = `${L}x${A}x${H} cm`;
-  const html = labelHTML({
-    codigo: form.codigo,
-    nombre: form.nombre,
-    casilla: form.casilla,
-    pesoKg: peso,
-    medidasTxt: medidas,
-    desc: form.desc,
-    cargaTxt: fl?.codigo || "-"
-  });
-  printHTMLInIframe(html);
-};
+  // etiqueta usando helper labelHTML
+  const printLabel = () => {
+    const fl = flights.find(f => f.id === flightId);
+    if (!(form.codigo && form.desc && form.casilla && form.nombre)) {
+      alert("Completá Código, Casilla, Nombre y Descripción.");
+      return;
+    }
+    const medidas = `${L}x${A}x${H} cm`;
+    const html = labelHTML({
+      codigo: form.codigo,
+      nombre: form.nombre,
+      casilla: form.casilla,
+      pesoKg: peso,
+      medidasTxt: medidas,
+      desc: form.desc,
+      cargaTxt: fl?.codigo || "-"
+    });
+    printHTMLInIframe(html);
+  };
 
   const fileRef = useRef(null);
   const onFile = (e)=>{
@@ -773,20 +746,20 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
   const totalReal = sum(dataReal.map(d=>d.kg_real));
   const totalExc = sum(dataExc.map(d=>d.kg_exceso));
 
-function printPkgLabel(p) {
-  const L = p.largo || 0, A = p.ancho || 0, H = p.alto || 0;
-  const carga = flights.find(f => f.id === p.flight_id)?.codigo || "-";
-  const html = labelHTML({
-    codigo: p.codigo,
-    nombre: p.nombre_apellido || "",
-    casilla: p.casilla || "",
-    pesoKg: p.peso_real || 0,
-    medidasTxt: `${L}x${A}x${H} cm`,
-    desc: p.descripcion || "",
-    cargaTxt: carga
-  });
-  printHTMLInIframe(html);
-}
+  function printPkgLabel(p){
+    const L = p.largo || 0, A = p.ancho || 0, H = p.alto || 0;
+    const carga = flights.find(f => f.id === p.flight_id)?.codigo || "-";
+    const html = labelHTML({
+      codigo: p.codigo,
+      nombre: p.nombre_apellido || "",
+      casilla: p.casilla || "",
+      pesoKg: p.peso_real || 0,
+      medidasTxt: `${L}x${A}x${H} cm`,
+      desc: p.descripcion || "",
+      cargaTxt: carga
+    });
+    printHTMLInIframe(html);
+  }
 
   return (
     <Section title="Paquetes en bodega"
@@ -824,7 +797,12 @@ function printPkgLabel(p) {
                   <td className="px-3 py-2">
                     {p.foto ? <img alt="foto" src={p.foto} className="w-14 h-14 object-cover rounded cursor-pointer" onClick={()=>setViewer(p.foto)} /> : "—"}
                   </td>
-                  <td className="px-3 py-2"><button className="px-2 py-1 border rounded" onClick={()=>start(p)}>Editar</button></td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <button className="px-2 py-1 border rounded" onClick={()=>start(p)}>Editar</button>
+                      <button className="px-2 py-1 border rounded" onClick={()=>printPkgLabel(p)}>Etiqueta</button>
+                    </div>
+                  </td>
                 </tr>
               );
             })}
@@ -921,7 +899,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [editingBoxId, setEditingBoxId] = useState(null);
 
   useEffect(()=>{
-    // cuando cambia la carga, establecer la primera caja activa
     if(flight && flight.cajas.length>0){
       setActiveBoxId(flight.cajas[0].id);
       setEditingBoxId(null);
@@ -940,7 +917,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     },0);
   }
   function updBox(id,field,val){ if(!flightId||!id) return;
-    // valida nombre único
     if(field==="codigo"){
       const dup = flight.cajas.some(c=>c.id!==id && String(c.codigo).trim().toLowerCase()===String(val).trim().toLowerCase());
       if(dup){ alert("El nombre de la caja no puede repetirse para esta carga."); return; }
@@ -1333,6 +1309,7 @@ function Extras({flights, couriers, extras, setExtras}){
 
   return (
     <Section title="Trabajos extras">
+      <div className="grid md:grid-cols-6 gap-2
       <div className="grid md:grid-cols-6 gap-2 mb-2">
         <Field label="Carga">
           <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
@@ -1365,7 +1342,13 @@ function Extras({flights, couriers, extras, setExtras}){
 
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
-          <thead><tr className="bg-gray-50">{["Fecha","Carga","Courier","Descripción","Monto (USD)","Estado","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+          <thead>
+            <tr className="bg-gray-50">
+              {["Fecha","Carga","Courier","Descripción","Monto (USD)","Estado","Acciones"].map(h=>(
+                <th key={h} className="text-left px-3 py-2">{h}</th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
             {filtered.map(e=>{
               const carga = flights.find(f=>f.id===e.flight_id)?.codigo || "";
@@ -1374,8 +1357,12 @@ function Extras({flights, couriers, extras, setExtras}){
                   <td className="px-3 py-2">{e.fecha || flights.find(f=>f.id===e.flight_id)?.fecha_salida || ""}</td>
                   <td className="px-3 py-2">{carga}</td>
                   <td className="px-3 py-2">{e.courier}</td>
-                  <td className="px-3 py-2"><Input value={e.descripcion} onChange={ev=>upd(e.id,{descripcion:ev.target.value})}/></td>
-                  <td className="px-3 py-2"><Input value={e.monto} onChange={ev=>upd(e.id,{monto:ev.target.value})}/></td>
+                  <td className="px-3 py-2">
+                    <Input value={e.descripcion} onChange={ev=>upd(e.id,{descripcion:ev.target.value})}/>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input value={e.monto} onChange={ev=>upd(e.id,{monto:ev.target.value})}/>
+                  </td>
                   <td className="px-3 py-2">
                     <select className="border rounded px-2 py-1" value={e.estado} onChange={ev=>upd(e.id,{estado:ev.target.value})}>
                       <option>Pendiente</option><option>Cobrado</option>
@@ -1387,117 +1374,14 @@ function Extras({flights, couriers, extras, setExtras}){
                 </tr>
               );
             })}
+            {filtered.length===0 && (
+              <tr>
+                <td colSpan={7} className="text-center text-gray-500 py-6">Sin resultados.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
     </Section>
   );
 }
-
-/* ========== helpers listas sencillas ========== */
-function ManageList({label,items,setItems}){
-  const [txt,setTxt]=useState("");
-  return (
-    <div className="bg-gray-50 rounded-xl p-3">
-      <div className="font-medium mb-2">{label}</div>
-      <div className="flex gap-2">
-        <Input value={txt} onChange={e=>setTxt(e.target.value)} placeholder={`Agregar a ${label}`}/>
-        <button className={BTN} onClick={()=>{ if(!txt.trim()) return; setItems([...items, txt.trim()]); setTxt(""); }}>Añadir</button>
-      </div>
-      <ul className="mt-2 text-sm">
-        {items.map((x,i)=>(
-          <li key={i} className="flex items-center justify-between py-1">
-            <span>{x}</span>
-            <button className="text-red-600 text-xs" onClick={()=>setItems(items.filter((_,j)=>j!==i))}>Quitar</button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/* ========== App ========== */
-function App(){
-  const [currentUser,setCurrentUser]=useState(null);
-
-  const [tab,setTab]=useState("Recepción");
-  const tabs = ["Recepción","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Extras"];
-
-  const [couriers,setCouriers]=useState(COURIERS_INICIALES);
-  const [estados,setEstados]=useState(ESTADOS_INICIALES);
-
-  const [flights,setFlights]=useState([
-    { id:uuid(), codigo:"AIRSEP1 · 2025-09-07", fecha_salida:"2025-09-07", estado:"En bodega", awb:"", factura_cacesa:"", cajas:[] },
-  ]);
-  const [packages,setPackages]=useState([]);
-  const [extras,setExtras]=useState([]);
-
-  if(!currentUser) return <Login onLogin={setCurrentUser} />;
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* header simple */}
-      <div className="px-6 py-4 flex items-center justify-between">
-        <div>
-          <div className="text-lg font-semibold">Gestor de Paquetes</div>
-          <div className="text-xs text-gray-500">LaMaquinaLogistica / Europa Envíos</div>
-        </div>
-        <div className="text-sm text-gray-600">{currentUser.role} — {currentUser.email}</div>
-      </div>
-
-      <div className="px-6">
-        <div className="flex gap-2 flex-wrap mb-4">
-          {tabs.map(t=>(
-            <button key={t} onClick={()=>setTab(t)} className={"px-3 py-2 rounded-xl text-sm "+(tab===t?"bg-indigo-600 text-white":"bg-white border")}>{t}</button>
-          ))}
-        </div>
-
-        {tab==="Recepción" && (
-          <Reception
-            currentUser={currentUser}
-            couriers={couriers} setCouriers={setCouriers}
-            estados={estados} setEstados={setEstados}
-            flights={flights}
-            onAdd={(p)=>setPackages([p,...packages])}
-          />
-        )}
-
-        {tab==="Paquetes en bodega" && (
-          <PaquetesBodega
-            packages={packages}
-            flights={flights}
-            user={currentUser}
-            onUpdate={(p)=>setPackages(packages.map(x=>x.id===p.id?p:x))}
-          />
-        )}
-
-        {tab==="Armado de cajas" && (
-          <ArmadoCajas
-            packages={packages}
-            flights={flights}
-            setFlights={setFlights}
-            onAssign={(id)=>setPackages(packages.map(p=>p.id===id?p:{...p}))}
-          />
-        )}
-
-        {tab==="Cargas enviadas" && (
-          <CargasEnviadas packages={packages} flights={flights} />
-        )}
-
-        {tab==="Gestión de cargas" && (
-          <CargasAdmin flights={flights} setFlights={setFlights} packages={packages} />
-        )}
-
-        {tab==="Proformas" && (
-          <Proformas packages={packages} flights={flights} extras={extras} />
-        )}
-
-        {tab==="Extras" && (
-          <Extras flights={flights} couriers={couriers} extras={extras} setExtras={setExtras} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default App;

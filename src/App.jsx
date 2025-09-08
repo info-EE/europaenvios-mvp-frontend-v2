@@ -35,6 +35,30 @@ const sum = (a) => a.reduce((s, x) => s + Number(x || 0), 0);
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#14B8A6","#84CC16","#F97316"];
 const MIN_FACTURABLE = 0.2;
 
+const labelHTML = ({codigo,nombre,casilla,pesoKg,medidasTxt,desc,cargaTxt}) => {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  JsBarcode(svg, String(codigo).toUpperCase(), { format:"CODE128", displayValue:false, height:50, margin:0 });
+  const svgHtml = new XMLSerializer().serializeToString(svg);
+  return `
+    <html><head><meta charset="utf-8"><title>Etiqueta</title>
+    <style>
+      @page { size: 100mm 60mm; margin: 5mm; } body { font-family: Arial, sans-serif; }
+      .box { width: 100mm; height: 60mm; } .line { margin: 2mm 0; font-size: 12pt; } .b { font-weight: bold; }
+      svg { width: 90mm; height: 18mm; }
+    </style></head><body>
+      <div class="box">
+        <div class="line b">Codigo: ${deaccent(codigo)}</div>
+        <div class="line">${svgHtml}</div>
+        <div class="line">Cliente: ${deaccent(nombre||"")}</div>
+        <div class="line">Casilla: ${deaccent(casilla||"")}</div>
+        <div class="line">Peso: ${fmtPeso(pesoKg||0)} kg</div>
+        <div class="line">Medidas: ${deaccent(medidasTxt||"")}</div>
+        <div class="line">Desc: ${deaccent(desc||"")}</div>
+        <div class="line">Carga: ${deaccent(cargaTxt||"-")}</div>
+      </div>
+    </body></html>`;
+};
+
 /* ========== impresión sin about:blank ========== */
 function printHTMLInIframe(html){
   const iframe = document.createElement("iframe");

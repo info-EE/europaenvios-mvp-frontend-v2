@@ -281,7 +281,16 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
   const COL_CANT = colDesc + 1;
   const COL_UNIT = colDesc + 2;
   const COL_SUB  = colDesc + 3;
-
+    
+// --- LIMPIEZA DEL ÁREA DE DETALLE ---
+// evita que queden restos cuando antes había más líneas
+const maxFilas = 40; // margen generoso
+for (let r = startRow; r < startRow + maxFilas; r++) {
+  wsFactura.getCell(r, colDesc).value = "";
+  wsFactura.getCell(r, COL_CANT).value = "";
+  wsFactura.getCell(r, COL_UNIT).value = "";
+  wsFactura.getCell(r, COL_SUB).value  = "";
+}
   const filas = [
     ["Procesamiento", datosFactura.kg_fact, datosFactura.pu_proc, datosFactura.sub_proc],
     ["Flete peso real", datosFactura.kg_real, datosFactura.pu_real, datosFactura.sub_real],
@@ -311,10 +320,13 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     }
   });
 
-  // TOTAL sólo en A22/D22
-  wsFactura.getCell(TOTAL_ROW, TOTAL_LABEL_COL).value = "TOTAL USD";
-  wsFactura.getCell(TOTAL_ROW, TOTAL_VALUE_COL).value = Number(datosFactura.total.toFixed(2));
-  wsFactura.getCell(TOTAL_ROW, TOTAL_VALUE_COL).numFmt = "0.00";
+// --- TOTAL dinámico: debajo de la última línea escrita ---
+const totalRow = startRow + filas.length;
+wsFactura.getCell(totalRow, colDesc).value = "TOTAL USD";
+wsFactura.getCell(totalRow, COL_CANT).value = "";
+wsFactura.getCell(totalRow, COL_UNIT).value = "";
+wsFactura.getCell(totalRow, COL_SUB).value  = Number(datosFactura.total.toFixed(2));
+wsFactura.getCell(totalRow, COL_SUB).numFmt = "0.00";
 
   const buffer = await wb.xlsx.writeBuffer();
   downloadBufferAsXlsx(buffer, nombreArchivo);

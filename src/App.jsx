@@ -1,33 +1,29 @@
-/*  Europa Envíos – MVP 0.2.4
-    Cambios incluidos:
-    - Impresión por iframe oculto (sin about:blank) en Recepción y Bodega.
-    - Se quitan acentos automáticamente en las etiquetas impresas (evita errores).
-    - “Estado” restringido por prefijo de carga (AIR/MAR/COMP) en Recepción y editor de Bodega.
-    - Gestión de cargas: aviso si faltan paquetes sin escanear al pasar a En tránsito/Arribado.
-    - Bodega: export XLSX con columnas pedidas y orden correcto (Exceso antes que Medidas).
-    - Armado de cajas: selección clara con botones “Editar/Guardar”, escaneo va a la caja activa,
-      reordenar y eliminar. Valida nombre único por carga.
-    - Proformas: usa plantilla /templates/proforma.xlsx (pestaña Factura), coloca logo *real* sin estirar
-      en B2:D8, respeta formatos (Cantidad 0.000, Precios 0.00), TOTAL sólo en A22/D22, reemplaza
-      {{FECHA}} (fecha de la carga) y {{COURIER}} (courier).
+/*  Europa Envíos – MVP 0.2.5
+    Cambios:
+    - Etiquetas: impresión por iframe oculto, todo texto sin acentos (deaccent).
+    - Couriers/Estados en código sin acentos.
+    - Armado de cajas: caja activa + botones Editar/Guardar, reordenar, eliminar, nombre único.
+    - Bodega: XLSX con columnas pedidas (Exceso antes que Medidas).
+    - Proformas: ExcelJS con plantilla /templates/proforma.xlsx:
+        * Logo centrado exacto en B2:D8 sin estirar.
+        * Cantidad con 3 decimales; precios con 2.
+        * Extras: Cantidad 1,000 y P. unitario = Total.
+        * TOTAL sólo en A22/D22.
+        * Reemplaza {{FECHA}} y {{COURIER}} con datos reales.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import * as XLSX from "xlsx-js-style";
 import JsBarcode from "jsbarcode";
-// ExcelJS en navegador (evita polyfills extra en Vite)
 import ExcelJS from "exceljs/dist/exceljs.min.js";
 
-/* ========== utils ========== */
+/* ===== Utils ===== */
 const uuid = () => {
   try { if (window.crypto?.randomUUID) return window.crypto.randomUUID(); } catch {}
   return `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
-const deaccent = (s) => String(s ?? "")
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .replace(/ñ/gi, m => m === "ñ" ? "n" : "N"); // por si acaso
+const deaccent = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const parseComma = (txt) => {
   if (txt === null || txt === undefined) return 0;
   const s = String(txt).trim().replace(/\./g, "").replace(",", ".");
@@ -44,38 +40,24 @@ const fmtMoney = (n) => Number(n||0).toFixed(2).replace(".", ",");
 const sum = (a) => a.reduce((s,x)=>s+Number(x||0),0);
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#14B8A6","#84CC16","#F97316"];
 
-/* ========== impresión sin about:blank ========== */
+/* ===== Impresión sin about:blank ===== */
 function printHTMLInIframe(html){
   const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
+  Object.assign(iframe.style, { position:"fixed", right:"0", bottom:"0", width:"0", height:"0", border:"0" });
   document.body.appendChild(iframe);
-
-  const cleanup = () => setTimeout(()=> { try{ document.body.removeChild(iframe); }catch{} }, 500);
+  const cleanup=()=>setTimeout(()=>{ try{document.body.removeChild(iframe);}catch{} },500);
 
   const doc = iframe.contentWindow.document;
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-  setTimeout(() => {
-    try{
-      iframe.contentWindow.focus();
-      const after = () => { iframe.contentWindow.removeEventListener?.("afterprint", after); cleanup(); };
-      iframe.contentWindow.addEventListener?.("afterprint", after);
-      iframe.contentWindow.print();
-    }catch{
-      cleanup();
-      alert("No se pudo generar la etiqueta.");
-    }
-  }, 60);
+  doc.open(); doc.write(html); doc.close();
+  setTimeout(()=>{ try{
+    iframe.contentWindow.focus();
+    const after=()=>{ iframe.contentWindow.removeEventListener?.("afterprint",after); cleanup(); };
+    iframe.contentWindow.addEventListener?.("afterprint",after);
+    iframe.contentWindow.print();
+  }catch{ cleanup(); alert("No se pudo generar la etiqueta."); }}, 60);
 }
 
-/* ========== estilos XLSX programáticos (fallback) ========== */
+/* ===== XLSX helpers (fallback) ===== */
 const bd = () => ({ top:{style:"thin",color:{rgb:"FFCBD5E1"}}, bottom:{style:"thin",color:{rgb:"FFCBD5E1"}},
   left:{style:"thin",color:{rgb:"FFCBD5E1"}}, right:{style:"thin",color:{rgb:"FFCBD5E1"}} });
 const th = (txt) => ({ v:txt, t:"s", s:{font:{bold:true,color:{rgb:"FFFFFFFF"}},fill:{fgColor:{rgb:"FF1F2937"}},
@@ -95,7 +77,7 @@ function downloadXLSX(filename, sheets){
   XLSX.writeFile(wb, filename);
 }
 
-/* ====== soporte de plantillas XLSX (public/templates/*.xlsx) ====== */
+/* ===== Plantillas XLSX con xlsx-js-style ===== */
 async function tryLoadTemplate(path){
   try{
     const res = await fetch(path, {cache:"no-store"});
@@ -115,9 +97,7 @@ function replacePlaceholdersInWB(wb, map){
         const cell = ws[addr];
         if(cell && typeof cell.v==="string"){
           let txt = cell.v;
-          Object.entries(map).forEach(([k,v])=>{
-            txt = txt.replaceAll(`{{${k}}}`, v ?? "");
-          });
+          Object.entries(map).forEach(([k,v])=>{ txt = txt.replaceAll(`{{${k}}}`, v ?? ""); });
           if(txt!==cell.v) ws[addr] = {...cell, v: txt, t:"s"};
         }
       }
@@ -129,7 +109,7 @@ function appendSheet(wb, name, rows, opts={}){
   XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
 }
 
-/* ========== ExcelJS (proformas con logo real y formatos) ========== */
+/* ===== ExcelJS para proformas (logo centrado y formatos) ===== */
 const LOGO_TL = { col: 2, row: 2 };   // B2
 const LOGO_BR = { col: 4, row: 8 };   // D8
 const TOTAL_ROW = 22;
@@ -155,6 +135,30 @@ function boxSizePx(ws, tl, br){
   for(let r=tl.row; r<=br.row; r++) h += rowHeightPx(ws, r);
   return { w, h };
 }
+// convierte un offset en px desde startCol a coordenada "col float" ExcelJS
+function colFloatFromOffset(ws, startCol, px){
+  let acc=0, c=startCol;
+  while(true){
+    const w = colWidthPx(ws, c);
+    if (px <= acc + w) {
+      const frac = (px - acc) / w;
+      return (c - 1) + frac;
+    }
+    acc += w; c++;
+  }
+}
+function rowFloatFromOffset(ws, startRow, px){
+  let acc=0, r=startRow;
+  while(true){
+    const h = rowHeightPx(ws, r);
+    if (px <= acc + h) {
+      const frac = (px - acc) / h;
+      return (r - 1) + frac;
+    }
+    acc += h; r++;
+  }
+}
+
 async function loadLogoInfo(url){
   const resp = await fetch(url, { cache: "no-store" });
   if(!resp.ok) throw new Error("Logo no encontrado");
@@ -182,7 +186,6 @@ function downloadBufferAsXlsx(buf, filename){
   a.href = url; a.download = filename; a.click();
   setTimeout(()=>URL.revokeObjectURL(url), 1500);
 }
-// Reemplaza placeholders {{CLAVE}} en ExcelJS (hoja)
 function replacePlaceholdersExcelJS(ws, map){
   const maxR = Math.min(ws.rowCount || 200, 200);
   const maxC = Math.min(ws.columnCount || 30, 30);
@@ -191,19 +194,12 @@ function replacePlaceholdersExcelJS(ws, map){
       const cell = ws.getCell(r,c);
       const v = cell.value;
       let txt;
-      if (v && typeof v === "object" && v.richText) {
-        txt = v.richText.map(t=>t.text).join("");
-      } else {
-        txt = (v ?? "").toString();
-      }
+      if (v && typeof v === "object" && v.richText) txt = v.richText.map(t=>t.text).join("");
+      else txt = (v ?? "").toString();
       if (!txt) continue;
       let changed = txt;
-      Object.entries(map).forEach(([k,val])=>{
-        changed = changed.replaceAll(`{{${k}}}`, val ?? "");
-      });
-      if (changed !== txt) {
-        cell.value = changed;
-      }
+      Object.entries(map).forEach(([k,val])=>{ changed = changed.replaceAll(`{{${k}}}`, val ?? ""); });
+      if (changed !== txt) cell.value = changed;
     }
   }
 }
@@ -220,7 +216,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     COURIER: datosFactura.courier || ""
   });
 
-  // LOGO real proporcionado
+  // LOGO centrado exacto en B2:D8
   try{
     const { base64, width: imgW, height: imgH } = await loadLogoInfo(logoUrl);
     const imageId = wb.addImage({ base64, extension: "png" });
@@ -232,11 +228,8 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     const offX = Math.max(0, (boxW - extW) / 2);
     const offY = Math.max(0, (boxH - extH) / 2);
 
-    const tlColWidth = colWidthPx(wsFactura, LOGO_TL.col);
-    const tlRowHeight = rowHeightPx(wsFactura, LOGO_TL.row);
-
-    const tlColFloat = (LOGO_TL.col - 1) + (offX / tlColWidth);
-    const tlRowFloat = (LOGO_TL.row - 1) + (offY / tlRowHeight);
+    const tlColFloat = colFloatFromOffset(wsFactura, LOGO_TL.col, offX);
+    const tlRowFloat = rowFloatFromOffset(wsFactura, LOGO_TL.row, offY);
 
     wsFactura.addImage(imageId, {
       tl: { col: tlColFloat, row: tlRowFloat },
@@ -245,7 +238,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     });
   }catch(e){ console.warn("No se pudo insertar el logo:", e); }
 
-  // Hoja DETALLE (para ver todo claro)
+  // Hoja DETALLE (para transparencia)
   const wsDet = wb.getWorksheet("DETALLE") || wb.addWorksheet("DETALLE");
   wsDet.getRow(1).values = ["Descripción","Cantidad","P. unitario","Total"];
   datosFactura.detalleParaSheet.forEach((row, i)=>{
@@ -265,8 +258,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     }
   });
 
-  // Rellenar tabla en "Factura" (respeta formatos)
-  // localizar fila siguiente a "Descripción"
+  // Rellenar tabla en "Factura"
   let startRow = 16, colDesc = 1;
   outer:
   for(let r=1; r<=50; r++){
@@ -288,12 +280,11 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     ["Flete exceso de volumen", datosFactura.kg_exc, datosFactura.pu_exc, datosFactura.sub_exc],
     ["Servicio de despacho", datosFactura.kg_fact, datosFactura.pu_desp, datosFactura.sub_desp],
     ["Comisión por canje de guía", 1, datosFactura.canje, datosFactura.canje],
-    ...datosFactura.extras,
+    ...datosFactura.extras, // ya vienen con [desc, 1, unit, total]
     ["Comisión por transferencia (4%)","", "", datosFactura.comision]
   ];
   filas.forEach((row, i)=>{
     wsFactura.getCell(startRow+i, colDesc).value = String(row[0]);
-
     const qty = row[1];
     if(qty !== "" && qty !== null && qty !== undefined){
       wsFactura.getCell(startRow+i, COL_CANT).value = Number(qty);
@@ -311,7 +302,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     }
   });
 
-  // TOTAL sólo en A22/D22
+  // TOTAL en A22/D22
   wsFactura.getCell(TOTAL_ROW, TOTAL_LABEL_COL).value = "TOTAL USD";
   wsFactura.getCell(TOTAL_ROW, TOTAL_VALUE_COL).value = Number(datosFactura.total.toFixed(2));
   wsFactura.getCell(TOTAL_ROW, TOTAL_VALUE_COL).numFmt = "0.00";
@@ -320,7 +311,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
   downloadBufferAsXlsx(buffer, nombreArchivo);
 }
 
-/* ========== UI base ========== */
+/* ===== UI base ===== */
 const BTN = "px-3 py-2 rounded-xl border bg-white hover:bg-gray-50";
 const BTN_PRIMARY = "px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white";
 const Section = ({title,right,children})=>(
@@ -352,20 +343,20 @@ function Modal({open,onClose,title,children}){
   );
 }
 
-/* ========== datos iniciales ========== */
-const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
-const COURIERS_INICIALES = ["Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos","FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers","MC Group","Miami Express","One Box","ParaguayBox","Royal Box"];
-const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
+/* ===== Datos iniciales (sin acentos) ===== */
+const ESTADOS_INICIALES = ["Aereo","Maritimo","Ofrecer maritimo"];
+const COURIERS_INICIALES = ["Aladin","Boss Box","Buzon","Caba Box","Click Box","Easy Box","Europa Envios","FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers","MC Group","Miami Express","One Box","ParaguayBox","Royal Box"];
+const ESTADOS_CARGA = ["En bodega","En transito","Arribado"];
 
 function estadosPermitidosPorCarga(codigo){
   const s = String(codigo||"").toUpperCase();
-  if (s.startsWith("AIR")) return ["Aéreo"];
-  if (s.startsWith("MAR")) return ["Marítimo"];
-  if (s.startsWith("COMP")) return ["Ofrecer marítimo"];
+  if (s.startsWith("AIR")) return ["Aereo"];
+  if (s.startsWith("MAR")) return ["Maritimo"];
+  if (s.startsWith("COMP")) return ["Ofrecer maritimo"];
   return ESTADOS_INICIALES;
 }
 
-/* ========== Login ========== */
+/* ===== Login ===== */
 function Login({onLogin}){
   const [email,setEmail]=useState("");
   const [role,setRole]=useState("ADMIN");
@@ -388,7 +379,7 @@ function Login({onLogin}){
   );
 }
 
-/* ========== Gestión de cargas ========== */
+/* ===== Gestión de cargas ===== */
 function CargasAdmin({flights,setFlights, packages}){
   const [code,setCode]=useState("");
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
@@ -403,7 +394,6 @@ function CargasAdmin({flights,setFlights, packages}){
     setCode(""); setAwb(""); setFac("");
   }
 
-  // paquetes sin asignar a caja (para alerta)
   function missingScans(flight){
     const idsDeCarga = packages.filter(p=>p.flight_id===flight.id).map(p=>p.id);
     const asignados = new Set((flight.cajas||[]).flatMap(c=>c.paquetes||[]));
@@ -411,12 +401,12 @@ function CargasAdmin({flights,setFlights, packages}){
   }
 
   function upd(id,field,value){
-    if(field==="estado" && (value==="En tránsito" || value==="Arribado")){
+    if(field==="estado" && (value==="En transito" || value==="Arribado")){
       const f = flights.find(x=>x.id===id);
       if(f){
         const faltan = missingScans(f);
         if(faltan>0){
-          const ok = window.confirm(`Atención: faltan escanear ${faltan} paquete(s) en "Armado de cajas" para la carga ${f.codigo}. ¿Deseás continuar igualmente?`);
+          const ok = window.confirm(`Atencion: faltan escanear ${faltan} paquete(s) en "Armado de cajas" para la carga ${f.codigo}. ¿Deseas continuar igualmente?`);
           if(!ok) return;
         }
       }
@@ -466,7 +456,7 @@ function CargasAdmin({flights,setFlights, packages}){
   );
 }
 
-/* ========== Recepción ========== */
+/* ===== Recepción ===== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const [flightId,setFlightId]=useState(vuelosBodega[0]?.id||"");
@@ -479,7 +469,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     desc:"", valor_txt:"0,00", foto:null
   });
 
-  const limpiar=(s)=>String(s||"").toUpperCase().replace(/\s+/g,"");
+  const limpiar=(s)=>deaccent(String(s||"").toUpperCase().replace(/\s+/g,""));
   useEffect(()=>{
     if(!form.courier) return;
     const key="seq_"+limpiar(form.courier);
@@ -536,7 +526,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       try{
         const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode:"environment" } });
         streamRef.current=s; if(videoRef.current){ videoRef.current.srcObject=s; videoRef.current.play(); }
-      }catch{ alert("No se pudo acceder a la cámara."); setCamOpen(false); }
+      }catch{ alert("No se pudo acceder a la camara."); setCamOpen(false); }
     })();
     return ()=>{ if(streamRef.current){ streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; } };
   },[camOpen]);
@@ -549,10 +539,10 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // etiqueta 100x60 (se quitan acentos en todos los textos)
+  // etiqueta 100x60 (todo deaccent)
   const printLabel=()=>{
     const fl = flights.find(f=>f.id===flightId);
-    if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completá Código, Casilla, Nombre y Descripción."); return; }
+    if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completa Codigo, Casilla, Nombre y Descripcion."); return; }
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     JsBarcode(svg, String(form.codigo).toUpperCase(), { format:"CODE128", displayValue:false, height:50, margin:0 });
     const svgHtml = new XMLSerializer().serializeToString(svg);
@@ -588,7 +578,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
   return (
     <Section
-      title="Recepción de paquete"
+      title="Recepcion de paquete"
       right={
         <div className="flex items-center gap-2">
           <button className={BTN} onClick={()=>setShowMgr(s=>!s)}>Gestionar listas</button>
@@ -622,10 +612,10 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         </Field>
 
         <Field label="Casilla" required><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})}/></Field>
-        <Field label="Código de paquete" required><Input value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value.toUpperCase()})} placeholder="BOSSBOX1"/></Field>
+        <Field label="Codigo de paquete" required><Input value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value.toUpperCase()})} placeholder="BOSSBOX1"/></Field>
         <Field label="Fecha" required><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></Field>
 
-        <Field label="Empresa de envío" required><Input value={form.empresa} onChange={e=>setForm({...form,empresa:e.target.value})}/></Field>
+        <Field label="Empresa de envio" required><Input value={form.empresa} onChange={e=>setForm({...form,empresa:e.target.value})}/></Field>
         <Field label="Nombre y apellido" required><Input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})}/></Field>
         <Field label="Tracking" required><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})}/></Field>
 
@@ -635,7 +625,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         <Field label="Ancho (cm)" required><Input value={form.A_txt} onChange={e=>setForm({...form,A_txt:e.target.value})} placeholder="30"/></Field>
         <Field label="Alto (cm)" required><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} placeholder="20"/></Field>
 
-        <Field label="Descripción" required><Input value={form.desc} onChange={e=>setForm({...form,desc:e.target.value})}/></Field>
+        <Field label="Descripcion" required><Input value={form.desc} onChange={e=>setForm({...form,desc:e.target.value})}/></Field>
         <Field label="Precio (EUR)" required><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} placeholder="10,00"/></Field>
 
         <Field label="Foto del paquete">
@@ -648,8 +638,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       </div>
 
       <div className="grid md:grid-cols-3 gap-4 mt-4">
-        <InfoBox title="Peso facturable (mín 0,200 kg)" value={`${fmtPeso(fact)} kg`}/>
-        <InfoBox title="Peso volumétrico (A×H×L / 5000)" value={`${fmtPeso(vol)} kg`}/>
+        <InfoBox title="Peso facturable (min 0,200 kg)" value={`${fmtPeso(fact)} kg`}/>
+        <InfoBox title="Peso volumetrico (A×H×L / 5000)" value={`${fmtPeso(vol)} kg`}/>
         <InfoBox title="Exceso de volumen" value={`${fmtPeso(exc)} kg`}/>
       </div>
 
@@ -676,7 +666,7 @@ const InfoBox=({title,value})=>(
   </div>
 );
 
-/* ========== Paquetes en bodega ========== */
+/* ===== Bodega ===== */
 function PaquetesBodega({packages, flights, user, onUpdate}){
   const [q,setQ]=useState("");
   const [flightId,setFlightId]=useState("");
@@ -688,7 +678,6 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
     .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()))
     .filter(p => user.role!=="COURIER" || p.courier===user.courier);
 
-  // editor
   const [open,setOpen]=useState(false);
   const [form,setForm]=useState(null);
   const start=(p)=>{
@@ -719,13 +708,12 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
 
   const [viewer,setViewer]=useState(null);
 
-  // EXPORT bodega
   async function exportXLSX(){
     const header = [
-      th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"),
-      th("Fecha"), th("Empresa de envío"), th("Nombre y apellido"), th("Tracking"),
-      th("Remitente"), th("Peso facturable (mín 0,200 kg)"), th("Exceso de volumen"),
-      th("Medidas"), th("Descripción"), th("Precio (EUR)")
+      th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Codigo de paquete"),
+      th("Fecha"), th("Empresa de envio"), th("Nombre y apellido"), th("Tracking"),
+      th("Remitente"), th("Peso facturable (min 0,200 kg)"), th("Exceso de volumen"),
+      th("Medidas"), th("Descripcion"), th("Precio (EUR)")
     ];
     const body = rows.map(p=>{
       const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "";
@@ -752,7 +740,6 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
     downloadXLSX("Paquetes_en_bodega.xlsx", [{name:"Bodega", ws}]);
   }
 
-  // agregados
   const aggReal = {}; const aggExc = {};
   rows.forEach(p=>{ aggReal[p.courier]=(aggReal[p.courier]||0)+p.peso_real; aggExc[p.courier]=(aggExc[p.courier]||0)+p.exceso_volumen; });
   const dataReal = Object.entries(aggReal).map(([courier,kg_real])=>({courier,kg_real}));
@@ -804,7 +791,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
           <thead><tr className="bg-gray-50">
-            {["Carga","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Medidas","Exceso de volumen","Descripción","Foto","Editar"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}
+            {["Carga","Codigo","Casilla","Fecha","Nombre","Tracking","Peso real","Medidas","Exceso de volumen","Descripcion","Foto","Editar"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}
           </tr></thead>
           <tbody>
             {rows.map(p=>{
@@ -833,10 +820,10 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
         </table>
       </div>
 
-      {/* Gráficos */}
+      {/* Graficos */}
       <div className="grid md:grid-cols-2 gap-6 mt-6">
         {[{data:dataReal,key:"kg_real",title:`Kg reales por courier. Total: `,total:totalReal},
-          {data:dataExc,key:"kg_exceso",title:`Exceso volumétrico por courier. Total: `,total:totalExc}].map((g,ix)=>(
+          {data:dataExc,key:"kg_exceso",title:`Exceso volumetrico por courier. Total: `,total:totalExc}].map((g,ix)=>(
           <div key={g.key} className="bg-gray-50 rounded-xl p-3">
             <div className="text-sm text-gray-700 mb-2">{g.title}<b>{fmtPeso(g.total)} kg</b></div>
             <div className="h-64">
@@ -855,7 +842,6 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
         ))}
       </div>
 
-      {/* Modal edición */}
       <Modal open={open} onClose={()=>setOpen(false)} title="Editar paquete">
         {form && (
           <div className="grid md:grid-cols-3 gap-3">
@@ -878,10 +864,10 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
             </Field>
 
             <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})}/></Field>
-            <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value.toUpperCase()})}/></Field>
+            <Field label="Codigo de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value.toUpperCase()})}/></Field>
             <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></Field>
 
-            <Field label="Empresa de envío"><Input value={form.empresa_envio||""} onChange={e=>setForm({...form,empresa_envio:e.target.value})}/></Field>
+            <Field label="Empresa de envio"><Input value={form.empresa_envio||""} onChange={e=>setForm({...form,empresa_envio:e.target.value})}/></Field>
             <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})}/></Field>
             <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})}/></Field>
 
@@ -891,7 +877,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
             <Field label="Ancho (cm)"><Input value={form.A_txt} onChange={e=>setForm({...form,A_txt:e.target.value})}/></Field>
             <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})}/></Field>
 
-            <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})}/></Field>
+            <Field label="Descripcion"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})}/></Field>
             <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})}/></Field>
 
             <div className="md:col-span-3 flex items-center justify-between mt-2">
@@ -904,7 +890,6 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
         )}
       </Modal>
 
-      {/* Visor de foto */}
       <Modal open={!!viewer} onClose={()=>setViewer(null)} title="Foto">
         {viewer && <img src={viewer} alt="foto" className="max-w-full rounded-xl" />}
       </Modal>
@@ -912,7 +897,7 @@ function PaquetesBodega({packages, flights, user, onUpdate}){
   );
 }
 
-/* ========== Armado de cajas (Editar / Guardar y caja activa) ========== */
+/* ===== Armado de cajas (caja activa + Editar/Guardar) ===== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -921,7 +906,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [editingBoxId, setEditingBoxId] = useState(null);
 
   useEffect(()=>{
-    // cuando cambia la carga, establecer la primera caja activa
     if(flight && flight.cajas.length>0){
       setActiveBoxId(flight.cajas[0].id);
       setEditingBoxId(null);
@@ -934,13 +918,8 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   function addBox(){ if(!flightId) return;
     const n = (flight?.cajas?.length||0)+1;
     setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:[...f.cajas,{id:uuid(),codigo:`Caja ${n}`,paquetes:[],peso:"",L:"",A:"",H:""}]}));
-    setTimeout(()=>{
-      const nf = flights.find(f=>f.id===flightId);
-      if(nf?.cajas?.length) setActiveBoxId(nf.cajas[nf.cajas.length-1]?.id);
-    },0);
   }
   function updBox(id,field,val){ if(!flightId||!id) return;
-    // valida nombre único
     if(field==="codigo"){
       const dup = flight.cajas.some(c=>c.id!==id && String(c.codigo).trim().toLowerCase()===String(val).trim().toLowerCase());
       if(dup){ alert("El nombre de la caja no puede repetirse para esta carga."); return; }
@@ -950,10 +929,10 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   function assign(){
     if(!scan||!flight) return;
     const pkg = packages.find(p=> p.flight_id===flightId && p.codigo.toUpperCase()===scan.toUpperCase());
-    if(!pkg){ alert("No existe ese código en esta carga."); setScan(""); return; }
-    if(flight.cajas.some(c=>c.paquetes.includes(pkg.id))){ alert("Ya está en una caja."); setScan(""); return; }
+    if(!pkg){ alert("No existe ese codigo en esta carga."); setScan(""); return; }
+    if(flight.cajas.some(c=>c.paquetes.includes(pkg.id))){ alert("Ya esta en una caja."); setScan(""); return; }
     const activeId = activeBoxId || flight.cajas[0]?.id;
-    if(!activeId){ alert("Creá una caja primero."); return; }
+    if(!activeId){ alert("Crea una caja primero."); return; }
     setFlights(flights.map(f=>f.id!==flightId?f:{...f, cajas:f.cajas.map(c=>c.id!==activeId?c:{...c,paquetes:[...c.paquetes, pkg.id]})}));
     onAssign(pkg.id); setScan("");
   }
@@ -988,7 +967,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
           </select>
         </Field>
 
-        <Field label="Escanear / ingresar código">
+        <Field label="Escanear / ingresar codigo">
           <Input value={scan} onChange={e=>setScan(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&assign()} placeholder="BOSSBOX1"/>
         </Field>
 
@@ -997,7 +976,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
         </div>
 
         <div className="md:col-span-3">
-          {!flight && <div className="text-gray-500">Seleccioná una carga.</div>}
+          {!flight && <div className="text-gray-500">Selecciona una carga.</div>}
           {flight && flight.cajas.map((c)=>{
             const couriers = new Set(c.paquetes.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
             const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
@@ -1063,7 +1042,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   );
 }
 
-/* ========== Cargas enviadas ========== */
+/* ===== Cargas enviadas ===== */
 function CargasEnviadas({packages, flights}){
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
@@ -1092,20 +1071,20 @@ function CargasEnviadas({packages, flights}){
 
   async function exportTodo(){
     if(!flight) return;
-    const headerP=[th("COURIER"),th("CÓDIGO"),th("CASILLA"),th("FECHA"),th("NOMBRE"),th("TRACKING"),th("PESO REAL"),th("FACTURABLE"),th("VOLUMÉTRICO"),th("EXCESO"),th("DESCRIPCIÓN")];
+    const headerP=[th("COURIER"),th("CODIGO"),th("CASILLA"),th("FECHA"),th("NOMBRE"),th("TRACKING"),th("PESO REAL"),th("FACTURABLE"),th("VOLUMETRICO"),th("EXCESO"),th("DESCRIPCION")];
     const bodyP=packages.filter(p=>p.flight_id===flightId).map(p=>[td(p.courier),td(p.codigo),td(p.casilla),td(p.fecha),td(p.nombre_apellido),td(p.tracking),td(fmtPeso(p.peso_real)),td(fmtPeso(p.peso_facturable)),td(fmtPeso(p.peso_volumetrico)),td(fmtPeso(p.exceso_volumen)),td(p.descripcion)]);
 
     const tpl = await tryLoadTemplate("/templates/cargas_enviadas.xlsx");
     if(tpl){
       replacePlaceholdersInWB(tpl, { CARGA: flight.codigo, FECHA: flight.fecha_salida||"" });
       appendSheet(tpl, "PAQUETES", [headerP,...bodyP], {cols:[{wch:16},{wch:14},{wch:10},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:14},{wch:12},{wch:28}]});
-      appendSheet(tpl, "CAJAS", [[th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")], ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]), [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]]);
+      appendSheet(tpl, "CAJAS", [[th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumetrico")], ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]), [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]]);
       XLSX.writeFile(tpl, `Detalle_${flight.codigo}.xlsx`);
       return;
     }
 
     const shP=sheetFromAOAStyled("Paquetes", [headerP,...bodyP], {cols:[{wch:16},{wch:14},{wch:10},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:14},{wch:12},{wch:28}],rows:[{hpt:26}]});
-    const shC=sheetFromAOAStyled("Cajas", [[th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")], ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]), [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]]);
+    const shC=sheetFromAOAStyled("Cajas", [[th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumetrico")], ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]), [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]]);
     downloadXLSX(`Detalle_${flight.codigo}.xlsx`, [shP, shC]);
   }
 
@@ -1116,7 +1095,7 @@ function CargasEnviadas({packages, flights}){
         <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
         <Field label="Estado">
           <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
-            <option value="">Todos</option><option>En tránsito</option><option>Arribado</option>
+            <option value="">Todos</option><option>En transito</option><option>Arribado</option>
           </select>
         </Field>
         <Field label="Carga">
@@ -1128,12 +1107,11 @@ function CargasEnviadas({packages, flights}){
         <div className="flex items-end"><button onClick={exportTodo} disabled={!flight} className={BTN_PRIMARY+" w-full disabled:opacity-50"}>Exportar XLSX</button></div>
       </div>
 
-      {!flight ? <div className="text-gray-500 mt-4">Elegí una carga para ver contenido.</div> : (
+      {!flight ? <div className="text-gray-500 mt-4">Elegi una carga para ver contenido.</div> : (
         <>
-          <div className="mt-4 text-sm text-gray-600">Paquetes del vuelo <b>{flight.codigo}</b></div>
-          <div className="overflow-auto mb-6">
+          <div className="overflow-auto mb-6 mt-4">
             <table className="min-w-full text-sm">
-              <thead><tr className="bg-gray-50">{["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Facturable","Volumétrico","Exceso"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <thead><tr className="bg-gray-50">{["Courier","Codigo","Casilla","Fecha","Nombre","Tracking","Peso real","Facturable","Volumetrico","Exceso"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
               <tbody>
                 {packages.filter(p=>p.flight_id===flightId).map(p=>(
                   <tr key={p.id} className="border-b">
@@ -1155,7 +1133,7 @@ function CargasEnviadas({packages, flights}){
 
           <div className="overflow-auto">
             <table className="min-w-full text-sm">
-              <thead><tr className="bg-gray-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <thead><tr className="bg-gray-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumetrico"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
               <tbody>
                 {resumen.map(r=>(
                   <tr key={r.n} className="border-b">
@@ -1178,9 +1156,7 @@ function CargasEnviadas({packages, flights}){
   );
 }
 
-/* ========== Proformas ==========
-   Plantilla: /public/templates/proforma.xlsx (con placeholders {{FECHA}} y {{COURIER}})
-*/
+/* ===== Proformas ===== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
@@ -1218,12 +1194,12 @@ function Proformas({packages, flights, extras}){
       ["Flete peso real", Number(r.kg_real.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))],
       ["Flete exceso de volumen", Number(r.kg_exc.toFixed(3)), Number(T.fleteExc.toFixed(2)), Number(fe.toFixed(2))],
       ["Servicio de despacho", Number(r.kg_fact.toFixed(3)), Number(T.despacho.toFixed(2)), Number(desp.toFixed(2))],
-      ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))],
+      ["Comision por canje de guia", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))],
       ...extrasList.map(e=>{
-        const val = parseComma(e.monto);
-        return [e.descripcion, "", "", Number(val.toFixed(2))];
+        const val = Number(parseComma(e.monto).toFixed(2));
+        return [e.descripcion, 1, val, val]; // Cantidad 1,000 y unitario = total
       }),
-      ["Comisión por transferencia (4%)","", "", Number(com.toFixed(2))],
+      ["Comision por transferencia (4%)","", "", Number(com.toFixed(2))],
     ];
 
     await exportProformaExcelJS_usingTemplate({
@@ -1242,7 +1218,10 @@ function Proformas({packages, flights, extras}){
         pu_desp: Number(T.despacho.toFixed(2)), sub_desp: Number(desp.toFixed(2)),
         canje: Number(canje.toFixed(2)),
         comision: Number(com.toFixed(2)),
-        extras: extrasList.map(e=>[e.descripcion, "", "", Number(parseComma(e.monto).toFixed(2))]),
+        extras: extrasList.map(e=>{
+          const val = Number(parseComma(e.monto).toFixed(2));
+          return [e.descripcion, 1, val, val];
+        }),
         total: Number(total.toFixed(2)),
         detalleParaSheet: detalle
       }
@@ -1262,7 +1241,7 @@ function Proformas({packages, flights, extras}){
         </div>
       }
     >
-      {!flight ? <div className="text-gray-500">Seleccioná una carga.</div> : (
+      {!flight ? <div className="text-gray-500">Selecciona una carga.</div> : (
         <div className="overflow-auto">
           <table className="min-w-full text-sm">
             <thead><tr className="bg-gray-50">{["Courier","Kg facturable","Kg exceso","TOTAL USD","XLSX"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
@@ -1289,7 +1268,7 @@ function Proformas({packages, flights, extras}){
   );
 }
 
-/* ========== Extras ========== */
+/* ===== Extras ===== */
 function Extras({flights, couriers, extras, setExtras}){
   const [flightId,setFlightId]=useState("");
   const [courier,setCourier]=useState("");
@@ -1326,7 +1305,7 @@ function Extras({flights, couriers, extras, setExtras}){
             <option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}
           </select>
         </Field>
-        <Field label="Descripción"><Input value={desc} onChange={e=>setDesc(e.target.value)}/></Field>
+        <Field label="Descripcion"><Input value={desc} onChange={e=>setDesc(e.target.value)}/></Field>
         <Field label="Monto (USD)"><Input value={monto} onChange={e=>setMonto(e.target.value)} placeholder="10,00"/></Field>
         <Field label="Estado">
           <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
@@ -1347,7 +1326,7 @@ function Extras({flights, couriers, extras, setExtras}){
 
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
-          <thead><tr className="bg-gray-50">{["Fecha","Carga","Courier","Descripción","Monto (USD)","Estado","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+          <thead><tr className="bg-gray-50">{["Fecha","Carga","Courier","Descripcion","Monto (USD)","Estado","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
           <tbody>
             {filtered.map(e=>{
               const carga = flights.find(f=>f.id===e.flight_id)?.codigo || "";
@@ -1376,7 +1355,7 @@ function Extras({flights, couriers, extras, setExtras}){
   );
 }
 
-/* ========== helpers listas sencillas ========== */
+/* ===== Manage simple lists ===== */
 function ManageList({label,items,setItems}){
   const [txt,setTxt]=useState("");
   return (
@@ -1398,7 +1377,7 @@ function ManageList({label,items,setItems}){
   );
 }
 
-/* ========== App ========== */
+/* ===== App ===== */
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
 
@@ -1418,11 +1397,10 @@ function App(){
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* header simple */}
       <div className="px-6 py-4 flex items-center justify-between">
         <div>
           <div className="text-lg font-semibold">Gestor de Paquetes</div>
-          <div className="text-xs text-gray-500">LaMaquinaLogistica / Europa Envíos</div>
+          <div className="text-xs text-gray-500">LaMaquinaLogistica / Europa Envios</div>
         </div>
         <div className="text-sm text-gray-600">{currentUser.role} — {currentUser.email}</div>
       </div>

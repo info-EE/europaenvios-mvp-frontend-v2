@@ -1309,8 +1309,7 @@ function Extras({flights, couriers, extras, setExtras}){
 
   return (
     <Section title="Trabajos extras">
-      <div className="grid md:grid-cols-6 gap-2
-      <div className="grid md:grid-cols-6 gap-2 mb-2">
+  <div className="grid md:grid-cols-6 gap-2 mb-2">
         <Field label="Carga">
           <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}

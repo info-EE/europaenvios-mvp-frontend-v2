@@ -1456,116 +1456,104 @@ function CargasEnviadas({ packages, flights }) {
     </Section>
   );
 }
-
-/* === REEMPLAZA DESDE AQUÍ — Proformas (completo y actualizado) === */
-
+/* ===== Proformas (plantilla con colores, sin IMAGE) ===== */
 const TARIFAS = { proc: 5, real: 9, exc: 9, despacho: 10 }; // USD
 const canjeGuiaUSD = (kg) =>
   kg <= 5 ? 10 : kg <= 10 ? 13.5 : kg <= 30 ? 17 : kg <= 50 ? 37 : kg <= 100 ? 57 : 100;
 
-/** Escribe SOLO texto y números en la hoja "Factura" del template.
- *  - NO escribe logo (evita IMAGE/IMAGEN).
- *  - Cantidades con #,##0.000  |  precios con #,##0.00
- *  - 5 filas reservadas para EXTRAS debajo del 4%
- *  - TOTAL en A(22+5)/D(22+5)
- */
-function writeFacturaSheet(wb, flight, resumenCourier, extrasDeCourier) {
+// Escribe en la hoja "Factura" de la plantilla SIN tocar imágenes.
+function writeFacturaSheet(wb, flight, r, extrasList) {
   const ws = wb.Sheets["Factura"];
   if (!ws) return;
 
-  // 1) FECHA y COURIER (placeholders de texto del template)
-  // (los placeholders {{FECHA}} y {{COURIER}} se reemplazan arriba con replacePlaceholdersInWB)
-  // Aun así, por seguridad, si existen A9/A12 los sobreescribimos con el valor final.
-  const fecha = flight?.fecha_salida || new Date().toISOString().slice(0, 10);
-  ws["A9"] = { v: fecha, t: "s", s: ws["A9"]?.s || {} };
-  ws["A12"] = { v: resumenCourier.courier, t: "s", s: ws["A12"]?.s || {} };
+  // Utilidades para escribir respetando el formato existente de la celda
+  const put = (addr, value, fmt) => {
+    const old = ws[addr]?.s || {};
+    if (value === "" || value === null || value === undefined) {
+      ws[addr] = { v: "", t: "s", s: old };
+    } else if (typeof value === "number") {
+      ws[addr] = { v: value, t: "n", z: fmt || ws[addr]?.z, s: old };
+    } else {
+      ws[addr] = { v: String(value), t: "s", s: old };
+    }
+  };
 
-  // 2) Armar líneas de detalle
-  const fmtQty = "#,##0.000";
-  const fmtMoney = "#,##0.00";
-  const start = 16; // primera fila de detalle en tu plantilla
+  // FECHA (A9) y COURIER (A12) – posiciones de tu plantilla azul
+  put("A9", flight?.fecha_salida || new Date().toISOString().slice(0, 10));
+  put("A12", r.courier);
 
-  // Limpieza de 16..(16+40) por las dudas
-  for (let i = 0; i < 40; i++) {
-    ["A", "B", "C", "D"].forEach((col) => {
-      const addr = `${col}${start + i}`;
-      if (ws[addr]) ws[addr].v = "";
-    });
+  // Numeros
+  const FQTY = "#,##0.000";
+  const FMNY = "#,##0.00";
+
+  // Limpio zona detalle (A16:D40) para evitar residuos
+  for (let row = 16; row <= 40; row++) {
+    ["A", "B", "C", "D"].forEach((col) => put(`${col}${row}`, ""));
   }
 
-  const r = resumenCourier;
+  // Calculos
   const proc = r.kg_fact * TARIFAS.proc;
-  const fr = r.kg_real * TARIFAS.real;
-  const fe = r.kg_exc * TARIFAS.exc;
+  const fReal = r.kg_real * TARIFAS.real;
+  const fExc = r.kg_exc * TARIFAS.exc;
   const desp = r.kg_fact * TARIFAS.despacho;
   const canje = canjeGuiaUSD(r.kg_fact);
-
-  const extrasList = extrasDeCourier(resumenCourier.courier);
   const extrasMonto = extrasList.reduce((s, e) => s + parseComma(e.monto), 0);
-  const comisionBase = 0.04 * (proc + fr + fe + extrasMonto);
+  const comision = 0.04 * (proc + fReal + fExc + extrasMonto);
 
-  // Orden exacto como en tu diseño
+  // Lineas base
   const lines = [
     ["Procesamiento", r.kg_fact, TARIFAS.proc, proc],
-    ["Flete peso real", r.kg_real, TARIFAS.real, fr],
-    ["Flete exceso de volumen", r.kg_exc, TARIFAS.exc, fe],
+    ["Flete peso real", r.kg_real, TARIFAS.real, fReal],
+    ["Flete exceso de volumen", r.kg_exc, TARIFAS.exc, fExc],
     ["Servicio de despacho", r.kg_fact, TARIFAS.despacho, desp],
     ["Comision por canje de guia", 1, canje, canje],
-    ["Comision por transferencia (4%)", 0, 0, comisionBase],
+    // Comision 4% (precio unitario vacío; solo total)
+    ["Comision por transferencia (4%)", "", "", comision],
   ];
 
-  // 5 filas vacías reservadas:
+  // 5 filas vacías reservadas para EXTRAS (debajo de la comisión)
   for (let i = 0; i < 5; i++) lines.push(["", "", "", ""]);
 
-  // Extras (cantidad 1,000 y unitario = total)
+  // EXTRAS: cantidad 1,000 y unitario = total
   extrasList.forEach((e) => {
     const total = parseComma(e.monto);
     lines.push([e.descripcion, 1, total, total]);
   });
 
-  // 3) Escribir líneas (manteniendo estilos existentes cuando se pueda)
+  // Escribir líneas comenzando en fila 16
+  const start = 16;
   lines.forEach((ln, i) => {
     const row = start + i;
     const [desc, qty, unit, total] = ln;
-    ws[`A${row}`] = { v: desc, t: "s", s: ws[`A${row}`]?.s || {} };
-    if (qty === "" || qty === null || qty === undefined) {
-      ws[`B${row}`] = { v: "", t: "s", s: ws[`B${row}`]?.s || {} };
-    } else {
-      ws[`B${row}`] = { v: Number(qty), t: "n", z: fmtQty, s: ws[`B${row}`]?.s || {} };
-    }
-    if (unit === "" || unit === null || unit === undefined) {
-      ws[`C${row}`] = { v: "", t: "s", s: ws[`C${row}`]?.s || {} };
-    } else {
-      ws[`C${row}`] = { v: Number(unit), t: "n", z: fmtMoney, s: ws[`C${row}`]?.s || {} };
-    }
-    if (total === "" || total === null || total === undefined) {
-      ws[`D${row}`] = { v: "", t: "s", s: ws[`D${row}`]?.s || {} };
-    } else {
-      ws[`D${row}`] = { v: Number(total), t: "n", z: fmtMoney, s: ws[`D${row}`]?.s || {} };
-    }
+    put(`A${row}`, desc || "");
+    // Cantidad con 3 decimales (dejar vacía si no corresponde)
+    if (qty === "" || qty === null || qty === undefined) put(`B${row}`, "");
+    else put(`B${row}`, Number(qty), FQTY);
+    // Precio unitario con 2 decimales (dejar vacía si no corresponde)
+    if (unit === "" || unit === null || unit === undefined) put(`C${row}`, "");
+    else put(`C${row}`, Number(unit), FMNY);
+    // Total con 2 decimales
+    put(`D${row}`, Number(total || 0), FMNY);
   });
 
-  // 4) TOTAL — lo ponemos a 5 filas por debajo de la fila 22 (para respetar el “espacio” de extras)
-  //    Si tu template trae “TOTAL USD” en A22, acá lo movemos y lo reescribimos con el mismo estilo.
-  const totalRow = 22 + 5; // ej. 27
-  // Borrar posible "TOTAL USD" previo en A22 para que no se duplique
-  if (ws["A22"]) ws["A22"].v = "";
-
+  // TOTAL (etiqueta en A22, valor en D22)
   const totalNum = lines.reduce((s, ln) => s + (Number(ln[3]) || 0), 0);
-  ws[`A${totalRow}`] = { v: "TOTAL USD", t: "s", s: ws[`A${totalRow}`]?.s || ws["A22"]?.s || {} };
-  ws[`D${totalRow}`] = { v: totalNum, t: "n", z: fmtMoney, s: ws[`D${totalRow}`]?.s || ws["D22"]?.s || {} };
+  put("A22", "TOTAL USD");
+  put("D22", totalNum, FMNY);
+
+  // MUY IMPORTANTE: NO escribir formulas de imagen aquí.
+  // El logo debe estar insertado en la plantilla como imagen centrada (sin fórmula).
 }
 
-/* === Componente Proformas === */
 function Proformas({ packages, flights, extras }) {
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [flightId, setFlightId] = useState("");
-
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+  const [flightId, setFlightId] = React.useState("");
   const list = flights.filter((f) => (!from || f.fecha_salida >= from) && (!to || f.fecha_salida <= to));
   const flight = flights.find((f) => f.id === flightId);
 
-  const porCourier = useMemo(() => {
+  // Agrupar por courier
+  const porCourier = React.useMemo(() => {
     if (!flight) return [];
     const m = new Map();
     flight.cajas.forEach((c) =>
@@ -1582,67 +1570,26 @@ function Proformas({ packages, flights, extras }) {
     return Array.from(m.values());
   }, [flight, packages]);
 
-  const extrasDeCourier = (courier) =>
-    extras.filter((e) => e.flight_id === flightId && e.courier === courier);
+  const extrasDeCourier = (courier) => extras.filter((e) => e.flight_id === flightId && e.courier === courier);
 
   async function exportX(r) {
-    // 1) Intentar usar la PLANTILLA con colores
-    const tpl = await tryLoadTemplate("/templates/proforma.xlsx");
-    if (tpl) {
-      // Reemplazar placeholders de texto
-      replacePlaceholdersInWB(tpl, {
-        FECHA: flight?.fecha_salida || new Date().toISOString().slice(0, 10),
-        COURIER: r.courier,
-      });
-
-      // Escribir cuerpo (sin tocar el logo)
-      writeFacturaSheet(tpl, flight, r, extrasDeCourier);
-
-      XLSX.writeFile(tpl, `proforma_${(flight?.codigo || "carga")}_${r.courier}.xlsx`);
+    // Asegurar que existe /public/templates/proforma.xlsx (es el que se usa)
+    const wb = await tryLoadTemplate("/templates/proforma.xlsx");
+    if (!wb) {
+      alert("No se pudo abrir /templates/proforma.xlsx");
       return;
     }
-
-    // 2) Fallback (sin plantilla) — mantiene formatos básicos
-    const proc = r.kg_fact * TARIFAS.proc;
-    const fr = r.kg_real * TARIFAS.real;
-    const fe = r.kg_exc * TARIFAS.exc;
-    const desp = r.kg_fact * TARIFAS.despacho;
-    const canje = canjeGuiaUSD(r.kg_fact);
-    const extrasList = extrasDeCourier(r.courier);
-    const extrasMonto = extrasList.reduce((s, e) => s + parseComma(e.monto), 0);
-    const com = 0.04 * (proc + fr + fe + extrasMonto);
-    const total = proc + fr + fe + desp + canje + extrasMonto + com;
-
-    const rows = [
-      [td("Europa Envios")],
-      [td("LAMAQUINALOGISTICA, SOCIEDAD LIMITADA")],
-      [td("N.I.F.: B56340656")],
-      [td("CALLE ESTEBAN SALAZAR CHAPELA, NUM 20, PUERTA 87, NAVE 87")],
-      [td("29004 MALAGA (ESPANA)")],
-      [td("(34) 633 74 08 31")],
-      [td("")],
-      [th("Factura Proforma")],
-      [td("Fecha: " + (flight?.fecha_salida || new Date().toISOString().slice(0, 10)))],
-      [td("")],
-      [th("Cliente"), th(""), th(""), th("Nº factura")],
-      [td(r.courier), td(""), td(""), td("—")],
-      [td("")],
-      [th("Descripcion"), th("Cantidad"), th("Precio unitario"), th("Precio total")],
-      [td("Procesamiento"), td(fmtPeso(r.kg_fact)), td(fmt2(TARIFAS.proc)), td(fmt2(proc))],
-      [td("Flete peso real"), td(fmtPeso(r.kg_real)), td(fmt2(TARIFAS.real)), td(fmt2(fr))],
-      [td("Flete exceso de volumen"), td(fmtPeso(r.kg_exc)), td(fmt2(TARIFAS.exc)), td(fmt2(fe))],
-      [td("Servicio de despacho"), td(fmtPeso(r.kg_fact)), td(fmt2(TARIFAS.despacho)), td(fmt2(desp))],
-      [td("Comision por canje de guia"), td("1,000"), td(fmt2(canje)), td(fmt2(canje))],
-      ...extrasList.map((e) => [td(e.descripcion), td("1,000"), td(fmt2(parseComma(e.monto))), td(fmt2(parseComma(e.monto)))]),
-      [td("Comision por transferencia (4%)"), td(""), td(""), td(fmt2(com))],
-      [th("TOTAL USD"), th(""), th(""), th(fmt2(total))],
-    ];
-
-    const { ws } = sheetFromAOAStyled("Factura", rows, {
-      cols: [{ wch: 40 }, { wch: 12 }, { wch: 16 }, { wch: 16 }],
-      rows: [{ hpt: 26 }],
+    // Reemplazos de texto simples (NO toca imágenes)
+    replacePlaceholdersInWB(wb, {
+      FECHA: flight?.fecha_salida || new Date().toISOString().slice(0, 10),
+      COURIER: r.courier,
     });
-    downloadXLSX(`proforma_${(flight?.codigo || "carga")}_${r.courier}.xlsx`, [{ name: "Factura", ws }]);
+
+    // Escribir detalle manteniendo colores
+    const extrasList = extrasDeCourier(r.courier);
+    writeFacturaSheet(wb, flight, r, extrasList);
+
+    XLSX.writeFile(wb, `proforma_${(flight?.codigo || "carga")}_${r.courier}.xlsx`);
   }
 
   return (
@@ -1701,7 +1648,7 @@ function Proformas({ packages, flights, extras }) {
     </Section>
   );
 }
-/* === HASTA AQUÍ — Proformas actualizado === */
+/* ===== fin Proformas ===== */
 
 /* ===== Extras ===== */
 function Extras({ flights, couriers, extras, setExtras }) {

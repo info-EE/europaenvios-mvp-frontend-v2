@@ -1,9 +1,8 @@
-/*  Europa Envíos – MVP 0.2.4 (proforma dinámica)
-    - Etiquetas: CODE128 sin acentos.
-    - Proformas: detección dinámica de columnas (Descripción/Cantidad/Unitario/Total) y fila de TOTAL.
-      * Cantidad 3 decimales; Unitario/Total 2 decimales.
-      * Extras y 4%: Cantidad=1,000 y Unitario=Total.
-      * Respeta bordes/colores del template (no se tocan estilos).
+/*  Europa Envíos – MVP 0.2.4 (proforma dinámica + ajustes celdas)
+    Cambios:
+    - Logo centrado en rectángulo B1:D8 (anclaje en B1).
+    - D15 = "Precio Total".
+    - A28 = "TOTAL USD" y D28 = total (0.00).
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -144,8 +143,10 @@ function appendSheet(wb, name, rows, opts={}){
 }
 
 /* ========== ExcelJS helpers (proforma con logo/formatos) ========== */
-const LOGO_TL = { col: 2, row: 2 };   // B2
+// Nuevo rectángulo para el logo: B1:D8 (centrado)
+const LOGO_TL = { col: 2, row: 1 };   // B1
 const LOGO_BR = { col: 4, row: 8 };   // D8
+
 const PX_PER_CHAR = 7.2;
 const PX_PER_POINT = 96/72;
 function colWidthPx(ws, col){ const c = ws.getColumn(col); const w = c.width ?? 8.43; return Math.round(w * PX_PER_CHAR); }
@@ -198,67 +199,37 @@ function replacePlaceholdersExcelJS(ws, map){
   }
 }
 
-/* ====== NUEVO: detección dinámica de columnas y fila TOTAL ====== */
+/* ====== detección dinámica + overrides pedidos ====== */
 function normalizeTxt(x){
   return deaccent(String(x||"").trim()).toUpperCase().replace(/\s+/g," ");
 }
 function findProformaAnchors(ws){
-  // Busca una fila que contenga (en cualquier orden) los encabezados clave
   const wanted = {
     DESC: ["DESCRIPCION","DESCRIPCIÓN"],
     CANT: ["CANTIDAD"],
     UNIT: ["PRECIO UNITARIO","P. UNITARIO","P.UNITARIO","UNITARIO"],
     SUBT: ["PRECIO TOTAL","IMPORTE","TOTAL LINEA","TOTAL LÍNEA"]
   };
-  let headerRow = null;
-  const matchCell = (txt, arr) => arr.some(k=>normalizeTxt(txt)===k);
   for(let r=1; r<=100; r++){
     let found = {DESC:null,CANT:null,UNIT:null,SUBT:null};
     for(let c=1; c<=30; c++){
       const v = ws.getCell(r,c).value;
       const txt = (v && typeof v==="object" && v.richText) ? v.richText.map(t=>t.text).join("") : v;
-      if(!txt) continue;
       const n = normalizeTxt(txt);
+      if(!n) continue;
       if(!found.DESC && wanted.DESC.some(k=>n===k)) found.DESC = c;
       if(!found.CANT && wanted.CANT.some(k=>n===k)) found.CANT = c;
       if(!found.UNIT && wanted.UNIT.some(k=>n===k)) found.UNIT = c;
       if(!found.SUBT && wanted.SUBT.some(k=>n===k)) found.SUBT = c;
     }
     if(found.DESC && found.CANT && found.UNIT && found.SUBT){
-      headerRow = r;
-      // columnas detectadas directamente (no asumimos contigüidad)
-      return { headerRow, colDesc:found.DESC, colCant:found.CANT, colUnit:found.UNIT, colSub:found.SUBT };
+      return { headerRow:r, colDesc:found.DESC, colCant:found.CANT, colUnit:found.UNIT, colSub:found.SUBT };
     }
   }
-  // fallback clásico (si no se detecta, usa A:D desde fila 16)
   return { headerRow: 15, colDesc:1, colCant:2, colUnit:3, colSub:4 };
 }
-function findTotalRow(ws, preferCol){
-  // Busca una celda que contenga "TOTAL" (con o sin USD), priorizando la columna preferida (normalmente Descripción)
-  let candidate = null;
-  for(let r=1; r<=200; r++){
-    for(let c=1; c<=30; c++){
-      const v = ws.getCell(r,c).value;
-      const txt = (v && typeof v==="object" && v.richText) ? v.richText.map(t=>t.text).join("") : v;
-      if(!txt) continue;
-      const n = normalizeTxt(txt);
-      if(n.includes("TOTAL")){
-        if(preferCol && c===preferCol) return r;
-        if(!candidate) candidate = r;
-      }
-    }
-  }
-  return candidate; // puede ser null; en tal caso pondremos total debajo de la última línea escrita
-}
 
-/* 
-  Exportación de PROFORMA con plantilla nueva (dinámica):
-  - Detecta la fila de encabezados y columnas para Descripción/Cantidad/Unitario/Total.
-  - Escribe ítems sin tocar estilos (solo .value y .numFmt).
-  - Formatos: Cantidad 0.000; Unit/Total 0.00
-  - Extras y 4%: Cantidad=1,000 y Unitario=Total
-  - TOTAL: si existe celda con "TOTAL" la usa (mismo r) y escribe en colSub; si no, lo pone al final.
-*/
+/* Exportación PROFORMA con posiciones pedidas (D15, A28/D28) */
 async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nombreArchivo, datosFactura }){
   const wb = new ExcelJS.Workbook();
   const ab = await (await fetch(plantillaUrl, { cache: "no-store" })).arrayBuffer();
@@ -266,13 +237,17 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
 
   const wsFactura = wb.getWorksheet("Factura") || wb.worksheets[0];
 
-  // FECHA y COURIER
+  // Placeholders
   replacePlaceholdersExcelJS(wsFactura, {
     FECHA: datosFactura.fechaCarga || "",
     COURIER: datosFactura.courier || ""
   });
 
-  // LOGO (se coloca en el cuadro B2:D8; no toca estilos de la hoja)
+  // *** Cabeceras/overrides pedidos ***
+  wsFactura.getCell("D15").value = "Precio Total"; // título de la última columna
+  wsFactura.getCell("A28").value = "TOTAL USD";    // etiqueta de total (no toca estilos)
+
+  // LOGO centrado dentro del rectángulo B1:D8 (anclaje en B1)
   try{
     const { base64, width: imgW, height: imgH } = await loadLogoInfo(logoUrl);
     const imageId = wb.addImage({ base64, extension: "png" });
@@ -297,11 +272,11 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     });
   }catch(e){ console.warn("No se pudo insertar el logo:", e); }
 
-  // Detectar anclajes de tabla (encabezados)
+  // Detectar y escribir líneas
   const { headerRow, colDesc, colCant, colUnit, colSub } = findProformaAnchors(wsFactura);
   const startRow = headerRow + 1;
 
-  // Limpiar área (solo values; conserva estilos)
+  // Limpiar área (solo values)
   const maxFilas = 80;
   for (let r = startRow; r < startRow + maxFilas; r++) {
     wsFactura.getCell(r, colDesc).value = "";
@@ -310,20 +285,17 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     wsFactura.getCell(r, colSub ).value = "";
   }
 
-  // Construcción de filas a escribir
+  // Filas (extras y 4% con cant=1 y unit=total)
   const filas = [
     ["Procesamiento", datosFactura.kg_fact, datosFactura.pu_proc, datosFactura.sub_proc],
     ["Flete peso real", datosFactura.kg_real, datosFactura.pu_real, datosFactura.sub_real],
     ["Flete exceso de volumen", datosFactura.kg_exc, datosFactura.pu_exc, datosFactura.sub_exc],
     ["Servicio de despacho", datosFactura.kg_fact, datosFactura.pu_desp, datosFactura.sub_desp],
     ["Comisión por canje de guía", 1, datosFactura.canje, datosFactura.canje],
-    // Extras: Cantidad=1, Unitario=Total (mantiene colores del template)
     ...datosFactura.extras.map(([desc, , , total]) => [desc, 1, total, total]),
-    // 4%: Cantidad=1, Unitario=Total
     ["Comisión por transferencia (4%)", 1, datosFactura.comision, datosFactura.comision]
   ];
 
-  // Escribir respetando formatos
   filas.forEach((row, i)=>{
     const r = startRow+i;
     wsFactura.getCell(r, colDesc).value = String(row[0]);
@@ -333,13 +305,11 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
       wsFactura.getCell(r, colCant).value = Number(qty);
       wsFactura.getCell(r, colCant).numFmt = "0.000";
     }
-
     const unit = row[2];
     if(unit !== "" && unit !== null && unit !== undefined){
       wsFactura.getCell(r, colUnit).value = Number(unit);
       wsFactura.getCell(r, colUnit).numFmt = "0.00";
     }
-
     const sub = row[3];
     if(sub !== "" && sub !== null && sub !== undefined){
       wsFactura.getCell(r, colSub).value = Number(sub);
@@ -347,15 +317,11 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     }
   });
 
-  // TOTAL: buscar fila con "TOTAL" (en cualquier columna), priorizando la columna de Descripción
-  let totalRow = findTotalRow(wsFactura, colDesc);
-  if(!totalRow) totalRow = startRow + filas.length;
+  // TOTAL en D28 (y etiqueta en A28 ya puesta)
+  wsFactura.getCell("D28").value  = Number(datosFactura.total.toFixed(2));
+  wsFactura.getCell("D28").numFmt = "0.00";
 
-  // Escribir solamente en la columna de total (sin tocar colores/bordes)
-  wsFactura.getCell(totalRow, colSub).value  = Number(datosFactura.total.toFixed(2));
-  wsFactura.getCell(totalRow, colSub).numFmt = "0.00";
-
-  // Hoja DETALLE (opcional, solo para control)
+  // Hoja DETALLE (solo control)
   const wsDet = wb.getWorksheet("DETALLE") || wb.addWorksheet("DETALLE");
   wsDet.getRow(1).values = ["Descripción","Cantidad","P. unitario","Total"];
   datosFactura.detalleParaSheet.forEach((row, i)=>{
@@ -577,7 +543,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     desc:"", valor_txt:"0,00", foto:null
   });
 
-  // Generar código basado en courier sin acentos/espacios (ej: "EUROPAENVIOS23")
+  // Generar código basado en courier SIN acentos/espacios (ej: "EUROPAENVIOS23")
   useEffect(()=>{
     if(!form.courier) return;
     const key="seq_"+limpiar(form.courier);
@@ -647,7 +613,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // Etiqueta 100x60: labelHTML deacentúa todo (código, cliente, etc.)
+  // Etiqueta 100x60: labelHTML deacentúa todo (soluciona acentos en courier/código)
   const printLabel=()=>{
     const fl = flights.find(f=>f.id===flightId);
     if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completá Código, Casilla, Nombre y Descripción."); return; }
@@ -1325,7 +1291,7 @@ function Proformas({packages, flights, extras}){
     ];
 
     await exportProformaExcelJS_usingTemplate({
-      plantillaUrl: "/templates/proforma.xlsx", // nueva plantilla en /public/templates
+      plantillaUrl: "/templates/proforma.xlsx",
       logoUrl: "/logo.png",
       nombreArchivo: `proforma_${flight.codigo}_${r.courier}.xlsx`,
       datosFactura: {
@@ -1340,7 +1306,6 @@ function Proformas({packages, flights, extras}){
         pu_desp: Number(T.despacho.toFixed(2)), sub_desp: Number(desp.toFixed(2)),
         canje: Number(canje.toFixed(2)),
         comision: Number(com.toFixed(2)),
-        // extras para la hoja DETALLE (el motor ExcelJS re-mapea a cant=1 y unit=sub al escribir en "Factura")
         extras: extrasList.map(e=>[e.descripcion, "", "", Number(parseComma(e.monto).toFixed(2))]),
         total: Number(total.toFixed(2)),
         detalleParaSheet: detalle

@@ -1,9 +1,7 @@
-/*  Europa Envíos – MVP 0.2.4 (ajustes recepción/bodega/proforma)
-    Cambios en PROFORMA:
-    - Logo centrado en B1:D8 (anclaje en B1).
-    - D15 = "Precio Total".
-    - A28 = "Total".
-    - D28 = total numérico formateado 0.00.
+/*  Europa Envíos – MVP auth + usuarios
+    - Autenticación local (localStorage) con hash SHA-256.
+    - Roles: ADMIN / COURIER.
+    - Filtros por courier y prefijo de código.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -12,15 +10,15 @@ import * as XLSX from "xlsx-js-style";
 import JsBarcode from "jsbarcode";
 import ExcelJS from "exceljs/dist/exceljs.min.js";
 
-/* ========== utils ========== */
+/* ========== utils básicos ========== */
 const uuid = () => {
   try { if (window.crypto?.randomUUID) return window.crypto.randomUUID(); } catch {}
   return `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 const deaccent = (s) => String(s ?? "")
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
+  .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
   .replace(/ñ/g, "n").replace(/Ñ/g, "N");
+const limpiar = (s) => deaccent(String(s || "")).toUpperCase().replace(/\s+/g, "");
 const parseComma = (txt) => {
   if (txt === null || txt === undefined) return 0;
   const s = String(txt).trim().replace(/\./g, "").replace(",", ".");
@@ -37,7 +35,32 @@ const fmtMoney = (n) => Number(n || 0).toFixed(2).replace(".", ",");
 const sum = (a) => a.reduce((s, x) => s + Number(x || 0), 0);
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#14B8A6","#84CC16","#F97316"];
 const MIN_FACTURABLE = 0.2;
-const limpiar = (s) => deaccent(String(s || "")).toUpperCase().replace(/\s+/g, "");
+
+/* ========== helpers de autenticación/usuarios (localStorage) ========== */
+const USERS_KEY = "ee_users_v1";
+
+/** sha256 en hex */
+async function sha256Hex(str){
+  const enc = new TextEncoder().encode(str);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+function loadUsers(){
+  try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch { return []; }
+}
+function saveUsers(users){
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+/** prefijo permitido para códigos de un courier (ej.: "GLOBAL BOX" -> "GLOBALBOX") */
+function courierPrefix(name){ return limpiar(name || ""); }
+
+/** restringe tabs por rol */
+function tabsForRole(role){
+  if(role==="COURIER") return ["Paquetes en bodega","Cargas enviadas"];
+  return ["Recepción","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
+}
 
 /* ========== impresión sin about:blank ========== */
 function printHTMLInIframe(html){
@@ -60,9 +83,9 @@ function printHTMLInIframe(html){
   }, 60);
 }
 
-/* ========== Etiquetas (sanitize para código con acentos) ========== */
+/* ========== Etiquetas (sanitiza a ASCII para CODE128) ========== */
 function barcodeSVG(text){
-  const safe = deaccent(String(text)).toUpperCase(); // CODE128 solo ASCII
+  const safe = deaccent(String(text)).toUpperCase();
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   JsBarcode(svg, safe, { format:"CODE128", displayValue:false, height:50, margin:0 });
   return new XMLSerializer().serializeToString(svg);
@@ -92,7 +115,7 @@ function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt
     </body></html>`;
 }
 
-/* ========== XLSX fallback (para otros exports) ========== */
+/* ========== XLSX helpers breves (para listados) ========== */
 const bd = () => ({ top:{style:"thin",color:{rgb:"FFCBD5E1"}}, bottom:{style:"thin",color:{rgb:"FFCBD5E1"}},
   left:{style:"thin",color:{rgb:"FFCBD5E1"}}, right:{style:"thin",color:{rgb:"FFCBD5E1"}} });
 const th = (txt) => ({ v:txt, t:"s", s:{font:{bold:true,color:{rgb:"FFFFFFFF"}},fill:{fgColor:{rgb:"FF1F2937"}},
@@ -110,8 +133,6 @@ function downloadXLSX(filename, sheets){
   sheets.forEach(({name,ws})=>XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31)));
   XLSX.writeFile(wb, filename);
 }
-
-/* ====== carga de plantillas XLSX (xlsx-js-style) ====== */
 async function tryLoadTemplate(path){
   try{
     const res = await fetch(path, {cache:"no-store"});
@@ -143,11 +164,9 @@ function appendSheet(wb, name, rows, opts={}){
   XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
 }
 
-/* ========== ExcelJS helpers (proforma con logo/formatos) ========== */
-// Rectángulo para el logo: B1:D8 (centrado)
+/* ========== ExcelJS específicos (Proforma con logo centrado en B1:D8) ========== */
 const LOGO_TL = { col: 2, row: 1 };   // B1
 const LOGO_BR = { col: 4, row: 8 };   // D8
-
 const PX_PER_CHAR = 7.2;
 const PX_PER_POINT = 96/72;
 function colWidthPx(ws, col){ const c = ws.getColumn(col); const w = c.width ?? 8.43; return Math.round(w * PX_PER_CHAR); }
@@ -199,8 +218,6 @@ function replacePlaceholdersExcelJS(ws, map){
     }
   }
 }
-
-/* ====== detección dinámica + overrides pedidos ====== */
 function normalizeTxt(x){
   return deaccent(String(x||"").trim()).toUpperCase().replace(/\s+/g," ");
 }
@@ -230,7 +247,7 @@ function findProformaAnchors(ws){
   return { headerRow: 15, colDesc:1, colCant:2, colUnit:3, colSub:4 };
 }
 
-/* Exportación PROFORMA con posiciones pedidas (D15, A28/D28) */
+/* Export PROFORMA (mantiene tus posiciones A28/D28/D15 y logo centrado) */
 async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nombreArchivo, datosFactura }){
   const wb = new ExcelJS.Workbook();
   const ab = await (await fetch(plantillaUrl, { cache: "no-store" })).arrayBuffer();
@@ -238,17 +255,14 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
 
   const wsFactura = wb.getWorksheet("Factura") || wb.worksheets[0];
 
-  // Placeholders
   replacePlaceholdersExcelJS(wsFactura, {
     FECHA: datosFactura.fechaCarga || "",
     COURIER: datosFactura.courier || ""
   });
 
-  // *** Cabeceras/overrides pedidos ***
-  wsFactura.getCell("D15").value = "Precio Total"; // título de la última columna
-  wsFactura.getCell("A28").value = "Total";        // etiqueta de total (nuevo pedido)
+  wsFactura.getCell("D15").value = "Precio Total";
+  wsFactura.getCell("A28").value = "Total";
 
-  // LOGO centrado dentro del rectángulo B1:D8 (anclaje en B1)
   try{
     const { base64, width: imgW, height: imgH } = await loadLogoInfo(logoUrl);
     const imageId = wb.addImage({ base64, extension: "png" });
@@ -273,11 +287,9 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     });
   }catch(e){ console.warn("No se pudo insertar el logo:", e); }
 
-  // Detectar y escribir líneas
   const { headerRow, colDesc, colCant, colUnit, colSub } = findProformaAnchors(wsFactura);
   const startRow = headerRow + 1;
 
-  // Limpiar área (solo values)
   const maxFilas = 80;
   for (let r = startRow; r < startRow + maxFilas; r++) {
     wsFactura.getCell(r, colDesc).value = "";
@@ -286,7 +298,6 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     wsFactura.getCell(r, colSub ).value = "";
   }
 
-  // Filas (extras y 4% con cant=1 y unit=total)
   const filas = [
     ["Procesamiento", datosFactura.kg_fact, datosFactura.pu_proc, datosFactura.sub_proc],
     ["Flete peso real", datosFactura.kg_real, datosFactura.pu_real, datosFactura.sub_real],
@@ -318,11 +329,9 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     }
   });
 
-  // TOTAL en D28 (y etiqueta en A28 ya puesta)
   wsFactura.getCell("D28").value  = Number(datosFactura.total.toFixed(2));
   wsFactura.getCell("D28").numFmt = "0.00";
 
-  // Hoja DETALLE (solo control)
   const wsDet = wb.getWorksheet("DETALLE") || wb.addWorksheet("DETALLE");
   wsDet.getRow(1).values = ["Descripción","Cantidad","P. unitario","Total"];
   datosFactura.detalleParaSheet.forEach((row, i)=>{
@@ -396,163 +405,346 @@ function estadosPermitidosPorCarga(codigo){
   return ESTADOS_INICIALES;
 }
 
-/* ========== Login ========== */
+/* ========== Login con contraseña (localStorage + SHA-256) ========== */
 function Login({onLogin}){
+  const [users,setUsers] = useState(loadUsers());
+  const [mode,setMode] = useState(users.length===0 ? "setup-admin" : "login");
+
+  // --- Form login ---
   const [email,setEmail]=useState("");
-  const [role,setRole]=useState("ADMIN");
-  const [courier,setCourier]=useState("");
-  const canSubmit = email && role && (role==="ADMIN" || courier);
+  const [password,setPassword]=useState("");
+  const [err,setErr]=useState("");
+
+  // --- Form primer admin ---
+  const [adminEmail,setAdminEmail]=useState("");
+  const [adminPass1,setAdminPass1]=useState("");
+  const [adminPass2,setAdminPass2]=useState("");
+  const [creating,setCreating]=useState(false);
+
+  const PasswordInput = ({value,onChange,placeholder})=>{
+    const [show,setShow]=useState(false);
+    return (
+      <div className="relative">
+        <Input type={show?"text":"password"} value={value} onChange={onChange} placeholder={placeholder}/>
+        <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-600"
+                onClick={()=>setShow(s=>!s)}>{show?"Ocultar":"Ver"}</button>
+      </div>
+    );
+  };
+
+  async function handleLogin(){
+    setErr("");
+    const u = users.find(u=>u.email.trim().toLowerCase()===email.trim().toLowerCase());
+    if(!u){ setErr("Usuario no encontrado."); return; }
+    const h = await sha256Hex(password);
+    if(u.pwHash !== h){ setErr("Contraseña incorrecta."); return; }
+    // sesión mínima
+    onLogin({ id:u.id, email:u.email, role:u.role, courier:u.courier || null });
+  }
+
+  async function createFirstAdmin(e){
+    e?.preventDefault();
+    if(creating) return;
+    setErr("");
+    if(!adminEmail || !adminPass1 || !adminPass2){ setErr("Completá todos los campos."); return; }
+    if(adminPass1!==adminPass2){ setErr("Las contraseñas no coinciden."); return; }
+    setCreating(true);
+    try{
+      const newU = {
+        id: uuid(),
+        email: adminEmail.trim(),
+        role: "ADMIN",
+        courier: null,
+        pwHash: await sha256Hex(adminPass1)
+      };
+      const next = [newU];
+      saveUsers(next);
+      setUsers(next);
+      onLogin({ id:newU.id, email:newU.email, role:newU.role, courier:null });
+    }finally{
+      setCreating(false);
+    }
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white rounded-2xl shadow p-6 w-full max-w-md">
-        <h1 className="text-2xl font-semibold mb-4">Acceso al sistema</h1>
-        <Field label="Email" required>
-          <Input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@empresa.com"/>
-        </Field>
-        <Field label="Rol" required>
-          <select className="w-full rounded-xl border px-3 py-2" value={role} onChange={(e)=>setRole(e.target.value)}>
-            <option>ADMIN</option><option>COURIER</option>
-          </select>
-        </Field>
-        {role==="COURIER" && (
-          <Field label="Courier" required>
-            <Input value={courier} onChange={e=>setCourier(e.target.value)}/>
-          </Field>
+        {mode==="login" ? (
+          <>
+            <h1 className="text-2xl font-semibold mb-4">Acceso al sistema</h1>
+            <Field label="Email" required>
+              <Input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@empresa.com"/>
+            </Field>
+            <Field label="Contraseña" required>
+              <PasswordInput value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••"/>
+            </Field>
+            {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
+            <button onClick={handleLogin} className={BTN_PRIMARY+" w-full mt-2"}>Entrar</button>
+
+            {users.length===0 && (
+              <div className="text-xs text-gray-500 mt-3">
+                No hay usuarios creados.{" "}
+                <button className="underline" onClick={()=>setMode("setup-admin")}>Crear primer ADMIN</button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <h1 className="text-2xl font-semibold mb-1">Configurar primer ADMIN</h1>
+            <p className="text-sm text-gray-600 mb-4">No se encontraron usuarios. Creá la cuenta de administrador.</p>
+            <Field label="Email del ADMIN" required>
+              <Input type="email" value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} placeholder="admin@empresa.com"/>
+            </Field>
+            <Field label="Contraseña" required>
+              <PasswordInput value={adminPass1} onChange={e=>setAdminPass1(e.target.value)} placeholder="••••••••"/>
+            </Field>
+            <Field label="Repetir contraseña" required>
+              <PasswordInput value={adminPass2} onChange={e=>setAdminPass2(e.target.value)} placeholder="••••••••"/>
+            </Field>
+            {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
+            <button onClick={createFirstAdmin} disabled={creating} className={BTN_PRIMARY+" w-full mt-2 disabled:opacity-50"}>
+              {creating ? "Creando..." : "Crear ADMIN y entrar"}
+            </button>
+            <div className="text-xs text-gray-500 mt-3">
+              ¿Ya tenías usuarios?{" "}
+              <button className="underline" onClick={()=>setMode("login")}>Volver al login</button>
+            </div>
+          </>
         )}
-        <button
-          onClick={()=>onLogin({email,role,courier: role==="ADMIN"?null:courier})}
-          disabled={!canSubmit}
-          className={BTN_PRIMARY+" w-full mt-2 disabled:opacity-50"}
-        >
-          Entrar
-        </button>
       </div>
     </div>
   );
 }
+/* ========== Gestión de Usuarios (solo ADMIN) ========== */
+function Usuarios({ currentUser, onCurrentUserChange }){
+  const [users,setUsers] = useState(loadUsers());
+  const [q,setQ] = useState("");
 
-/* ========== Gestión de cargas (con ELIMINAR) ========== */
-function CargasAdmin({flights,setFlights, packages}){
-  const [code,setCode]=useState("");
-  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
-  const [awb,setAwb]=useState("");
-  const [fac,setFac]=useState("");
-  const [from,setFrom]=useState("");
-  const [to,setTo]=useState("");
+  // Alta
+  const [emailNew,setEmailNew]=useState("");
+  const [roleNew,setRoleNew]=useState("COURIER");
+  const [courierNew,setCourierNew]=useState("");
+  const [pw1,setPw1]=useState("");
+  const [pw2,setPw2]=useState("");
+  const [err,setErr]=useState("");
 
-  function create(){
-    if(!code) return;
-    setFlights([{id:uuid(),codigo:code,fecha_salida:date,estado:"En bodega",awb,factura_cacesa:fac,cajas:[]},...flights]);
-    setCode(""); setAwb(""); setFac("");
+  // Edición
+  const [edit,setEdit]=useState(null); // user object or null
+  const [pw1e,setPw1e]=useState("");
+  const [pw2e,setPw2e]=useState("");
+
+  const PasswordInput = ({value,onChange,placeholder})=>{
+    const [show,setShow]=useState(false);
+    return (
+      <div className="relative">
+        <Input type={show?"text":"password"} value={value} onChange={onChange} placeholder={placeholder}/>
+        <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-600" onClick={()=>setShow(s=>!s)}>
+          {show?"Ocultar":"Ver"}
+        </button>
+      </div>
+    );
+  };
+
+  const filtered = users.filter(u =>
+    (u.email+u.role+(u.courier||"")).toLowerCase().includes(q.toLowerCase())
+  );
+
+  function refresh(){
+    const u = loadUsers();
+    setUsers(u);
   }
 
-  // paquetes sin asignar a caja (para alerta)
-  function missingScans(flight){
-    const idsDeCarga = packages.filter(p=>p.flight_id===flight.id).map(p=>p.id);
-    const asignados = new Set((flight.cajas||[]).flatMap(c=>c.paquetes||[]));
-    return idsDeCarga.filter(id=>!asignados.has(id)).length;
-  }
-
-  function upd(id,field,value){
-    if(field==="estado" && (value==="En tránsito" || value==="Arribado")){
-      const f = flights.find(x=>x.id===id);
-      if(f){
-        const faltan = missingScans(f);
-        if(faltan>0){
-          const ok = window.confirm(`Atención: faltan escanear ${faltan} paquete(s) en "Armado de cajas" para la carga ${f.codigo}. ¿Deseás continuar igualmente?`);
-          if(!ok) return;
-        }
-      }
+  async function addUser(){
+    setErr("");
+    if(!emailNew || !pw1 || !pw2){ setErr("Completá email y contraseña."); return; }
+    if(pw1!==pw2){ setErr("Las contraseñas no coinciden."); return; }
+    if(users.some(u=>u.email.trim().toLowerCase()===emailNew.trim().toLowerCase())){
+      setErr("Ya existe un usuario con ese email."); return;
     }
-    setFlights(flights.map(f=>f.id===id?{...f,[field]:value}:f));
+    if(roleNew==="COURIER" && !courierNew.trim()){
+      setErr("Seleccioná/ingresá un courier."); return;
+    }
+    const newU = {
+      id: uuid(),
+      email: emailNew.trim(),
+      role: roleNew,
+      courier: roleNew==="COURIER" ? courierNew.trim() : null,
+      pwHash: await sha256Hex(pw1)
+    };
+    const next = [...users, newU];
+    saveUsers(next);
+    setUsers(next);
+    // reset form
+    setEmailNew(""); setRoleNew("COURIER"); setCourierNew("");
+    setPw1(""); setPw2("");
   }
 
-  function del(id){
-    const f = flights.find(x=>x.id===id);
-    const nombre = f?.codigo || "esta carga";
-    const confirmar = window.confirm(`¿Eliminar "${nombre}"? Esta acción no se puede deshacer.`);
-    if(!confirmar) return;
-    setFlights(flights.filter(f=>f.id!==id));
+  async function updateUser(){
+    if(!edit) return;
+    setErr("");
+    const idx = users.findIndex(u=>u.id===edit.id);
+    if(idx<0) return;
+
+    if(!edit.email){ setErr("El email es obligatorio."); return; }
+    // email único
+    if(users.some((u,i)=>i!==idx && u.email.trim().toLowerCase()===edit.email.trim().toLowerCase())){
+      setErr("Ya existe un usuario con ese email."); return;
+    }
+    if(edit.role==="COURIER" && !edit.courier?.trim()){
+      setErr("El courier es obligatorio para rol COURIER."); return;
+    }
+    const next = [...users];
+    const current = {...edit};
+
+    // cambiar password si se completó
+    if(pw1e || pw2e){
+      if(pw1e!==pw2e){ setErr("Las contraseñas no coinciden."); return; }
+      current.pwHash = await sha256Hex(pw1e);
+    }
+
+    next[idx] = current;
+    saveUsers(next);
+    setUsers(next);
+
+    // si editó su propia cuenta, actualizar sesión visible
+    if(currentUser?.id === current.id){
+      onCurrentUserChange?.({ id:current.id, email:current.email, role:current.role, courier:current.courier||null });
+    }
+
+    setEdit(null); setPw1e(""); setPw2e("");
   }
 
-  const list = flights
-    .filter(f=>!from || f.fecha_salida>=from)
-    .filter(f=>!to || f.fecha_salida<=to);
+  function deleteUser(u){
+    if(u.role==="ADMIN" && users.filter(x=>x.role==="ADMIN").length<=1){
+      alert("No podés eliminar el último ADMIN.");
+      return;
+    }
+    const ok = window.confirm(`¿Eliminar el usuario ${u.email}?`);
+    if(!ok) return;
+    const next = users.filter(x=>x.id!==u.id);
+    saveUsers(next);
+    setUsers(next);
+  }
 
   return (
-    <Section title="Gestión de cargas"
-      right={
-        <div className="flex gap-2 items-end">
-          <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
-          <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
-          <div className="w-px h-10 bg-gray-200 mx-1"/>
-          <Input placeholder="Código de carga" value={code} onChange={e=>setCode(e.target.value)}/>
-          <Input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
-          <Input placeholder="AWB (opcional)" value={awb} onChange={e=>setAwb(e.target.value)}/>
-          <Input placeholder="Factura Cacesa (opcional)" value={fac} onChange={e=>setFac(e.target.value)}/>
-          <button onClick={create} className={BTN_PRIMARY}>Crear</button>
+    <Section
+      title="Usuarios"
+      right={<div className="flex gap-2 items-end">
+        <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
+        <button className={BTN} onClick={refresh}>Recargar</button>
+      </div>}
+    >
+      {/* Alta */}
+      <div className="bg-gray-50 rounded-xl p-3 mb-4">
+        <div className="font-medium mb-2">Crear usuario</div>
+        <div className="grid md:grid-cols-5 gap-2">
+          <Field label="Email" required><Input value={emailNew} onChange={e=>setEmailNew(e.target.value)} placeholder="usuario@empresa.com"/></Field>
+          <Field label="Rol" required>
+            <select className="w-full rounded-xl border px-3 py-2" value={roleNew} onChange={e=>setRoleNew(e.target.value)}>
+              <option>COURIER</option>
+              <option>ADMIN</option>
+            </select>
+          </Field>
+          <Field label="Courier (si corresponde)">
+            {/* podés escribir o elegir uno de la lista */}
+            <Input list="courierList" value={courierNew} onChange={e=>setCourierNew(e.target.value)} placeholder="Global Box / Buzón / ..." />
+            <datalist id="courierList">
+              {COURIERS_INICIALES.map(c=><option key={c} value={c} />)}
+            </datalist>
+          </Field>
+          <Field label="Contraseña" required><PasswordInput value={pw1} onChange={e=>setPw1(e.target.value)} placeholder="••••••••"/></Field>
+          <Field label="Repetir contraseña" required><PasswordInput value={pw2} onChange={e=>setPw2(e.target.value)} placeholder="••••••••"/></Field>
         </div>
-      }>
+        {err && <div className="text-red-600 text-sm mt-2">{err}</div>}
+        <div className="flex justify-end mt-3">
+          <button className={BTN_PRIMARY} onClick={addUser}>Crear</button>
+        </div>
+      </div>
+
+      {/* Listado */}
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
           <thead>
             <tr className="bg-gray-50">
-              {["Código","Fecha salida","Estado","AWB","Factura Cacesa","Cajas","Acciones"].map(h=>
-                <th key={h} className="text-left px-3 py-2">{h}</th>
-              )}
+              {["Email","Rol","Courier","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}
             </tr>
           </thead>
           <tbody>
-            {list.map(f=>(
-              <tr key={f.id} className="border-b">
-                <td className="px-3 py-2"><Input value={f.codigo} onChange={e=>upd(f.id,"codigo",e.target.value)}/></td>
-                <td className="px-3 py-2"><Input type="date" value={f.fecha_salida} onChange={e=>upd(f.id,"fecha_salida",e.target.value)}/></td>
+            {filtered.map(u=>(
+              <tr key={u.id} className="border-b">
+                <td className="px-3 py-2">{u.email}</td>
+                <td className="px-3 py-2">{u.role}</td>
+                <td className="px-3 py-2">{u.role==="COURIER" ? (u.courier||"—") : "—"}</td>
                 <td className="px-3 py-2">
-                  <select className="border rounded px-2 py-1" value={f.estado} onChange={e=>upd(f.id,"estado",e.target.value)}>
-                    {ESTADOS_CARGA.map(s=><option key={s}>{s}</option>)}
-                  </select>
-                </td>
-                <td className="px-3 py-2"><Input value={f.awb||""} onChange={e=>upd(f.id,"awb",e.target.value)}/></td>
-                <td className="px-3 py-2"><Input value={f.factura_cacesa||""} onChange={e=>upd(f.id,"factura_cacesa",e.target.value)}/></td>
-                <td className="px-3 py-2">{f.cajas.length}</td>
-                <td className="px-3 py-2">
-                  <button className="px-2 py-1 border rounded text-red-600" onClick={()=>del(f.id)}>Eliminar</button>
+                  <div className="flex gap-2">
+                    <button className="px-2 py-1 border rounded" onClick={()=>{ setEdit({...u}); setPw1e(""); setPw2e(""); }}>Editar</button>
+                    <button className="px-2 py-1 border rounded text-red-600" onClick={()=>deleteUser(u)}>Eliminar</button>
+                  </div>
                 </td>
               </tr>
             ))}
-            {list.length===0 && (
-              <tr>
-                <td colSpan={7} className="text-center text-gray-500 py-6">Sin resultados.</td>
-              </tr>
+            {filtered.length===0 && (
+              <tr><td colSpan={4} className="text-center text-gray-500 py-6">Sin usuarios.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Modal Edición */}
+      <Modal open={!!edit} onClose={()=>setEdit(null)} title="Editar usuario">
+        {edit && (
+          <div className="grid md:grid-cols-3 gap-3">
+            <Field label="Email" required>
+              <Input value={edit.email} onChange={e=>setEdit({...edit, email:e.target.value})}/>
+            </Field>
+            <Field label="Rol" required>
+              <select className="w-full rounded-xl border px-3 py-2" value={edit.role} onChange={e=>setEdit({...edit, role:e.target.value})}>
+                <option>COURIER</option>
+                <option>ADMIN</option>
+              </select>
+            </Field>
+            <Field label="Courier (si corresponde)">
+              <Input list="courierList" value={edit.courier||""} onChange={e=>setEdit({...edit, courier:e.target.value})}/>
+            </Field>
+
+            <Field label="Nueva contraseña (opcional)">
+              <PasswordInput value={pw1e} onChange={e=>setPw1e(e.target.value)} placeholder="Dejar vacío para no cambiar"/>
+            </Field>
+            <Field label="Repetir contraseña (opcional)">
+              <PasswordInput value={pw2e} onChange={e=>setPw2e(e.target.value)} placeholder="Dejar vacío para no cambiar"/>
+            </Field>
+
+            <div className="md:col-span-3 flex justify-end gap-2 mt-2">
+              <button className={BTN} onClick={()=>setEdit(null)}>Cancelar</button>
+              <button className={BTN_PRIMARY} onClick={updateUser}>Guardar cambios</button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </Section>
   );
 }
-/* ========== Recepción ========== */
+/* ========== Recepción (con restricciones por rol) ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
-  // ❗ Sin preselección de carga
   const [flightId,setFlightId]=useState("");
   const [form,setForm]=useState({
-    courier: currentUser.role==="COURIER"? currentUser.courier : "",
+    courier: currentUser.role==="COURIER"? (currentUser.courier || "") : "",
     estado:"", casilla:"", codigo:"",
     fecha:new Date().toISOString().slice(0,10),
     empresa:"", nombre:"", tracking:"", remitente:"",
     peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
-    desc:"", valor_txt:"", // ❗ sin valor por defecto
+    desc:"", valor_txt:"", // sin valor por defecto
     foto:null
   });
 
-  // Generar código basado en courier SIN acentos/espacios (ej: "EUROPAENVIOS23")
+  // generar código correlativo por courier (prefijo sin acentos/espacios)
   useEffect(()=>{
     if(!form.courier) return;
-    const key="seq_"+limpiar(form.courier);
+    const key="seq_"+courierPrefix(form.courier);
     const next=(Number(localStorage.getItem(key))||0)+1;
     const n= next>999?1:next;
-    setForm(f=>({...f, codigo: `${limpiar(form.courier)}${n}`}));
+    setForm(f=>({...f, codigo: `${courierPrefix(form.courier)}${n}`}));
     // eslint-disable-next-line
   },[form.courier]);
 
@@ -571,20 +763,17 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
   const vol = A && H && L ? (A*H*L)/5000 : 0;
   const exc = Math.max(0, vol - fact);
 
-  // ❗ Validaciones: requiere flightId y foto
-  const ok = ()=>[
+  const okCampos = ()=>[
       "courier","estado","casilla","codigo","fecha","empresa","nombre",
       "tracking","remitente","peso_real_txt","L_txt","A_txt","H_txt","desc","valor_txt"
-    ].every(k=>String(form[k]||"").trim()!=="")
-    && !!flightId
-    && !!form.foto;
+    ].every(k=>String(form[k]||"").trim()!=="");
 
   const submit=()=>{
     if(!flightId){ alert("Seleccioná una Carga."); return; }
     if(!form.foto){ alert("La foto del paquete es obligatoria (subí una imagen o tomá una foto)."); return; }
-    if(!ok()){ alert("Faltan campos."); return; }
+    if(!okCampos()){ alert("Faltan campos."); return; }
 
-    const key="seq_"+limpiar(form.courier);
+    const key="seq_"+courierPrefix(form.courier);
     let cur=(Number(localStorage.getItem(key))||0)+1; if(cur>999) cur=1;
     localStorage.setItem(key,String(cur));
 
@@ -592,7 +781,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     const p={
       id: uuid(), flight_id: flightId,
       courier: form.courier, estado: form.estado, casilla: form.casilla,
-      codigo: form.codigo, // ya saneado
+      codigo: form.codigo,
       codigo_full: `${fl?.codigo||"CARGA"}-${form.codigo}`,
       fecha: form.fecha, empresa_envio: form.empresa, nombre_apellido: form.nombre,
       tracking: form.tracking, remitente: form.remitente,
@@ -603,19 +792,19 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     };
     onAdd(p);
 
-    // ❗ Reset: vuelve Carga a "Seleccionar…" y limpia el formulario
+    // reset: vuelve Carga a "Seleccionar…" y limpia form (sin tocar courier si es COURIER logueado)
     setFlightId("");
-    setForm({
-      ...form,
+    setForm(f=>({
+      ...f,
       estado:"",
       casilla:"", codigo:"",
       empresa:"", nombre:"", tracking:"", remitente:"",
       peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
       desc:"", valor_txt:"", foto:null
-    });
+    }));
   };
 
-  // Cámara
+  // cámara
   const [camOpen,setCamOpen]=useState(false);
   const videoRef=useRef(null); const streamRef=useRef(null);
   useEffect(()=>{
@@ -637,7 +826,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, foto:data})); setCamOpen(false);
   };
 
-  // Etiqueta 100x60
   const printLabel=()=>{
     if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completá Código, Casilla, Nombre y Descripción."); return; }
     const medidas = `${L}x${A}x${H} cm`;
@@ -661,6 +849,15 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
   const [showMgr,setShowMgr]=useState(false);
 
+  // Si por error un COURIER llega a esta pestaña, mostramos aviso
+  if(currentUser.role==="COURIER"){
+    return (
+      <Section title="Recepción de paquete">
+        <div className="text-gray-600">Tu rol no tiene acceso a Recepción.</div>
+      </Section>
+    );
+  }
+
   return (
     <Section
       title="Recepción de paquete"
@@ -679,18 +876,12 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       )}
 
       <div className="grid md:grid-cols-3 gap-4">
-        {/* ❗ Carga: placeholder "Seleccionar…" y sin preselección */}
         <Field label="Carga" required>
-          <select
-            className="w-full rounded-xl border px-3 py-2"
-            value={flightId}
-            onChange={e=>setFlightId(e.target.value)}
-          >
+          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Seleccionar…</option>
             {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
         </Field>
-
         <Field label="Courier" required>
           <select
             className="w-full rounded-xl border px-3 py-2"
@@ -702,13 +893,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
             {COURIERS_INICIALES.map(c=><option key={c}>{c}</option>)}
           </select>
         </Field>
-
         <Field label="Estado" required>
-          <select
-            className="w-full rounded-xl border px-3 py-2"
-            value={form.estado}
-            onChange={e=>setForm({...form,estado:e.target.value})}
-          >
+          <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
             <option value="">Seleccionar…</option>
             {estadosPermitidos.map(s=><option key={s}>{s}</option>)}
           </select>
@@ -735,7 +921,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
           <Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} placeholder="10,00"/>
         </Field>
 
-        {/* ❗ Foto obligatoria */}
         <Field label="Foto del paquete" required>
           <div className="flex gap-2 items-center">
             <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
@@ -768,14 +953,14 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     </Section>
   );
 }
-
 const InfoBox=({title,value})=>(
   <div className="bg-gray-50 rounded-xl p-3">
     <div className="text-sm text-gray-600">{title}</div>
     <div className="text-2xl font-semibold">{value}</div>
   </div>
 );
-/* ========== Paquetes en bodega (Eliminar + ordenar + filtro fechas) ========== */
+
+/* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
 function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   const [q,setQ]=useState("");
   const [flightId,setFlightId]=useState("");
@@ -792,6 +977,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   };
 
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
+  const pref = user.role==="COURIER" ? courierPrefix(user.courier) : null;
 
   const baseRows = packages
     .filter(p => flights.find(f=>f.id===p.flight_id)?.estado==="En bodega")
@@ -799,7 +985,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     .filter(p => !dateFrom || (p.fecha||"") >= dateFrom)
     .filter(p => !dateTo   || (p.fecha||"") <= dateTo)
     .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()))
-    .filter(p => user.role!=="COURIER" || p.courier===user.courier);
+    .filter(p => user.role!=="COURIER" || (p.courier===user.courier && String(p.codigo||"").toUpperCase().startsWith(pref)));
 
   const getSortVal = (p, key)=>{
     switch(key){
@@ -813,7 +999,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
       case "nombre": return (p.nombre_apellido||"").toLowerCase();
       case "tracking": return (p.tracking||"").toLowerCase();
       case "peso_real": return Number(p.peso_real||0);
-      case "medidas": return Number((p.largo||0)*(p.ancho||0)*(p.alto||0)); // volumen como criterio
+      case "medidas": return Number((p.largo||0)*(p.ancho||0)*(p.alto||0));
       case "exceso": return Number(p.exceso_volumen||0);
       case "descripcion": return (p.descripcion||"").toLowerCase();
       default: return 0;
@@ -865,7 +1051,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
 
   const [viewer,setViewer]=useState(null);
 
-  // EXPORT bodega (se mantiene)
+  // export (igual que antes)
   async function exportXLSX(){
     const header = [
       th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"),
@@ -898,36 +1084,13 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     downloadXLSX("Paquetes_en_bodega.xlsx", [{name:"Bodega", ws}]);
   }
 
-  // agregados (se mantienen)
-  const aggReal = {}; const aggExc = {};
-  rows.forEach(p=>{ aggReal[p.courier]=(aggReal[p.courier]||0)+p.peso_real; aggExc[p.courier]=(aggExc[p.courier]||0)+p.exceso_volumen; });
-  const dataReal = Object.entries(aggReal).map(([courier,kg_real])=>({courier,kg_real}));
-  const dataExc  = Object.entries(aggExc).map(([courier,kg_exceso])=>({courier,kg_exceso}));
-  const totalReal = sum(dataReal.map(d=>d.kg_real));
-  const totalExc = sum(dataExc.map(d=>d.kg_exceso));
-
-  function printPkgLabel(p){
-    const L = p.largo||0, A=p.ancho||0, H=p.alto||0;
-    const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "-";
-    const html = labelHTML({
-      codigo: p.codigo,
-      nombre: p.nombre_apellido || "",
-      casilla: p.casilla || "",
-      pesoKg: p.peso_real || 0,
-      medidasTxt: `${L}x${A}x{H} cm`.replace("{H}", H),
-      desc: p.descripcion || "",
-      cargaTxt: carga
-    });
-    printHTMLInIframe(html);
-  }
-
   const requestDelete = (p)=>{
     const ok = window.confirm(`¿Eliminar el paquete ${p.codigo}? Esta acción no se puede deshacer.`);
     if(!ok) return;
     if(typeof onDelete === "function") onDelete(p.id);
-    else alert("onDelete no provisto en PaquetesBodega.");
   };
 
+  // COURIER no puede editar paquetes de otros, pero la lista ya está filtrada.
   return (
     <Section title="Paquetes en bodega"
       right={
@@ -985,9 +1148,9 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex gap-2">
-                      <button className="px-2 py-1 border rounded" onClick={()=>start(p)}>Editar</button>
+                      <button className="px-2 py-1 border rounded" onClick={()=>start(p)} disabled={user.role==="COURIER"}>Editar</button>
                       <button className="px-2 py-1 border rounded" onClick={()=>printPkgLabel(p)}>Etiqueta</button>
-                      <button className="px-2 py-1 border rounded text-red-600" onClick={()=>requestDelete(p)}>Eliminar</button>
+                      <button className="px-2 py-1 border rounded text-red-600" onClick={()=>requestDelete(p)} disabled={user.role==="COURIER"}>Eliminar</button>
                     </div>
                   </td>
                 </tr>
@@ -998,78 +1161,90 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
         </table>
       </div>
 
-      {/* Gráficos (se mantienen) */}
+      {/* Gráficos */}
       <div className="grid md:grid-cols-2 gap-6 mt-6">
-        {[{data:dataReal,key:"kg_real",title:`Kg reales por courier. Total: `,total:totalReal},
-          {data:dataExc,key:"kg_exceso",title:`Exceso volumétrico por courier. Total: `,total:totalExc}].map((g,ix)=>(
-          <div key={g.key} className="bg-gray-50 rounded-xl p-3">
-            <div className="text-sm text-gray-700 mb-2">{g.title}<b>{fmtPeso(g.total)} kg</b></div>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={g.data} dataKey={g.key} nameKey="courier" outerRadius={100}
-                       label={(e)=>`${e.courier}: ${fmtPeso(e[g.key])} kg`}>
-                    {g.data.map((_,i)=><Cell key={i} fill={COLORS[(i+(ix?3:0))%COLORS.length]}/>)}
-                  </Pie>
-                  <Tooltip formatter={(v)=>`${fmtPeso(v)} kg`}/>
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        ))}
+        {(() => {
+          const aggReal = {}; const aggExc = {};
+          rows.forEach(p=>{ aggReal[p.courier]=(aggReal[p.courier]||0)+p.peso_real; aggExc[p.courier]=(aggExc[p.courier]||0)+p.exceso_volumen; });
+          const dataReal = Object.entries(aggReal).map(([courier,kg_real])=>({courier,kg_real}));
+          const dataExc  = Object.entries(aggExc).map(([courier,kg_exceso])=>({courier,kg_exceso}));
+          const totalReal = sum(dataReal.map(d=>d.kg_real));
+          const totalExc = sum(dataExc.map(d=>d.kg_exceso));
+          return (
+            <>
+              {[{data:dataReal,key:"kg_real",title:`Kg reales por courier. Total: `,total:totalReal},
+                {data:dataExc,key:"kg_exceso",title:`Exceso volumétrico por courier. Total: `,total:totalExc}].map((g,ix)=>(
+                <div key={g.key} className="bg-gray-50 rounded-xl p-3">
+                  <div className="text-sm text-gray-700 mb-2">{g.title}<b>{fmtPeso(g.total)} kg</b></div>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={g.data} dataKey={g.key} nameKey="courier" outerRadius={100}
+                             label={(e)=>`${e.courier}: ${fmtPeso(e[g.key])} kg`}>
+                          {g.data.map((_,i)=><Cell key={i} fill={COLORS[(i+(ix?3:0))%COLORS.length]}/>)}
+                        </Pie>
+                        <Tooltip formatter={(v)=>`${fmtPeso(v)} kg`}/>
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              ))}
+            </>
+          );
+        })()}
       </div>
 
-      {/* Modal edición (se mantiene) */}
+      {/* Modal edición */}
       <Modal open={open} onClose={()=>setOpen(false)} title="Editar paquete">
         {form && (
           <div className="grid md:grid-cols-3 gap-3">
             <Field label="Carga">
-              <select className="w-full rounded-xl border px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})}>
+              <select className="w-full rounded-xl border px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}>
                 {flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
               </select>
             </Field>
-            <Field label="Courier"><Input value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})}/></Field>
+            <Field label="Courier"><Input value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Estado">
               {(() => {
                 const codigo = flights.find(f=>f.id===form.flight_id)?.codigo || "";
                 const opts = estadosPermitidosPorCarga(codigo);
                 return (
-                  <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
+                  <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} disabled={user.role==="COURIER"}>
                     {opts.map(s=><option key={s}>{s}</option>)}
                   </select>
                 );
               })()}
             </Field>
 
-            <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})}/></Field>
-            <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})}/></Field>
-            <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></Field>
+            <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})} disabled={user.role==="COURIER"}/></Field>
 
-            <Field label="Empresa de envío"><Input value={form.empresa_envio||""} onChange={e=>setForm({...form,empresa_envio:e.target.value})}/></Field>
-            <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})}/></Field>
-            <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})}/></Field>
+            <Field label="Empresa de envío"><Input value={form.empresa_envio||""} onChange={e=>setForm({...form,empresa_envio:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})} disabled={user.role==="COURIER"}/></Field>
 
-            <Field label="Remitente"><Input value={form.remitente||""} onChange={e=>setForm({...form,remitente:e.target.value})}/></Field>
-            <Field label="Peso real (kg)"><Input value={form.peso_real_txt} onChange={e=>setForm({...form,peso_real_txt:e.target.value})}/></Field>
-            <Field label="Largo (cm)"><Input value={form.L_txt} onChange={e=>setForm({...form,L_txt:e.target.value})}/></Field>
-            <Field label="Ancho (cm)"><Input value={form.A_txt} onChange={e=>setForm({...form,A_txt:e.target.value})}/></Field>
-            <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})}/></Field>
+            <Field label="Remitente"><Input value={form.remitente||""} onChange={e=>setForm({...form,remitente:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Peso real (kg)"><Input value={form.peso_real_txt} onChange={e=>setForm({...form,peso_real_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Largo (cm)"><Input value={form.L_txt} onChange={e=>setForm({...form,L_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Ancho (cm)"><Input value={form.A_txt} onChange={e=>setForm({...form,A_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
 
-            <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})}/></Field>
-            <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})}/></Field>
+            <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
 
             <div className="md:col-span-3 flex items-center justify-between mt-2">
               <button onClick={()=>printPkgLabel(form)} className={BTN}>Reimprimir etiqueta</button>
               <div className="flex gap-2">
-                <button onClick={save} className={BTN_PRIMARY}>Guardar</button>
+                <button onClick={save} className={BTN_PRIMARY} disabled={user.role==="COURIER"}>Guardar</button>
               </div>
             </div>
           </div>
         )}
       </Modal>
 
-      {/* Visor de foto (se mantiene) */}
+      {/* Visor de foto */}
       <Modal open={!!viewer} onClose={()=>setViewer(null)} title="Foto">
         {viewer && <img src={viewer} alt="foto" className="max-w-full rounded-xl" />}
       </Modal>
@@ -1077,7 +1252,206 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   );
 }
 
-/* ========== Armado de cajas (igual que antes) ========== */
+/* ========== Cargas enviadas (filtro por rol/courier + prefijo) ========== */
+function CargasEnviadas({packages, flights, user}){
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
+  const [estado,setEstado]=useState("");
+  const [flightId,setFlightId]=useState("");
+
+  const list = flights
+    .filter(f=>f.estado!=="En bodega")
+    .filter(f=>!from || f.fecha_salida>=from)
+    .filter(f=>!to || f.fecha_salida<=to)
+    .filter(f=>!estado || f.estado===estado);
+
+  const flight = flights.find(f=>f.id===flightId);
+  const pref = user.role==="COURIER" ? courierPrefix(user.courier) : null;
+
+  const paquetesDeVuelo = (flight
+    ? packages.filter(p=>p.flight_id===flightId)
+    : []
+  ).filter(p => user.role!=="COURIER" || (p.courier===user.courier && String(p.codigo||"").toUpperCase().startsWith(pref)));
+
+  const resumen = useMemo(()=>{
+    if(!flight) return [];
+    return flight.cajas.map((c,i)=>{
+      const peso=parseComma(c.peso||"0");
+      const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
+      const vol=(A*H*L)/6000 || 0;
+      // etiqueta por contenido (solo de paquetes visibles para el courier si corresponde)
+      const visibleIds = new Set(paquetesDeVuelo.map(p=>p.id));
+      const idsDeCaja = c.paquetes.filter(pid=> visibleIds.has(pid));
+      const couriers = new Set(idsDeCaja.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
+      const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
+      return {n:i+1, courier:etiqueta, peso, L,A,H, vol};
+    });
+  },[flight,packages,paquetesDeVuelo]);
+
+  const totPeso=sum(resumen.map(r=>r.peso));
+  const totVol=sum(resumen.map(r=>r.vol));
+
+  return (
+    <Section title="Cargas enviadas">
+      <div className="grid md:grid-cols-5 gap-3">
+        <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
+        <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+        <Field label="Estado">
+          <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
+            <option value="">Todos</option><option>En tránsito</option><option>Arribado</option>
+          </select>
+        </Field>
+        <Field label="Carga">
+          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+            <option value="">Seleccionar…</option>
+            {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
+          </select>
+        </Field>
+        <div className="flex items-end"><div className="text-sm text-gray-500">Seleccioná una carga</div></div>
+      </div>
+
+      {!flight ? <div className="text-gray-500 mt-4">Elegí una carga para ver contenido.</div> : (
+        <>
+          <div className="mt-4 text-sm text-gray-600">Paquetes del vuelo <b>{flight.codigo}</b></div>
+          <div className="overflow-auto mb-6">
+            <table className="min-w-full text-sm">
+              <thead><tr className="bg-gray-50">{["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Facturable","Volumétrico","Exceso"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <tbody>
+                {paquetesDeVuelo.map(p=>(
+                  <tr key={p.id} className="border-b">
+                    <td className="px-3 py-2">{p.courier}</td>
+                    <td className="px-3 py-2 font-mono">{p.codigo}</td>
+                    <td className="px-3 py-2">{p.casilla}</td>
+                    <td className="px-3 py-2">{p.fecha}</td>
+                    <td className="px-3 py-2">{p.nombre_apellido}</td>
+                    <td className="px-3 py-2 font-mono">{p.tracking}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_real)}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_facturable)}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_volumetrico)}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)}</td>
+                  </tr>
+                ))}
+                {paquetesDeVuelo.length===0 && <tr><td colSpan={10} className="text-center text-gray-500 py-6">No hay paquetes para tu usuario.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="overflow-auto">
+            <table className="min-w-full text-sm">
+              <thead><tr className="bg-gray-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <tbody>
+                {resumen.map(r=>(
+                  <tr key={r.n} className="border-b">
+                    <td className="px-3 py-2">{r.n}</td>
+                    <td className="px-3 py-2">{r.courier}</td>
+                    <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
+                    <td className="px-3 py-2">{r.L}</td>
+                    <td className="px-3 py-2">{r.A}</td>
+                    <td className="px-3 py-2">{r.H}</td>
+                    <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
+                  </tr>
+                ))}
+                <tr><td></td><td className="px-3 py-2 font-semibold">Totales</td><td className="px-3 py-2 font-semibold">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2 font-semibold">{fmtPeso(totVol)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+/* ========== Gestión de cargas (crear/editar/eliminar con confirmación) ========== */
+function CargasAdmin({flights,setFlights, packages}){
+  const [code,setCode]=useState("");
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const [awb,setAwb]=useState("");
+  const [fac,setFac]=useState("");
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
+
+  function create(){
+    if(!code) return;
+    setFlights([{id:uuid(),codigo:code,fecha_salida:date,estado:"En bodega",awb,factura_cacesa:fac,cajas:[]},...flights]);
+    setCode(""); setAwb(""); setFac("");
+  }
+  function missingScans(flight){
+    const idsDeCarga = packages.filter(p=>p.flight_id===flight.id).map(p=>p.id);
+    const asignados = new Set((flight.cajas||[]).flatMap(c=>c.paquetes||[]));
+    return idsDeCarga.filter(id=>!asignados.has(id)).length;
+  }
+  function upd(id,field,value){
+    if(field==="estado" && (value==="En tránsito" || value==="Arribado")){
+      const f = flights.find(x=>x.id===id);
+      if(f){
+        const faltan = missingScans(f);
+        if(faltan>0){
+          const ok = window.confirm(`Atención: faltan escanear ${faltan} paquete(s) en "Armado de cajas" para la carga ${f.codigo}. ¿Deseás continuar igualmente?`);
+          if(!ok) return;
+        }
+      }
+    }
+    setFlights(flights.map(f=>f.id===id?{...f,[field]:value}:f));
+  }
+  function del(id){
+    const f = flights.find(x=>x.id===id);
+    const tienePaquetes = packages.some(p=>p.flight_id===id);
+    if(tienePaquetes){
+      alert(`No se puede eliminar la carga ${f?.codigo||""} porque tiene paquetes asociados.`);
+      return;
+    }
+    const ok = window.confirm(`¿Eliminar la carga ${f?.codigo||id}?`);
+    if(!ok) return;
+    setFlights(flights.filter(x=>x.id!==id));
+  }
+
+  const list = flights
+    .filter(f=>!from || f.fecha_salida>=from)
+    .filter(f=>!to || f.fecha_salida<=to);
+
+  return (
+    <Section title="Gestión de cargas"
+      right={
+        <div className="flex gap-2 items-end">
+          <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
+          <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+          <div className="w-px h-10 bg-gray-200 mx-1"/>
+          <Input placeholder="Código de carga" value={code} onChange={e=>setCode(e.target.value)}/>
+          <Input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+          <Input placeholder="AWB (opcional)" value={awb} onChange={e=>setAwb(e.target.value)}/>
+          <Input placeholder="Factura Cacesa (opcional)" value={fac} onChange={e=>setFac(e.target.value)}/>
+          <button onClick={create} className={BTN_PRIMARY}>Crear</button>
+        </div>
+      }>
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead><tr className="bg-gray-50">{["Código","Fecha salida","Estado","AWB","Factura Cacesa","Cajas","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+          <tbody>
+            {list.map(f=>(
+              <tr key={f.id} className="border-b">
+                <td className="px-3 py-2"><Input value={f.codigo} onChange={e=>upd(f.id,"codigo",e.target.value)}/></td>
+                <td className="px-3 py-2"><Input type="date" value={f.fecha_salida} onChange={e=>upd(f.id,"fecha_salida",e.target.value)}/></td>
+                <td className="px-3 py-2">
+                  <select className="border rounded px-2 py-1" value={f.estado} onChange={e=>upd(f.id,"estado",e.target.value)}>
+                    {ESTADOS_CARGA.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </td>
+                <td className="px-3 py-2"><Input value={f.awb||""} onChange={e=>upd(f.id,"awb",e.target.value)}/></td>
+                <td className="px-3 py-2"><Input value={f.factura_cacesa||""} onChange={e=>upd(f.id,"factura_cacesa",e.target.value)}/></td>
+                <td className="px-3 py-2">{f.cajas.length}</td>
+                <td className="px-3 py-2">
+                  <button className="px-2 py-1 border rounded text-red-600" onClick={()=>del(f.id)}>Eliminar</button>
+                </td>
+              </tr>
+            ))}
+            {list.length===0 && <tr><td colSpan={7} className="text-center text-gray-500 py-6">Sin resultados.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+/* ========== Armado de cajas (igual, sin cambios de rol porque solo ADMIN ve esta pestaña) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -1112,7 +1486,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   }
   function assign(){
     if(!scan||!flight) return;
-    const pkg = packages.find(p=> p.flight_id===flightId && p.codigo.toUpperCase()===scan.toUpperCase());
+    const pkg = packages.find(p=> p.flight_id===flightId && String(p.codigo||"").toUpperCase()===scan.toUpperCase());
     if(!pkg){ alert("No existe ese código en esta carga."); setScan(""); return; }
     if(flight.cajas.some(c=>c.paquetes.includes(pkg.id))){ alert("Ya está en una caja."); setScan(""); return; }
     const activeId = activeBoxId || flight.cajas[0]?.id;
@@ -1189,9 +1563,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
 
                 {isEditing && (
                   <div className="grid md:grid-cols-5 gap-2 mb-2">
-                    <Field label="Nombre de caja">
-                      <Input value={c.codigo} onChange={e=>updBox(c.id,"codigo",e.target.value)}/>
-                    </Field>
+                    <Field label="Nombre de caja"><Input value={c.codigo} onChange={e=>updBox(c.id,"codigo",e.target.value)}/></Field>
                     <Field label="Peso caja (kg)"><Input value={c.peso||""} onChange={e=>updBox(c.id,"peso", e.target.value)} placeholder="3,128"/></Field>
                     <Field label="Largo (cm)"><Input value={c.L||""} onChange={e=>updBox(c.id,"L", e.target.value)}/></Field>
                     <Field label="Ancho (cm)"><Input value={c.A||""} onChange={e=>updBox(c.id,"A", e.target.value)}/></Field>
@@ -1222,140 +1594,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
           })}
         </div>
       </div>
-    </Section>
-  );
-}
-/* ========== Cargas enviadas ========== */
-function CargasEnviadas({packages, flights}){
-  const [from,setFrom]=useState("");
-  const [to,setTo]=useState("");
-  const [estado,setEstado]=useState("");
-  const [flightId,setFlightId]=useState("");
-
-  const list = flights
-    .filter(f=>f.estado!=="En bodega")
-    .filter(f=>!from || f.fecha_salida>=from)
-    .filter(f=>!to || f.fecha_salida<=to)
-    .filter(f=>!estado || f.estado===estado);
-
-  const flight = flights.find(f=>f.id===flightId);
-
-  const resumen = useMemo(()=>{
-    if(!flight) return [];
-    return flight.cajas.map((c,i)=>{
-      const peso=parseComma(c.peso||"0");
-      const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
-      const vol=(A*H*L)/6000 || 0;
-      const couriers = new Set(c.paquetes.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
-      const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
-      return {n:i+1, courier:etiqueta, peso, L,A,H, vol};
-    });
-  },[flight,packages]);
-
-  const totPeso=sum(resumen.map(r=>r.peso));
-  const totVol=sum(resumen.map(r=>r.vol));
-
-  async function exportTodo(){
-    if(!flight) return;
-    const headerP=[th("COURIER"),th("CÓDIGO"),th("CASILLA"),th("FECHA"),th("NOMBRE"),th("TRACKING"),th("PESO REAL"),th("FACTURABLE"),th("VOLUMÉTRICO"),th("EXCESO"),th("DESCRIPCIÓN")];
-    const bodyP=packages
-      .filter(p=>p.flight_id===flightId)
-      .map(p=>[
-        td(p.courier),td(p.codigo),td(p.casilla),td(p.fecha),td(p.nombre_apellido),
-        td(p.tracking),td(fmtPeso(p.peso_real)),td(fmtPeso(p.peso_facturable)),
-        td(fmtPeso(p.peso_volumetrico)),td(fmtPeso(p.exceso_volumen)),td(p.descripcion)
-      ]);
-
-    const tpl = await tryLoadTemplate("/templates/cargas_enviadas.xlsx");
-    if(tpl){
-      replacePlaceholdersInWB(tpl, { CARGA: flight.codigo, FECHA: flight.fecha_salida||"" });
-      appendSheet(tpl, "PAQUETES", [headerP,...bodyP], {cols:[{wch:16},{wch:14},{wch:10},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:14},{wch:12},{wch:28}]});
-      appendSheet(tpl, "CAJAS", [
-        [th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")],
-        ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]),
-        [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]
-      ]);
-      XLSX.writeFile(tpl, `Detalle_${flight.codigo}.xlsx`);
-      return;
-    }
-
-    const shP=sheetFromAOAStyled("Paquetes", [headerP,...bodyP], {
-      cols:[{wch:16},{wch:14},{wch:10},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:14},{wch:12},{wch:28}],
-      rows:[{hpt:26}]
-    });
-    const shC=sheetFromAOAStyled("Cajas", [
-      [th("Nº Caja"),th("Courier"),th("Peso"),th("Largo"),th("Ancho"),th("Alto"),th("Volumétrico")],
-      ...resumen.map(r=>[td(r.n),td(r.courier),td(fmtPeso(r.peso)),td(String(r.L)),td(String(r.A)),td(String(r.H)),td(fmtPeso(r.vol))]),
-      [td(""),td("Totales"),td(fmtPeso(totPeso)),"","","",td(fmtPeso(totVol))]
-    ]);
-    downloadXLSX(`Detalle_${flight.codigo}.xlsx`, [shP, shC]);
-  }
-
-  return (
-    <Section title="Cargas enviadas">
-      <div className="grid md:grid-cols-5 gap-3">
-        <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
-        <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
-        <Field label="Estado">
-          <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
-            <option value="">Todos</option><option>En tránsito</option><option>Arribado</option>
-          </select>
-        </Field>
-        <Field label="Carga">
-          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
-            <option value="">Seleccionar…</option>
-            {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
-          </select>
-        </Field>
-        <div className="flex items-end"><button onClick={exportTodo} disabled={!flight} className={BTN_PRIMARY+" w-full disabled:opacity-50"}>Exportar XLSX</button></div>
-      </div>
-
-      {!flight ? <div className="text-gray-500 mt-4">Elegí una carga para ver contenido.</div> : (
-        <>
-          <div className="mt-4 text-sm text-gray-600">Paquetes del vuelo <b>{flight.codigo}</b></div>
-          <div className="overflow-auto mb-6">
-            <table className="min-w-full text-sm">
-              <thead><tr className="bg-gray-50">{["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Facturable","Volumétrico","Exceso"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
-              <tbody>
-                {packages.filter(p=>p.flight_id===flightId).map(p=>(
-                  <tr key={p.id} className="border-b">
-                    <td className="px-3 py-2">{p.courier}</td>
-                    <td className="px-3 py-2 font-mono">{p.codigo}</td>
-                    <td className="px-3 py-2">{p.casilla}</td>
-                    <td className="px-3 py-2">{p.fecha}</td>
-                    <td className="px-3 py-2">{p.nombre_apellido}</td>
-                    <td className="px-3 py-2 font-mono">{p.tracking}</td>
-                    <td className="px-3 py-2">{fmtPeso(p.peso_real)}</td>
-                    <td className="px-3 py-2">{fmtPeso(p.peso_facturable)}</td>
-                    <td className="px-3 py-2">{fmtPeso(p.peso_volumetrico)}</td>
-                    <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="overflow-auto">
-            <table className="min-w-full text-sm">
-              <thead><tr className="bg-gray-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
-              <tbody>
-                {resumen.map(r=>(
-                  <tr key={r.n} className="border-b">
-                    <td className="px-3 py-2">{r.n}</td>
-                    <td className="px-3 py-2">{r.courier}</td>
-                    <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
-                    <td className="px-3 py-2">{r.L}</td>
-                    <td className="px-3 py-2">{r.A}</td>
-                    <td className="px-3 py-2">{r.H}</td>
-                    <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
-                  </tr>
-                ))}
-                <tr><td></td><td className="px-3 py-2 font-semibold">Totales</td><td className="px-3 py-2 font-semibold">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2 font-semibold">{fmtPeso(totVol)}</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
     </Section>
   );
 }
@@ -1579,36 +1817,46 @@ function ManageList({label,items,setItems}){
   );
 }
 
-/* ========== App ========== */
+/* ========== App (tabs por rol + Usuarios) ========== */
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
 
   const [tab,setTab]=useState("Recepción");
-  const tabs = ["Recepción","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Extras"];
-
   const [couriers,setCouriers]=useState(COURIERS_INICIALES);
   const [estados,setEstados]=useState(ESTADOS_INICIALES);
 
-  // ❗ Sin carga por defecto
+  // Sin cargas por defecto
   const [flights,setFlights]=useState([]);
   const [packages,setPackages]=useState([]);
   const [extras,setExtras]=useState([]);
 
+  useEffect(()=>{
+    if(currentUser){
+      const allowed = tabsForRole(currentUser.role);
+      if(!allowed.includes(tab)) setTab(allowed[0]);
+    }
+  },[currentUser]); // eslint-disable-line
+
   if(!currentUser) return <Login onLogin={setCurrentUser} />;
+
+  const allowedTabs = tabsForRole(currentUser.role);
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* header simple */}
       <div className="px-6 py-4 flex items-center justify-between">
         <div>
           <div className="text-lg font-semibold">Gestor de Paquetes</div>
           <div className="text-xs text-gray-500">LaMaquinaLogistica / Europa Envíos</div>
         </div>
-        <div className="text-sm text-gray-600">{currentUser.role} — {currentUser.email}</div>
+        <div className="text-sm text-gray-600">
+          {currentUser.role} — {currentUser.email}
+        </div>
       </div>
 
       <div className="px-6">
         <div className="flex gap-2 flex-wrap mb-4">
-          {tabs.map(t=>(
+          {allowedTabs.map(t=>(
             <button key={t} onClick={()=>setTab(t)} className={"px-3 py-2 rounded-xl text-sm "+(tab===t?"bg-indigo-600 text-white":"bg-white border")}>{t}</button>
           ))}
         </div>
@@ -1629,7 +1877,7 @@ function App(){
             flights={flights}
             user={currentUser}
             onUpdate={(p)=>setPackages(packages.map(x=>x.id===p.id?p:x))}
-            onDelete={(id)=>setPackages(packages.filter(p=>p.id!==id))} // ← elimina sin tocar correlatividad
+            onDelete={(id)=>setPackages(packages.filter(p=>p.id!==id))}
           />
         )}
 
@@ -1643,7 +1891,7 @@ function App(){
         )}
 
         {tab==="Cargas enviadas" && (
-          <CargasEnviadas packages={packages} flights={flights} />
+          <CargasEnviadas packages={packages} flights={flights} user={currentUser} />
         )}
 
         {tab==="Gestión de cargas" && (
@@ -1652,6 +1900,13 @@ function App(){
 
         {tab==="Proformas" && (
           <Proformas packages={packages} flights={flights} extras={extras} />
+        )}
+
+        {tab==="Usuarios" && (
+          <Usuarios
+            currentUser={currentUser}
+            onCurrentUserChange={(u)=>setCurrentUser(u)}
+          />
         )}
 
         {tab==="Extras" && (

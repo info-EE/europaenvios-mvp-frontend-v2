@@ -351,6 +351,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
   const buffer = await wb.xlsx.writeBuffer();
   downloadBufferAsXlsx(buffer, nombreArchivo);
 }
+
 /* ========== UI base ========== */
 const BTN = "px-3 py-2 rounded-xl border bg-white hover:bg-gray-50";
 const BTN_PRIMARY = "px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white";
@@ -373,6 +374,30 @@ const Field = ({label,required,children})=>(
 const Input = (p)=>(
   <input {...p} className={"w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 ring-indigo-500 "+(p.className||"")} />
 );
+
+/* === FIX de foco: PasswordInput global para evitar remounts en cada render === */
+function PasswordInput({value,onChange,placeholder}) {
+  const [show,setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoComplete="current-password"
+      />
+      <button
+        type="button"
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-600"
+        onClick={()=>setShow(s=>!s)}
+      >
+        {show ? "Ocultar" : "Ver"}
+      </button>
+    </div>
+  );
+}
+
 function Modal({open,onClose,title,children}){
   if(!open) return null;
   return (
@@ -421,17 +446,6 @@ function Login({onLogin}){
   const [adminPass2,setAdminPass2]=useState("");
   const [creating,setCreating]=useState(false);
 
-  const PasswordInput = ({value,onChange,placeholder})=>{
-    const [show,setShow]=useState(false);
-    return (
-      <div className="relative">
-        <Input type={show?"text":"password"} value={value} onChange={onChange} placeholder={placeholder}/>
-        <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-600"
-                onClick={()=>setShow(s=>!s)}>{show?"Ocultar":"Ver"}</button>
-      </div>
-    );
-  };
-
   async function handleLogin(){
     setErr("");
     const u = users.find(u=>u.email.trim().toLowerCase()===email.trim().toLowerCase());
@@ -476,6 +490,7 @@ function Login({onLogin}){
               <Input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@empresa.com"/>
             </Field>
             <Field label="Contraseña" required>
+              {/* Usamos el PasswordInput global (FIX foco) */}
               <PasswordInput value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••"/>
             </Field>
             {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
@@ -532,18 +547,6 @@ function Usuarios({ currentUser, onCurrentUserChange }){
   const [edit,setEdit]=useState(null); // user object or null
   const [pw1e,setPw1e]=useState("");
   const [pw2e,setPw2e]=useState("");
-
-  const PasswordInput = ({value,onChange,placeholder})=>{
-    const [show,setShow]=useState(false);
-    return (
-      <div className="relative">
-        <Input type={show?"text":"password"} value={value} onChange={onChange} placeholder={placeholder}/>
-        <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-600" onClick={()=>setShow(s=>!s)}>
-          {show?"Ocultar":"Ver"}
-        </button>
-      </div>
-    );
-  };
 
   const filtered = users.filter(u =>
     (u.email+u.role+(u.courier||"")).toLowerCase().includes(q.toLowerCase())
@@ -652,8 +655,12 @@ function Usuarios({ currentUser, onCurrentUserChange }){
               {COURIERS_INICIALES.map(c=><option key={c} value={c} />)}
             </datalist>
           </Field>
-          <Field label="Contraseña" required><PasswordInput value={pw1} onChange={e=>setPw1(e.target.value)} placeholder="••••••••"/></Field>
-          <Field label="Repetir contraseña" required><PasswordInput value={pw2} onChange={e=>setPw2(e.target.value)} placeholder="••••••••"/></Field>
+          <Field label="Contraseña" required>
+            <PasswordInput value={pw1} onChange={e=>setPw1(e.target.value)} placeholder="••••••••"/>
+          </Field>
+          <Field label="Repetir contraseña" required>
+            <PasswordInput value={pw2} onChange={e=>setPw2(e.target.value)} placeholder="••••••••"/>
+          </Field>
         </div>
         {err && <div className="text-red-600 text-sm mt-2">{err}</div>}
         <div className="flex justify-end mt-3">
@@ -953,13 +960,13 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     </Section>
   );
 }
+
 const InfoBox=({title,value})=>(
   <div className="bg-gray-50 rounded-xl p-3">
     <div className="text-sm text-gray-600">{title}</div>
     <div className="text-2xl font-semibold">{value}</div>
   </div>
 );
-
 /* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
 function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   const [q,setQ]=useState("");
@@ -1020,6 +1027,21 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     return arr;
   },[baseRows, sort]);
 
+  // helper: etiqueta del paquete
+  function printPkgLabel(p){
+    const medidas = `${p.largo}x${p.ancho}x${p.alto} cm`;
+    const html = labelHTML({
+      codigo: p.codigo,
+      nombre: p.nombre_apellido,
+      casilla: p.casilla,
+      pesoKg: p.peso_real,
+      medidasTxt: medidas,
+      desc: p.descripcion,
+      cargaTxt: flights.find(f=>f.id===p.flight_id)?.codigo || "-"
+    });
+    printHTMLInIframe(html);
+  }
+
   // editor
   const [open,setOpen]=useState(false);
   const [form,setForm]=useState(null);
@@ -1051,7 +1073,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
 
   const [viewer,setViewer]=useState(null);
 
-  // export (igual que antes)
+  // export
   async function exportXLSX(){
     const header = [
       th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"),
@@ -1090,7 +1112,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     if(typeof onDelete === "function") onDelete(p.id);
   };
 
-  // COURIER no puede editar paquetes de otros, pero la lista ya está filtrada.
   return (
     <Section title="Paquetes en bodega"
       right={
@@ -1360,6 +1381,7 @@ function CargasEnviadas({packages, flights, user}){
     </Section>
   );
 }
+
 /* ========== Gestión de cargas (crear/editar/eliminar con confirmación) ========== */
 function CargasAdmin({flights,setFlights, packages}){
   const [code,setCode]=useState("");
@@ -1450,7 +1472,6 @@ function CargasAdmin({flights,setFlights, packages}){
     </Section>
   );
 }
-
 /* ========== Armado de cajas (igual, sin cambios de rol porque solo ADMIN ve esta pestaña) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");

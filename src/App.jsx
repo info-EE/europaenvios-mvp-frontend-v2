@@ -2,10 +2,6 @@
     - Autenticación local (localStorage) con hash SHA-256.
     - Roles: ADMIN / COURIER.
     - Filtros por courier y prefijo de código.
-    - NUEVO: Pestaña "Paquetes sin casilla" (secuencia 1..999 con wrap), filtros, buscador y export XLSX.
-    - Recepción: dropdowns usando listas gestionadas; foto deja de ser obligatoria.
-    - Armado de cajas: pide "peso de caja de cartón", muestra "Peso estimado" (cartón + suma pesos reales), export XLSX.
-    - Cargas enviadas: export XLSX.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -60,20 +56,10 @@ function saveUsers(users){
 /** prefijo permitido para códigos de un courier (ej.: "GLOBAL BOX" -> "GLOBALBOX") */
 function courierPrefix(name){ return limpiar(name || ""); }
 
-/** restringe tabs por rol (ADMIN incluye "Paquetes sin casilla") */
+/** restringe tabs por rol */
 function tabsForRole(role){
   if(role==="COURIER") return ["Paquetes en bodega","Cargas enviadas"];
-  return [
-    "Recepción",
-    "Paquetes sin casilla",
-    "Paquetes en bodega",
-    "Armado de cajas",
-    "Cargas enviadas",
-    "Gestión de cargas",
-    "Proformas",
-    "Usuarios",
-    "Extras"
-  ];
+  return ["Recepción","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
 }
 
 /* ========== impresión sin about:blank ========== */
@@ -426,6 +412,7 @@ function Modal({open,onClose,title,children}){
     </div>
   );
 }
+
 /* ========== datos iniciales (listas) ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
@@ -440,7 +427,7 @@ function estadosPermitidosPorCarga(codigo){
   if (s.startsWith("AIR")) return ["Aéreo"];
   if (s.startsWith("MAR")) return ["Marítimo"];
   if (s.startsWith("COMP")) return ["Ofrecer marítimo"];
-  return ESTADOS_INICIALES; // (VER: en componentes usamos dinámico para reflejar lista gestionada)
+  return ESTADOS_INICIALES;
 }
 
 /* ========== Login con contraseña (localStorage + SHA-256) ========== */
@@ -543,7 +530,6 @@ function Login({onLogin}){
     </div>
   );
 }
-
 /* ========== Gestión de Usuarios (solo ADMIN) ========== */
 function Usuarios({ currentUser, onCurrentUserChange }){
   const [users,setUsers] = useState(loadUsers());
@@ -745,7 +731,7 @@ function Usuarios({ currentUser, onCurrentUserChange }){
     </Section>
   );
 }
-/* ========== Recepción (con restricciones por rol y listas dinámicas) ========== */
+/* ========== Recepción (con restricciones por rol) ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const [flightId,setFlightId]=useState("");
@@ -755,8 +741,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     fecha:new Date().toISOString().slice(0,10),
     empresa:"", nombre:"", tracking:"", remitente:"",
     peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
-    desc:"", valor_txt:"",
-    foto:null // ahora OPCIONAL
+    desc:"", valor_txt:"", // sin valor por defecto
+    foto:null
   });
 
   // generar código correlativo por courier (prefijo sin acentos/espacios)
@@ -769,24 +755,14 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     // eslint-disable-next-line
   },[form.courier]);
 
-  // Restricción por código de carga (si aplica) o lista dinámica de estados
-  function estadosPermitidosPorCodigoCarga(codigo){
-    const s = String(codigo||"").toUpperCase();
-    if (s.startsWith("AIR")) return ["Aéreo"];
-    if (s.startsWith("MAR")) return ["Marítimo"];
-    if (s.startsWith("COMP")) return ["Ofrecer marítimo"];
-    return null; // sin restricción -> usar lista gestionada "estados"
-  }
   const codigoCargaSel = flights.find(f=>f.id===flightId)?.codigo || "";
-  const restriccion = estadosPermitidosPorCodigoCarga(codigoCargaSel);
-  const estadosPermitidos = restriccion ? restriccion : estados;
-
+  const estadosPermitidos = estadosPermitidosPorCarga(codigoCargaSel);
   useEffect(()=>{
     if(form.estado && !estadosPermitidos.includes(form.estado)){
       setForm(f=>({...f, estado: estadosPermitidos[0] || ""}));
     }
     // eslint-disable-next-line
-  },[flightId, estados, codigoCargaSel]);
+  },[flightId]);
 
   const peso = parseComma(form.peso_real_txt);
   const L = parseIntEU(form.L_txt), A=parseIntEU(form.A_txt), H=parseIntEU(form.H_txt);
@@ -801,7 +777,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
   const submit=()=>{
     if(!flightId){ alert("Seleccioná una Carga."); return; }
-    // FOTO ya no es obligatoria
+    if(!form.foto){ alert("La foto del paquete es obligatoria (subí una imagen o tomá una foto)."); return; }
     if(!okCampos()){ alert("Faltan campos."); return; }
 
     const key="seq_"+courierPrefix(form.courier);
@@ -819,12 +795,11 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       peso_real: peso, largo: L, ancho: A, alto: H,
       descripcion: form.desc, valor_aerolinea: parseComma(form.valor_txt),
       peso_facturable: Number(fact.toFixed(3)), peso_volumetrico: Number(vol.toFixed(3)), exceso_volumen: Number(exc.toFixed(3)),
-      foto: form.foto || null, // opcional
-      estado_bodega: "En bodega",
+      foto: form.foto, estado_bodega: "En bodega",
     };
     onAdd(p);
 
-    // reset (sin tocar courier si es COURIER logueado)
+    // reset: vuelve Carga a "Seleccionar…" y limpia form (sin tocar courier si es COURIER logueado)
     setFlightId("");
     setForm(f=>({
       ...f,
@@ -896,7 +871,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       right={
         <div className="flex items-center gap-2">
           <button className={BTN} onClick={()=>setShowMgr(s=>!s)}>Gestionar listas</button>
-          <span className="text-sm text-gray-500">Todos los campos obligatorios (foto opcional)</span>
+          <span className="text-sm text-gray-500">Todos los campos obligatorios</span>
         </div>
       }
     >
@@ -922,7 +897,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
             disabled={currentUser.role==="COURIER"}
           >
             <option value="">Seleccionar…</option>
-            {couriers.map(c=><option key={c}>{c}</option>)}
+            {COURIERS_INICIALES.map(c=><option key={c}>{c}</option>)}
           </select>
         </Field>
         <Field label="Estado" required>
@@ -953,12 +928,12 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
           <Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} placeholder="10,00"/>
         </Field>
 
-        <Field label="Foto del paquete (opcional)">
+        <Field label="Foto del paquete" required>
           <div className="flex gap-2 items-center">
             <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
             <button type="button" onClick={()=>fileRef.current?.click()} className={BTN}>Seleccionar archivo</button>
             <button type="button" onClick={()=>setCamOpen(true)} className={BTN}>Tomar foto</button>
-            {form.foto ? <span className="text-green-600 text-sm">✓ foto cargada</span> : <span className="text-gray-500 text-sm">Opcional</span>}
+            {form.foto ? <span className="text-green-600 text-sm">✓ foto cargada</span> : <span className="text-red-600 text-sm">Obligatoria</span>}
           </div>
         </Field>
       </div>
@@ -992,7 +967,313 @@ const InfoBox=({title,value})=>(
     <div className="text-2xl font-semibold">{value}</div>
   </div>
 );
-/* ========== Cargas enviadas (filtro por rol/courier + prefijo + Export XLSX) ========== */
+/* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
+function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
+  const [q,setQ]=useState("");
+  const [flightId,setFlightId]=useState("");
+  const [dateFrom,setDateFrom]=useState("");
+  const [dateTo,setDateTo]=useState("");
+
+  const [sort, setSort] = useState({ key: null, dir: "asc" });
+  const toggleSort = (key) => {
+    setSort(s => s.key===key ? {key, dir: (s.dir==="asc"?"desc":"asc")} : {key, dir:"asc"});
+  };
+  const Arrow = ({col})=>{
+    if(sort.key!==col) return <span className="ml-1 text-gray-400">↕</span>;
+    return <span className="ml-1">{sort.dir==="asc"?"▲":"▼"}</span>;
+  };
+
+  const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
+  const pref = user.role==="COURIER" ? courierPrefix(user.courier) : null;
+
+  const baseRows = packages
+    .filter(p => flights.find(f=>f.id===p.flight_id)?.estado==="En bodega")
+    .filter(p => !flightId || p.flight_id===flightId)
+    .filter(p => !dateFrom || (p.fecha||"") >= dateFrom)
+    .filter(p => !dateTo   || (p.fecha||"") <= dateTo)
+    .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()))
+    .filter(p => user.role!=="COURIER" || (p.courier===user.courier && String(p.codigo||"").toUpperCase().startsWith(pref)));
+
+  const getSortVal = (p, key)=>{
+    switch(key){
+      case "carga": {
+        const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "";
+        return carga.toLowerCase();
+      }
+      case "codigo": return (p.codigo||"").toLowerCase();
+      case "casilla": return (p.casilla||"").toLowerCase();
+      case "fecha": return p.fecha || "";
+      case "nombre": return (p.nombre_apellido||"").toLowerCase();
+      case "tracking": return (p.tracking||"").toLowerCase();
+      case "peso_real": return Number(p.peso_real||0);
+      case "medidas": return Number((p.largo||0)*(p.ancho||0)*(p.alto||0));
+      case "exceso": return Number(p.exceso_volumen||0);
+      case "descripcion": return (p.descripcion||"").toLowerCase();
+      default: return 0;
+    }
+  };
+
+  const rows = useMemo(()=>{
+    const arr = [...baseRows];
+    if(sort.key){
+      arr.sort((a,b)=>{
+        const va = getSortVal(a, sort.key);
+        const vb = getSortVal(b, sort.key);
+        if(va<vb) return sort.dir==="asc"?-1:1;
+        if(va>vb) return sort.dir==="asc"? 1:-1;
+        return 0;
+      });
+    }
+    return arr;
+  },[baseRows, sort]);
+
+  // helper: etiqueta del paquete
+  function printPkgLabel(p){
+    const medidas = `${p.largo}x${p.ancho}x${p.alto} cm`;
+    const html = labelHTML({
+      codigo: p.codigo,
+      nombre: p.nombre_apellido,
+      casilla: p.casilla,
+      pesoKg: p.peso_real,
+      medidasTxt: medidas,
+      desc: p.descripcion,
+      cargaTxt: flights.find(f=>f.id===p.flight_id)?.codigo || "-"
+    });
+    printHTMLInIframe(html);
+  }
+
+  // editor
+  const [open,setOpen]=useState(false);
+  const [form,setForm]=useState(null);
+  const start=(p)=>{
+    setForm({
+      ...p,
+      peso_real_txt: fmtPeso(p.peso_real),
+      L_txt: String(p.largo||0), A_txt: String(p.ancho||0), H_txt: String(p.alto||0),
+      valor_txt: fmtMoney(p.valor_aerolinea)
+    });
+    setOpen(true);
+  };
+  const save=()=>{
+    const peso = parseComma(form.peso_real_txt);
+    const L = parseIntEU(form.L_txt), A = parseIntEU(form.A_txt), H = parseIntEU(form.H_txt);
+    const fact = Math.max(MIN_FACTURABLE, peso||0);
+    const vol = A&&H&&L ? (A*H*L)/5000 : 0;
+    const exc = Math.max(0, vol - fact);
+    const upd = {
+      ...form,
+      peso_real: peso, largo:L, ancho:A, alto:H,
+      peso_facturable: Number(fact.toFixed(3)),
+      peso_volumetrico: Number(vol.toFixed(3)),
+      exceso_volumen: Number(exc.toFixed(3)),
+      valor_aerolinea: parseComma(form.valor_txt),
+    };
+    onUpdate(upd); setOpen(false);
+  };
+
+  const [viewer,setViewer]=useState(null);
+
+  // export
+  async function exportXLSX(){
+    const header = [
+      th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"),
+      th("Fecha"), th("Empresa de envío"), th("Nombre y apellido"), th("Tracking"),
+      th("Remitente"), th("Peso facturable (mín 0,200 kg)"), th("Exceso de volumen"),
+      th("Medidas"), th("Descripción"), th("Precio (EUR)")
+    ];
+    const body = rows.map(p=>{
+      const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "";
+      const medidas = `${p.largo}x${p.ancho}x${p.alto} cm`;
+      return [
+        td(carga), td(p.courier), td(p.estado), td(p.casilla), td(p.codigo),
+        td(p.fecha), td(p.empresa_envio||""), td(p.nombre_apellido||""), td(p.tracking||""),
+        td(p.remitente||""), td(fmtPeso(p.peso_facturable)), td(fmtPeso(p.exceso_volumen)),
+        td(medidas), td(p.descripcion||""), td(fmtMoney(p.valor_aerolinea||0))
+      ];
+    });
+
+    const tpl = await tryLoadTemplate("/templates/bodega.xlsx");
+    if(tpl){
+      replacePlaceholdersInWB(tpl, { CARGA: flights.find(f=>f.id===flightId)?.codigo || "", FECHA: new Date().toISOString().slice(0,10) });
+      appendSheet(tpl, "DATA", [header, ...body], {cols:[{wch:12},{wch:14},{wch:12},{wch:10},{wch:16},{wch:12},{wch:22},{wch:22},{wch:16},{wch:18},{wch:18},{wch:18},{wch:14},{wch:28},{wch:12}]});
+      XLSX.writeFile(tpl, "Paquetes_en_bodega.xlsx");
+      return;
+    }
+    const { ws } = sheetFromAOAStyled("Bodega", [header, ...body], {
+      cols: [{wch:12},{wch:14},{wch:12},{wch:10},{wch:16},{wch:12},{wch:22},{wch:22},{wch:16},{wch:18},{wch:18},{wch:18},{wch:14},{wch:28},{wch:12}],
+      rows: [{hpt:24}]
+    });
+    downloadXLSX("Paquetes_en_bodega.xlsx", [{name:"Bodega", ws}]);
+  }
+
+  const requestDelete = (p)=>{
+    const ok = window.confirm(`¿Eliminar el paquete ${p.codigo}? Esta acción no se puede deshacer.`);
+    if(!ok) return;
+    if(typeof onDelete === "function") onDelete(p.id);
+  };
+
+  return (
+    <Section title="Paquetes en bodega"
+      right={
+        <div className="flex gap-2 flex-wrap items-end">
+          <select className="rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+            <option value="">Todas las cargas (En bodega)</option>
+            {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
+          </select>
+          <Field label="Desde">
+            <Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} />
+          </Field>
+          <Field label="Hasta">
+            <Input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} />
+          </Field>
+          <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
+          <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
+        </div>
+      }
+    >
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("carga")}>Carga<Arrow col="carga"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("codigo")}>Código<Arrow col="codigo"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("casilla")}>Casilla<Arrow col="casilla"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("fecha")}>Fecha<Arrow col="fecha"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("nombre")}>Nombre<Arrow col="nombre"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("tracking")}>Tracking<Arrow col="tracking"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("peso_real")}>Peso real<Arrow col="peso_real"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("medidas")}>Medidas<Arrow col="medidas"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("exceso")}>Exceso de volumen<Arrow col="exceso"/></th>
+              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("descripcion")}>Descripción<Arrow col="descripcion"/></th>
+              <th className="text-left px-3 py-2">Foto</th>
+              <th className="text-left px-3 py-2">Editar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(p=>{
+              const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "";
+              return (
+                <tr key={p.id} className="border-b">
+                  <td className="px-3 py-2">{carga}</td>
+                  <td className="px-3 py-2 font-mono">{p.codigo}</td>
+                  <td className="px-3 py-2">{p.casilla}</td>
+                  <td className="px-3 py-2">{p.fecha}</td>
+                  <td className="px-3 py-2">{p.nombre_apellido}</td>
+                  <td className="px-3 py-2 font-mono">{p.tracking}</td>
+                  <td className="px-3 py-2">{fmtPeso(p.peso_real)} kg</td>
+                  <td className="px-3 py-2">{p.largo}x{p.ancho}x{p.alto} cm</td>
+                  <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)} kg</td>
+                  <td className="px-3 py-2">{p.descripcion}</td>
+                  <td className="px-3 py-2">
+                    {p.foto ? <img alt="foto" src={p.foto} className="w-14 h-14 object-cover rounded cursor-pointer" onClick={()=>setViewer(p.foto)} /> : "—"}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <button className="px-2 py-1 border rounded" onClick={()=>start(p)} disabled={user.role==="COURIER"}>Editar</button>
+                      <button className="px-2 py-1 border rounded" onClick={()=>printPkgLabel(p)}>Etiqueta</button>
+                      <button className="px-2 py-1 border rounded text-red-600" onClick={()=>requestDelete(p)} disabled={user.role==="COURIER"}>Eliminar</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {rows.length===0 && <tr><td colSpan={12} className="text-center text-gray-500 py-6">No hay paquetes.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Gráficos */}
+      <div className="grid md:grid-cols-2 gap-6 mt-6">
+        {(() => {
+          const aggReal = {}; const aggExc = {};
+          rows.forEach(p=>{ aggReal[p.courier]=(aggReal[p.courier]||0)+p.peso_real; aggExc[p.courier]=(aggExc[p.courier]||0)+p.exceso_volumen; });
+          const dataReal = Object.entries(aggReal).map(([courier,kg_real])=>({courier,kg_real}));
+          const dataExc  = Object.entries(aggExc).map(([courier,kg_exceso])=>({courier,kg_exceso}));
+          const totalReal = sum(dataReal.map(d=>d.kg_real));
+          const totalExc = sum(dataExc.map(d=>d.kg_exceso));
+          return (
+            <>
+              {[{data:dataReal,key:"kg_real",title:`Kg reales por courier. Total: `,total:totalReal},
+                {data:dataExc,key:"kg_exceso",title:`Exceso volumétrico por courier. Total: `,total:totalExc}].map((g,ix)=>(
+                <div key={g.key} className="bg-gray-50 rounded-xl p-3">
+                  <div className="text-sm text-gray-700 mb-2">{g.title}<b>{fmtPeso(g.total)} kg</b></div>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={g.data} dataKey={g.key} nameKey="courier" outerRadius={100}
+                             label={(e)=>`${e.courier}: ${fmtPeso(e[g.key])} kg`}>
+                          {g.data.map((_,i)=><Cell key={i} fill={COLORS[(i+(ix?3:0))%COLORS.length]}/>)}
+                        </Pie>
+                        <Tooltip formatter={(v)=>`${fmtPeso(v)} kg`}/>
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              ))}
+            </>
+          );
+        })()}
+      </div>
+
+      {/* Modal edición */}
+      <Modal open={open} onClose={()=>setOpen(false)} title="Editar paquete">
+        {form && (
+          <div className="grid md:grid-cols-3 gap-3">
+            <Field label="Carga">
+              <select className="w-full rounded-xl border px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}>
+                {flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
+              </select>
+            </Field>
+            <Field label="Courier"><Input value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Estado">
+              {(() => {
+                const codigo = flights.find(f=>f.id===form.flight_id)?.codigo || "";
+                const opts = estadosPermitidosPorCarga(codigo);
+                return (
+                  <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} disabled={user.role==="COURIER"}>
+                    {opts.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                );
+              })()}
+            </Field>
+
+            <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+
+            <Field label="Empresa de envío"><Input value={form.empresa_envio||""} onChange={e=>setForm({...form,empresa_envio:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+
+            <Field label="Remitente"><Input value={form.remitente||""} onChange={e=>setForm({...form,remitente:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Peso real (kg)"><Input value={form.peso_real_txt} onChange={e=>setForm({...form,peso_real_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Largo (cm)"><Input value={form.L_txt} onChange={e=>setForm({...form,L_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Ancho (cm)"><Input value={form.A_txt} onChange={e=>setForm({...form,A_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+
+            <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+
+            <div className="md:col-span-3 flex items-center justify-between mt-2">
+              <button onClick={()=>printPkgLabel(form)} className={BTN}>Reimprimir etiqueta</button>
+              <div className="flex gap-2">
+                <button onClick={save} className={BTN_PRIMARY} disabled={user.role==="COURIER"}>Guardar</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Visor de foto */}
+      <Modal open={!!viewer} onClose={()=>setViewer(null)} title="Foto">
+        {viewer && <img src={viewer} alt="foto" className="max-w-full rounded-xl" />}
+      </Modal>
+    </Section>
+  );
+}
+
+/* ========== Cargas enviadas (filtro por rol/courier + prefijo) ========== */
 function CargasEnviadas({packages, flights, user}){
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
@@ -1031,29 +1312,9 @@ function CargasEnviadas({packages, flights, user}){
   const totPeso=sum(resumen.map(r=>r.peso));
   const totVol=sum(resumen.map(r=>r.vol));
 
-  async function exportXLSX(){
-    if(!flight){ alert("Seleccioná una carga."); return; }
-    const header = [
-      th("Courier"), th("Código"), th("Casilla"), th("Fecha"),
-      th("Nombre"), th("Tracking"), th("Peso real"), th("Facturable"),
-      th("Volumétrico"), th("Exceso")
-    ];
-    const body = paquetesDeVuelo.map(p=>[
-      td(p.courier), td(p.codigo), td(p.casilla), td(p.fecha),
-      td(p.nombre_apellido||""), td(p.tracking||""),
-      td(fmtPeso(p.peso_real)+" kg"), td(fmtPeso(p.peso_facturable)+" kg"),
-      td(fmtPeso(p.peso_volumetrico)+" kg"), td(fmtPeso(p.exceso_volumen)+" kg")
-    ]);
-    const { ws } = sheetFromAOAStyled("Paquetes", [header, ...body], {
-      cols: [{wch:14},{wch:14},{wch:10},{wch:12},{wch:22},{wch:18},{wch:14},{wch:14},{wch:14},{wch:14}],
-      rows: [{hpt:24}]
-    });
-    downloadXLSX(`Cargas_enviadas_${flight.codigo}.xlsx`, [{name:"Paquetes", ws}]);
-  }
-
   return (
     <Section title="Cargas enviadas">
-      <div className="grid md:grid-cols-6 gap-3">
+      <div className="grid md:grid-cols-5 gap-3">
         <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
         <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
         <Field label="Estado">
@@ -1067,9 +1328,6 @@ function CargasEnviadas({packages, flights, user}){
             {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
           </select>
         </Field>
-        <div className="flex items-end">
-          <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
-        </div>
         <div className="flex items-end"><div className="text-sm text-gray-500">Seleccioná una carga</div></div>
       </div>
 
@@ -1214,8 +1472,7 @@ function CargasAdmin({flights,setFlights, packages}){
     </Section>
   );
 }
-
-/* ========== Armado de cajas (peso cartón + peso estimado + Export XLSX) ========== */
+/* ========== Armado de cajas (igual, sin cambios de rol porque solo ADMIN ve esta pestaña) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -1233,38 +1490,21 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     }
   },[flightId]); // eslint-disable-line
 
-  function addBox(){
-    if(!flightId) return;
+  function addBox(){ if(!flightId) return;
     const n = (flight?.cajas?.length||0)+1;
-
-    // pedir peso de la caja de cartón
-    let raw = window.prompt("Peso de la caja de cartón (kg), ej: 0,350", "0,350");
-    if(raw===null) return; // cancelado
-    let pesoCarton = parseComma(raw);
-    if(!Number.isFinite(pesoCarton) || pesoCarton<0) pesoCarton = 0;
-    // normalizamos a 3 decimales (como string con coma)
-    const pesoCartonTxt = fmtPeso(pesoCarton); // devuelve con coma
-
-    setFlights(flights.map(f=>f.id!==flightId?f:{
-      ...f,
-      cajas:[...f.cajas,{id:uuid(),codigo:`Caja ${n}`,paquetes:[],peso:"",L:"",A:"",H:"",peso_carton:pesoCartonTxt}]
-    }));
-
+    setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:[...f.cajas,{id:uuid(),codigo:`Caja ${n}`,paquetes:[],peso:"",L:"",A:"",H:""}]}));
     setTimeout(()=>{
       const nf = flights.find(f=>f.id===flightId);
       if(nf?.cajas?.length) setActiveBoxId(nf.cajas[nf.cajas.length-1]?.id);
     },0);
   }
-
-  function updBox(id,field,val){
-    if(!flightId||!id) return;
+  function updBox(id,field,val){ if(!flightId||!id) return;
     if(field==="codigo"){
       const dup = flight.cajas.some(c=>c.id!==id && String(c.codigo).trim().toLowerCase()===String(val).trim().toLowerCase());
       if(dup){ alert("El nombre de la caja no puede repetirse para esta carga."); return; }
     }
     setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id!==id?c:{...c,[field]:val})}));
   }
-
   function assign(){
     if(!scan||!flight) return;
     const pkg = packages.find(p=> p.flight_id===flightId && String(p.codigo||"").toUpperCase()===scan.toUpperCase());
@@ -1275,20 +1515,17 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     setFlights(flights.map(f=>f.id!==flightId?f:{...f, cajas:f.cajas.map(c=>c.id!==activeId?c:{...c,paquetes:[...c.paquetes, pkg.id]})}));
     onAssign(pkg.id); setScan("");
   }
-
   function move(pid,fromId,toId){
     if(!toId||!flight) return;
     setFlights(prev=>prev.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id===fromId?{...c,paquetes:c.paquetes.filter(x=>x!==pid)}:c)}));
     setFlights(prev=>prev.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id===toId?{...c,paquetes:[...c.paquetes,pid]}:c)}));
   }
-
   function removeBox(id){
     if(!flight) return;
     setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.filter(c=>c.id!==id)}));
     if(activeBoxId===id) setActiveBoxId(null);
     if(editingBoxId===id) setEditingBoxId(null);
   }
-
   function reorderBox(id,dir){
     if(!flight) return;
     const arr=[...flight.cajas];
@@ -1297,47 +1534,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     if(j<0||j>=arr.length) return;
     [arr[i],arr[j]]=[arr[j],arr[i]];
     setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:arr}));
-  }
-
-  function pesoEstimado(caja){
-    const pesoCarton = parseComma(caja.peso_carton||"0");
-    const sumPk = (caja.paquetes||[]).reduce((s,pid)=>{
-      const p = packages.find(x=>x.id===pid);
-      return s + (p ? Number(p.peso_real||0) : 0);
-    },0);
-    return pesoCarton + sumPk;
-  }
-
-  async function exportBoxesXLSX(){
-    if(!flight){ alert("Seleccioná una carga."); return; }
-    const header = [
-      th("N°"), th("Nombre"), th("Courier"), th("Peso cartón"), th("Peso caja"),
-      th("Largo"), th("Ancho"), th("Alto"), th("Peso paquetes"), th("Peso estimado"),
-      th("Paquetes"), th("Códigos")
-    ];
-    const body = flight.cajas.map((c,i)=>{
-      const couriers = new Set(c.paquetes.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
-      const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
-      const pesoCarton = parseComma(c.peso_carton||"0");
-      const pesoPaquetes = (c.paquetes||[]).reduce((s,pid)=>{
-        const p=packages.find(x=>x.id===pid); return s + (p?Number(p.peso_real||0):0);
-      },0);
-      const est = pesoCarton + pesoPaquetes;
-      const codigos = (c.paquetes||[]).map(pid=>packages.find(p=>p.id===pid)?.codigo).filter(Boolean).join(", ");
-      return [
-        td(String(i+1)), td(c.codigo), td(etiqueta),
-        td(fmtPeso(pesoCarton)+" kg"), td(c.peso? fmtPeso(parseComma(c.peso))+" kg" : ""),
-        td(c.L||""), td(c.A||""), td(c.H||""),
-        td(fmtPeso(pesoPaquetes)+" kg"), td(fmtPeso(est)+" kg"),
-        td(String(c.paquetes.length||0)), td(codigos)
-      ];
-    });
-
-    const { ws } = sheetFromAOAStyled(`Cajas_${flight.codigo}`, [header, ...body], {
-      cols: [{wch:5},{wch:14},{wch:16},{wch:14},{wch:12},{wch:8},{wch:8},{wch:8},{wch:14},{wch:14},{wch:10},{wch:40}],
-      rows: [{hpt:24}]
-    });
-    downloadXLSX(`Armado_cajas_${flight.codigo}.xlsx`, [{name:`Cajas_${flight.codigo}`, ws}]);
   }
 
   return (
@@ -1354,9 +1550,8 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
           <Input value={scan} onChange={e=>setScan(limpiar(e.target.value))} onKeyDown={e=>e.key==="Enter"&&assign()} placeholder="BOSSBOX1"/>
         </Field>
 
-        <div className="flex items-end gap-2">
+        <div className="flex items-end">
           <button onClick={addBox} disabled={!flightId} className={"px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50"}>Agregar caja</button>
-          <button onClick={exportBoxesXLSX} disabled={!flightId} className={"px-3 py-2 border rounded-xl disabled:opacity-50"}>Exportar XLSX</button>
         </div>
 
         <div className="md:col-span-3">
@@ -1368,11 +1563,10 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
             const isEditing = editingBoxId===c.id;
             const peso = parseComma(c.peso||"0");
             const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
-            const estimado = pesoEstimado(c);
 
             return (
               <div key={c.id} className={`border rounded-2xl p-3 mb-3 ${isActive?"ring-2 ring-indigo-400":"hover:ring-1 hover:ring-indigo-200"}`}>
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center justify-between mb-2">
                   <div className="font-medium">
                     {c.codigo} — {etiqueta} — <span className="font-semibold">{fmtPeso(peso)} kg</span> — {L}x{A}x{H} cm
                     {isActive && <span className="ml-2 text-indigo-600 text-sm">(activa)</span>}
@@ -1388,16 +1582,10 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                   </div>
                 </div>
 
-                {/* renglón de peso estimado */}
-                <div className="text-xs text-gray-600 mb-2">
-                  Peso estimado: <b>{fmtPeso(estimado)} kg</b> (cartón: {fmtPeso(parseComma(c.peso_carton||"0"))} kg + paquetes)
-                </div>
-
                 {isEditing && (
-                  <div className="grid md:grid-cols-6 gap-2 mb-2">
+                  <div className="grid md:grid-cols-5 gap-2 mb-2">
                     <Field label="Nombre de caja"><Input value={c.codigo} onChange={e=>updBox(c.id,"codigo",e.target.value)}/></Field>
                     <Field label="Peso caja (kg)"><Input value={c.peso||""} onChange={e=>updBox(c.id,"peso", e.target.value)} placeholder="3,128"/></Field>
-                    <Field label="Peso cartón (kg)"><Input value={c.peso_carton||""} onChange={e=>updBox(c.id,"peso_carton", e.target.value)} placeholder="0,350"/></Field>
                     <Field label="Largo (cm)"><Input value={c.L||""} onChange={e=>updBox(c.id,"L", e.target.value)}/></Field>
                     <Field label="Ancho (cm)"><Input value={c.A||""} onChange={e=>updBox(c.id,"A", e.target.value)}/></Field>
                     <Field label="Alto (cm)"><Input value={c.H||""} onChange={e=>updBox(c.id,"H", e.target.value)}/></Field>
@@ -1430,6 +1618,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     </Section>
   );
 }
+
 /* ========== Proformas (cant 3 dec; unit/sub 2; extras y 4% con cant=1) ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
@@ -1627,115 +1816,29 @@ function Extras({flights, couriers, extras, setExtras}){
   );
 }
 
-/* ========== Paquetes sin casilla (nuevo) ========== */
-const NOBOX_SEQ_KEY = "ee_seq_noBox_v1";
-function peekNextNoBox(){ let cur = parseInt(localStorage.getItem(NOBOX_SEQ_KEY)||"0",10); if(!Number.isFinite(cur)) cur=0; let next=cur+1; if(next>999) next=1; return next; }
-function reserveNextNoBox(){ let next = peekNextNoBox(); localStorage.setItem(NOBOX_SEQ_KEY, String(next)); return next; }
-
-function PaquetesSinCasilla({ items, setItems }){
-  const [fecha,setFecha] = useState(new Date().toISOString().slice(0,10));
-  const [numero,setNumero] = useState(peekNextNoBox());
-  const [nombre,setNombre] = useState("");
-
-  const [from,setFrom]=useState("");
-  const [to,setTo]=useState("");
-  const [q,setQ]=useState("");
-
-  const add = ()=>{
-    if(!fecha || !nombre.trim()){ alert("Completá Fecha y Nombre."); return; }
-    // reservar número correlativo (1..999 cíclico)
-    const numUsado = reserveNextNoBox();
-    const row = { id: uuid(), fecha, numero: numUsado, nombre: nombre.trim() };
-    setItems([row, ...items]);
-    // preparar próximo
-    setNumero(peekNextNoBox());
-    setNombre("");
-  };
-
-  const filtered = items
-    .filter(x=>!from || (x.fecha||"")>=from)
-    .filter(x=>!to || (x.fecha||"")<=to)
-    .filter(x=>{
-      const hay = (String(x.numero).padStart(3,"0") + " " + (x.nombre||"")).toUpperCase();
-      return hay.includes(q.toUpperCase());
-    });
-
-  function del(id){
-    const ok = window.confirm("¿Eliminar el registro?");
-    if(!ok) return;
-    setItems(items.filter(x=>x.id!==id));
-  }
-
-  function exportXLSX(){
-    const header = [ th("Fecha de recepción"), th("Nº paquete"), th("Nombre y apellido") ];
-    const body = filtered.map(x=>[ td(x.fecha), td(String(x.numero)), td(x.nombre) ]);
-    const { ws } = sheetFromAOAStyled("Sin casilla", [header, ...body], {
-      cols: [{wch:14},{wch:12},{wch:30}],
-      rows: [{hpt:24}]
-    });
-    downloadXLSX("Paquetes_sin_casilla.xlsx", [{name:"Sin casilla", ws}]);
-  }
-
+/* ========== helpers listas sencillas ========== */
+function ManageList({label,items,setItems}){
+  const [txt,setTxt]=useState("");
   return (
-    <Section
-      title="Paquetes sin casilla"
-      right={
-        <div className="flex gap-2 flex-wrap items-end">
-          <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)} /></Field>
-          <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)} /></Field>
-          <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
-          <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
-        </div>
-      }
-    >
-      {/* Alta rápida */}
-      <div className="bg-gray-50 rounded-xl p-3 mb-4">
-        <div className="font-medium mb-2">Agregar paquete sin casilla</div>
-        <div className="grid md:grid-cols-4 gap-2">
-          <Field label="Fecha de recepción" required>
-            <Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} />
-          </Field>
-          <Field label="Nº paquete (auto)" required>
-            <Input value={String(numero)} readOnly />
-          </Field>
-          <Field label="Nombre y apellido" required>
-            <Input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Nombre Apellido" />
-          </Field>
-          <div className="flex items-end">
-            <button onClick={add} className={BTN_PRIMARY + " w-full"}>Agregar</button>
-          </div>
-        </div>
-        <div className="text-xs text-gray-500 mt-1">El número es correlativo del 1 al 999 y se reinicia a 1.</div>
+    <div className="bg-gray-50 rounded-xl p-3">
+      <div className="font-medium mb-2">{label}</div>
+      <div className="flex gap-2">
+        <Input value={txt} onChange={e=>setTxt(e.target.value)} placeholder={`Agregar a ${label}`}/>
+        <button className={BTN} onClick={()=>{ if(!txt.trim()) return; setItems([...items, txt.trim()]); setTxt(""); }}>Añadir</button>
       </div>
-
-      {/* Listado */}
-      <div className="overflow-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50">
-              {["Fecha","Nº paquete","Nombre y apellido","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(x=>(
-              <tr key={x.id} className="border-b">
-                <td className="px-3 py-2">{x.fecha}</td>
-                <td className="px-3 py-2">{String(x.numero)}</td>
-                <td className="px-3 py-2">{x.nombre}</td>
-                <td className="px-3 py-2">
-                  <button onClick={()=>del(x.id)} className="px-2 py-1 border rounded text-red-600">Eliminar</button>
-                </td>
-              </tr>
-            ))}
-            {filtered.length===0 && <tr><td colSpan={4} className="text-center text-gray-500 py-6">Sin registros.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </Section>
+      <ul className="mt-2 text-sm">
+        {items.map((x,i)=>(
+          <li key={i} className="flex items-center justify-between py-1">
+            <span>{x}</span>
+            <button className="text-red-600 text-xs" onClick={()=>setItems(items.filter((_,j)=>j!==i))}>Quitar</button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
-/* ========== App (tabs por rol + nueva pestaña "Paquetes sin casilla") ========== */
+/* ========== App (tabs por rol + Usuarios) ========== */
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
 
@@ -1747,9 +1850,6 @@ function App(){
   const [flights,setFlights]=useState([]);
   const [packages,setPackages]=useState([]);
   const [extras,setExtras]=useState([]);
-
-  // NUEVO: listado de paquetes sin casilla
-  const [noBox,setNoBox]=useState([]);
 
   useEffect(()=>{
     if(currentUser){
@@ -1790,11 +1890,6 @@ function App(){
             flights={flights}
             onAdd={(p)=>setPackages([p,...packages])}
           />
-        )}
-
-        {/* NUEVO: Pestaña de paquetes sin casilla */}
-        {tab==="Paquetes sin casilla" && (
-          <PaquetesSinCasilla items={noBox} setItems={setNoBox} />
         )}
 
         {tab==="Paquetes en bodega" && (

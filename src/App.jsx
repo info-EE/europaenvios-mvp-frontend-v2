@@ -2,6 +2,7 @@
     - Autenticación local (localStorage) con hash SHA-256.
     - Roles: ADMIN / COURIER.
     - Filtros por courier y prefijo de código.
+    - NUEVO: Pestaña "Paquetes sin casilla" (solo ADMIN) con migración a paquetes.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -59,7 +60,8 @@ function courierPrefix(name){ return limpiar(name || ""); }
 /** restringe tabs por rol */
 function tabsForRole(role){
   if(role==="COURIER") return ["Paquetes en bodega","Cargas enviadas"];
-  return ["Recepción","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
+  // NUEVO: agregamos "Paquetes sin casilla" para ADMIN
+  return ["Recepción","Paquetes sin casilla","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
 }
 
 /* ========== impresión sin about:blank ========== */
@@ -967,6 +969,7 @@ const InfoBox=({title,value})=>(
     <div className="text-2xl font-semibold">{value}</div>
   </div>
 );
+
 /* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
 function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   const [q,setQ]=useState("");
@@ -1272,7 +1275,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     </Section>
   );
 }
-
 /* ========== Cargas enviadas (filtro por rol/courier + prefijo) ========== */
 function CargasEnviadas({packages, flights, user}){
   const [from,setFrom]=useState("");
@@ -1472,6 +1474,7 @@ function CargasAdmin({flights,setFlights, packages}){
     </Section>
   );
 }
+
 /* ========== Armado de cajas (igual, sin cambios de rol porque solo ADMIN ve esta pestaña) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
@@ -1618,7 +1621,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     </Section>
   );
 }
-
 /* ========== Proformas (cant 3 dec; unit/sub 2; extras y 4% con cant=1) ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;

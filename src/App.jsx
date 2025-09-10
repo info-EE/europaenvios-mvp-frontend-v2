@@ -2,6 +2,10 @@
     - Autenticación local (localStorage) con hash SHA-256.
     - Roles: ADMIN / COURIER.
     - Filtros por courier y prefijo de código.
+    - NUEVA pestaña: Paquetes sin casilla (correlativo 1..999, filtros, búsqueda, export XLSX).
+    - Ajustes: foto opcional en Recepción; gestionar listas impacta en desplegables.
+    - Armado de cajas: peso_carton al crear + “Peso estimado” (cartón + suma kg reales de paquetes) + export XLSX.
+    - Cargas enviadas: export XLSX.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -59,7 +63,8 @@ function courierPrefix(name){ return limpiar(name || ""); }
 /** restringe tabs por rol */
 function tabsForRole(role){
   if(role==="COURIER") return ["Paquetes en bodega","Cargas enviadas"];
-  return ["Recepción","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
+  // ADMIN incluye nueva pestaña “Paquetes sin casilla”
+  return ["Recepción","Paquetes sin casilla","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
 }
 
 /* ========== impresión sin about:blank ========== */
@@ -164,7 +169,7 @@ function appendSheet(wb, name, rows, opts={}){
   XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
 }
 
-/* ========== ExcelJS específicos (Proforma con logo centrado en B1:D8) ========== */
+/* ========== ExcelJS específicos (Proforma con logo) ========== */
 const LOGO_TL = { col: 2, row: 1 };   // B1
 const LOGO_BR = { col: 4, row: 8 };   // D8
 const PX_PER_CHAR = 7.2;
@@ -422,6 +427,8 @@ const COURIERS_INICIALES = [
 ];
 const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
 
+/* permitir que las listas gestionadas impacten siempre.
+   Mezclamos los “permitidos por carga” con los definidos por el usuario. */
 function estadosPermitidosPorCarga(codigo){
   const s = String(codigo||"").toUpperCase();
   if (s.startsWith("AIR")) return ["Aéreo"];
@@ -429,7 +436,109 @@ function estadosPermitidosPorCarga(codigo){
   if (s.startsWith("COMP")) return ["Ofrecer marítimo"];
   return ESTADOS_INICIALES;
 }
+function estadosParaCarga(codigo, estadosUsuario){
+  const base = estadosPermitidosPorCarga(codigo);
+  const extras = estadosUsuario.filter(x=>!base.includes(x));
+  return [...base, ...extras];
+}
 
+/* ====== NUEVO: Paquetes sin casilla (correlativo 1..999, filtros, búsqueda, export) ====== */
+const SIN_CASILLA_SEQ_KEY = "seq_sin_casilla_v1";
+function nextSinCasilla(){
+  let cur = (Number(localStorage.getItem(SIN_CASILLA_SEQ_KEY))||0) + 1;
+  if(cur>999) cur = 1;
+  localStorage.setItem(SIN_CASILLA_SEQ_KEY, String(cur));
+  return cur;
+}
+
+function PaquetesSinCasilla({ items, setItems }){
+  const [fecha,setFecha]=useState(new Date().toISOString().slice(0,10));
+  const [nombre,setNombre]=useState("");
+  const [desde,setDesde]=useState("");
+  const [hasta,setHasta]=useState("");
+  const [q,setQ]=useState("");
+
+  const numeroSiguiente = useMemo(()=>{
+    const last = Number(localStorage.getItem(SIN_CASILLA_SEQ_KEY))||0;
+    return last>=999 ? 1 : last+1;
+  },[items.length]); // refresca tras agregar
+
+  const add=()=>{
+    if(!fecha || !nombre.trim()){ alert("Completá Fecha y Nombre."); return; }
+    const nro = nextSinCasilla();
+    const row = { id:uuid(), fecha, numero:nro, nombre_apellido:nombre.trim() };
+    setItems(prev => {
+      const next = [row,...prev];
+      // mantener orden ascendente por número al mostrar: lo resolvemos en view, pero dejamos guardado así
+      return next;
+    });
+    setNombre("");
+  };
+
+  const filtered = useMemo(()=>{
+    return items
+      .filter(r => !desde || (r.fecha||"")>=desde)
+      .filter(r => !hasta || (r.fecha||"")<=hasta)
+      .filter(r => (String(r.numero).includes(q) || (r.nombre_apellido||"").toLowerCase().includes(q.toLowerCase())))
+      .sort((a,b)=> (a.numero||0) - (b.numero||0)); // SIEMPRE ascendente
+  },[items,desde,hasta,q]);
+
+  const exportXLSX = async ()=>{
+    const header = [th("Nº paquete"), th("Fecha recepción"), th("Nombre y apellido")];
+    const body = filtered.map(r=>[td(String(r.numero)), td(r.fecha||""), td(r.nombre_apellido||"")]);
+    const { ws } = sheetFromAOAStyled("Sin casilla", [header, ...body], {
+      cols: [{wch:12},{wch:14},{wch:28}], rows:[{hpt:24}]
+    });
+    downloadXLSX("Paquetes_sin_casilla.xlsx", [{name:"Sin casilla", ws}]);
+  };
+
+  return (
+    <Section
+      title="Paquetes sin casilla"
+      right={
+        <div className="flex gap-2 items-end flex-wrap">
+          <Field label="Desde"><Input type="date" value={desde} onChange={e=>setDesde(e.target.value)}/></Field>
+          <Field label="Hasta"><Input type="date" value={hasta} onChange={e=>setHasta(e.target.value)}/></Field>
+          <Input placeholder="Buscar por Nº o nombre…" value={q} onChange={e=>setQ(e.target.value)}/>
+          <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
+        </div>
+      }
+    >
+      <div className="grid md:grid-cols-3 gap-3 mb-3">
+        <Field label="Fecha de recepción" required><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>
+        <Field label="Número de paquete (auto)">
+          <Input value={numeroSiguiente} readOnly />
+        </Field>
+        <Field label="Nombre y apellido" required><Input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Juan Pérez"/></Field>
+      </div>
+      <div className="flex justify-end mb-4">
+        <button onClick={add} className={BTN_PRIMARY}>Agregar</button>
+      </div>
+
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="text-left px-3 py-2">Nº paquete</th>
+              <th className="text-left px-3 py-2">Fecha recepción</th>
+              <th className="text-left px-3 py-2">Nombre y apellido</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(r=>(
+              <tr key={r.id} className="border-b">
+                <td className="px-3 py-2">{r.numero}</td>
+                <td className="px-3 py-2">{r.fecha}</td>
+                <td className="px-3 py-2">{r.nombre_apellido}</td>
+              </tr>
+            ))}
+            {filtered.length===0 && <tr><td colSpan={3} className="text-center text-gray-500 py-6">Sin registros.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
 /* ========== Login con contraseña (localStorage + SHA-256) ========== */
 function Login({onLogin}){
   const [users,setUsers] = useState(loadUsers());
@@ -490,7 +599,6 @@ function Login({onLogin}){
               <Input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@empresa.com"/>
             </Field>
             <Field label="Contraseña" required>
-              {/* Usamos el PasswordInput global (FIX foco) */}
               <PasswordInput value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••"/>
             </Field>
             {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
@@ -530,6 +638,7 @@ function Login({onLogin}){
     </div>
   );
 }
+
 /* ========== Gestión de Usuarios (solo ADMIN) ========== */
 function Usuarios({ currentUser, onCurrentUserChange }){
   const [users,setUsers] = useState(loadUsers());
@@ -731,7 +840,8 @@ function Usuarios({ currentUser, onCurrentUserChange }){
     </Section>
   );
 }
-/* ========== Recepción (con restricciones por rol) ========== */
+
+/* ========== Recepción (listas gestionadas impactan + foto opcional) ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const [flightId,setFlightId]=useState("");
@@ -756,13 +866,16 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
   },[form.courier]);
 
   const codigoCargaSel = flights.find(f=>f.id===flightId)?.codigo || "";
-  const estadosPermitidos = estadosPermitidosPorCarga(codigoCargaSel);
+  const estadosPermitidos = useMemo(
+    ()=> estadosParaCarga(codigoCargaSel, estados),
+    [codigoCargaSel, estados]
+  );
   useEffect(()=>{
     if(form.estado && !estadosPermitidos.includes(form.estado)){
       setForm(f=>({...f, estado: estadosPermitidos[0] || ""}));
     }
     // eslint-disable-next-line
-  },[flightId]);
+  },[flightId, estados]);
 
   const peso = parseComma(form.peso_real_txt);
   const L = parseIntEU(form.L_txt), A=parseIntEU(form.A_txt), H=parseIntEU(form.H_txt);
@@ -777,7 +890,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
   const submit=()=>{
     if(!flightId){ alert("Seleccioná una Carga."); return; }
-    if(!form.foto){ alert("La foto del paquete es obligatoria (subí una imagen o tomá una foto)."); return; }
+    // FOTO OPCIONAL: removido el chequeo de obligatoriedad
     if(!okCampos()){ alert("Faltan campos."); return; }
 
     const key="seq_"+courierPrefix(form.courier);
@@ -871,7 +984,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       right={
         <div className="flex items-center gap-2">
           <button className={BTN} onClick={()=>setShowMgr(s=>!s)}>Gestionar listas</button>
-          <span className="text-sm text-gray-500">Todos los campos obligatorios</span>
+          <span className="text-sm text-gray-500">Todos los campos obligatorios (foto opcional)</span>
         </div>
       }
     >
@@ -897,7 +1010,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
             disabled={currentUser.role==="COURIER"}
           >
             <option value="">Seleccionar…</option>
-            {COURIERS_INICIALES.map(c=><option key={c}>{c}</option>)}
+            {couriers.map(c=><option key={c}>{c}</option>)}
           </select>
         </Field>
         <Field label="Estado" required>
@@ -928,12 +1041,12 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
           <Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} placeholder="10,00"/>
         </Field>
 
-        <Field label="Foto del paquete" required>
+        <Field label="Foto del paquete">
           <div className="flex gap-2 items-center">
             <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
             <button type="button" onClick={()=>fileRef.current?.click()} className={BTN}>Seleccionar archivo</button>
             <button type="button" onClick={()=>setCamOpen(true)} className={BTN}>Tomar foto</button>
-            {form.foto ? <span className="text-green-600 text-sm">✓ foto cargada</span> : <span className="text-red-600 text-sm">Obligatoria</span>}
+            {form.foto ? <span className="text-green-600 text-sm">✓ foto cargada</span> : <span className="text-gray-500 text-sm">opcional</span>}
           </div>
         </Field>
       </div>
@@ -1229,7 +1342,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
             <Field label="Estado">
               {(() => {
                 const codigo = flights.find(f=>f.id===form.flight_id)?.codigo || "";
-                const opts = estadosPermitidosPorCarga(codigo);
+                const opts = estadosParaCarga(codigo, ESTADOS_INICIALES);
                 return (
                   <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} disabled={user.role==="COURIER"}>
                     {opts.map(s=><option key={s}>{s}</option>)}
@@ -1273,7 +1386,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   );
 }
 
-/* ========== Cargas enviadas (filtro por rol/courier + prefijo) ========== */
+/* ========== Cargas enviadas (filtro + Exportar XLSX) ========== */
 function CargasEnviadas({packages, flights, user}){
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
@@ -1305,15 +1418,50 @@ function CargasEnviadas({packages, flights, user}){
       const idsDeCaja = c.paquetes.filter(pid=> visibleIds.has(pid));
       const couriers = new Set(idsDeCaja.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
       const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
-      return {n:i+1, courier:etiqueta, peso, L,A,H, vol};
+      return {n:i+1, codigo:c.codigo, courier:etiqueta, peso, L,A,H, vol};
     });
   },[flight,packages,paquetesDeVuelo]);
 
   const totPeso=sum(resumen.map(r=>r.peso));
   const totVol=sum(resumen.map(r=>r.vol));
 
+  async function exportXLSX(){
+    if(!flight){
+      alert("Seleccioná una carga para exportar.");
+      return;
+    }
+    // Sheet Paquetes
+    const headerP = [th("Courier"), th("Código"), th("Casilla"), th("Fecha"), th("Nombre"), th("Tracking"), th("Peso real"), th("Facturable"), th("Volumétrico"), th("Exceso")];
+    const bodyP = paquetesDeVuelo.map(p=>[
+      td(p.courier), td(p.codigo), td(p.casilla), td(p.fecha), td(p.nombre_apellido), td(p.tracking),
+      td(fmtPeso(p.peso_real)), td(fmtPeso(p.peso_facturable)), td(fmtPeso(p.peso_volumetrico)), td(fmtPeso(p.exceso_volumen))
+    ]);
+    const sheetP = sheetFromAOAStyled("Paquetes", [headerP, ...bodyP], {
+      cols:[{wch:14},{wch:14},{wch:10},{wch:12},{wch:20},{wch:16},{wch:12},{wch:12},{wch:12},{wch:12}],
+      rows:[{hpt:24}]
+    });
+
+    // Sheet Cajas
+    const headerC = [th("Nº Caja"), th("Nombre"), th("Courier"), th("Peso"), th("Largo"), th("Ancho"), th("Alto"), th("Volumétrico")];
+    const bodyC = resumen.map(r=>[
+      td(String(r.n)), td(r.codigo), td(r.courier), td(fmtPeso(r.peso)), td(String(r.L)), td(String(r.A)), td(String(r.H)), td(fmtPeso(r.vol))
+    ]);
+    const sheetC = sheetFromAOAStyled("Cajas", [headerC, ...bodyC], {
+      cols:[{wch:8},{wch:16},{wch:16},{wch:12},{wch:10},{wch:10},{wch:10},{wch:14}],
+      rows:[{hpt:24}]
+    });
+
+    downloadXLSX(`Cargas_enviadas_${flight.codigo}.xlsx`, [sheetP, sheetC]);
+  }
+
   return (
-    <Section title="Cargas enviadas">
+    <Section title="Cargas enviadas"
+      right={
+        <div className="flex gap-2 items-end">
+          <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
+        </div>
+      }
+    >
       <div className="grid md:grid-cols-5 gap-3">
         <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
         <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
@@ -1359,11 +1507,12 @@ function CargasEnviadas({packages, flights, user}){
 
           <div className="overflow-auto">
             <table className="min-w-full text-sm">
-              <thead><tr className="bg-gray-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <thead><tr className="bg-gray-50">{["Nº Caja","Nombre","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
               <tbody>
                 {resumen.map(r=>(
                   <tr key={r.n} className="border-b">
                     <td className="px-3 py-2">{r.n}</td>
+                    <td className="px-3 py-2">{r.codigo}</td>
                     <td className="px-3 py-2">{r.courier}</td>
                     <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
                     <td className="px-3 py-2">{r.L}</td>
@@ -1372,7 +1521,7 @@ function CargasEnviadas({packages, flights, user}){
                     <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
                   </tr>
                 ))}
-                <tr><td></td><td className="px-3 py-2 font-semibold">Totales</td><td className="px-3 py-2 font-semibold">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2 font-semibold">{fmtPeso(totVol)}</td></tr>
+                <tr><td></td><td className="px-3 py-2 font-semibold">Totales</td><td></td><td className="px-3 py-2 font-semibold">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2 font-semibold">{fmtPeso(totVol)}</td></tr>
               </tbody>
             </table>
           </div>
@@ -1381,7 +1530,6 @@ function CargasEnviadas({packages, flights, user}){
     </Section>
   );
 }
-
 /* ========== Gestión de cargas (crear/editar/eliminar con confirmación) ========== */
 function CargasAdmin({flights,setFlights, packages}){
   const [code,setCode]=useState("");
@@ -1447,7 +1595,7 @@ function CargasAdmin({flights,setFlights, packages}){
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
           <thead><tr className="bg-gray-50">{["Código","Fecha salida","Estado","AWB","Factura Cacesa","Cajas","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
-          <tbody>
+        <tbody>
             {list.map(f=>(
               <tr key={f.id} className="border-b">
                 <td className="px-3 py-2"><Input value={f.codigo} onChange={e=>upd(f.id,"codigo",e.target.value)}/></td>
@@ -1472,7 +1620,8 @@ function CargasAdmin({flights,setFlights, packages}){
     </Section>
   );
 }
-/* ========== Armado de cajas (igual, sin cambios de rol porque solo ADMIN ve esta pestaña) ========== */
+
+/* ========== Armado de cajas (peso de cartón al crear + Peso estimado + Export XLSX) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -1490,21 +1639,40 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     }
   },[flightId]); // eslint-disable-line
 
-  function addBox(){ if(!flightId) return;
+  function addBox(){
+    if(!flightId) return;
+    // solicitar peso de cartón (tres decimales)
+    const input = window.prompt("Peso de la caja de cartón (kg). Ej: 0,450", "0,450");
+    if(input===null) return; // cancelado
+    const val = parseComma(input);
+    if(!Number.isFinite(val) || val<0){
+      alert("Valor inválido. Usá formato 0,000");
+      return;
+    }
+    const pesoCartonTxt = fmtPeso(val); // guardar como texto "0,450"
     const n = (flight?.cajas?.length||0)+1;
-    setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:[...f.cajas,{id:uuid(),codigo:`Caja ${n}`,paquetes:[],peso:"",L:"",A:"",H:""}]}));
+    setFlights(flights.map(f=>f.id!==flightId?f:{
+      ...f,
+      cajas:[...f.cajas,{id:uuid(),codigo:`Caja ${n}`,paquetes:[],peso:"",L:"",A:"",H:"",peso_carton:pesoCartonTxt}]
+    }));    
+    // activar última caja creada
     setTimeout(()=>{
       const nf = flights.find(f=>f.id===flightId);
       if(nf?.cajas?.length) setActiveBoxId(nf.cajas[nf.cajas.length-1]?.id);
     },0);
   }
-  function updBox(id,field,val){ if(!flightId||!id) return;
+
+  function updBox(id,field,val){ 
+    if(!flightId||!id) return;
     if(field==="codigo"){
+      // ya no permitimos editar el nombre en modo edición (requisito),
+      // pero mantenemos esta guarda por si se decide re-habilitar a futuro.
       const dup = flight.cajas.some(c=>c.id!==id && String(c.codigo).trim().toLowerCase()===String(val).trim().toLowerCase());
       if(dup){ alert("El nombre de la caja no puede repetirse para esta carga."); return; }
     }
     setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id!==id?c:{...c,[field]:val})}));
   }
+
   function assign(){
     if(!scan||!flight) return;
     const pkg = packages.find(p=> p.flight_id===flightId && String(p.codigo||"").toUpperCase()===scan.toUpperCase());
@@ -1512,9 +1680,10 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     if(flight.cajas.some(c=>c.paquetes.includes(pkg.id))){ alert("Ya está en una caja."); setScan(""); return; }
     const activeId = activeBoxId || flight.cajas[0]?.id;
     if(!activeId){ alert("Creá una caja primero."); return; }
-    setFlights(flights.map(f=>f.id!==flightId?f:{...f, cajas:f.cajas.map(c=>c.id!==activeId?c:{...c,paquetes:[...c.paquetes, pkg.id]})}));
+    setFlights(prev=>prev.map(f=>f.id!==flightId?f:{...f, cajas:f.cajas.map(c=>c.id!==activeId?c:{...c,paquetes:[...c.paquetes, pkg.id]})}));
     onAssign(pkg.id); setScan("");
   }
+
   function move(pid,fromId,toId){
     if(!toId||!flight) return;
     setFlights(prev=>prev.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id===fromId?{...c,paquetes:c.paquetes.filter(x=>x!==pid)}:c)}));
@@ -1536,8 +1705,46 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:arr}));
   }
 
+  function pesoEstimadoCaja(c){
+    const pesoCarton = parseComma(c.peso_carton || "0");
+    const kgPaquetes = c.paquetes
+      .map(pid => packages.find(p=>p.id===pid)?.peso_real || 0)
+      .reduce((a,b)=>a+Number(b||0), 0);
+    return pesoCarton + kgPaquetes;
+  }
+
+  async function exportXLSX(){
+    if(!flight){ alert("Seleccioná una carga."); return; }
+    const header = [th("Nombre caja"), th("Peso cartón (kg)"), th("Peso estimado (kg)"), th("Peso (kg)"), th("Largo"), th("Ancho"), th("Alto"), th("Paquetes")];
+    const body = (flight.cajas||[]).map(c=>{
+      const estimado = pesoEstimadoCaja(c);
+      const codigos = c.paquetes.map(pid => packages.find(p=>p.id===pid)?.codigo).filter(Boolean).join(", ");
+      return [
+        td(c.codigo),
+        td(fmtPeso(parseComma(c.peso_carton||"0"))),
+        td(fmtPeso(estimado)),
+        td(fmtPeso(parseComma(c.peso||"0"))),
+        td(String(c.L||"")),
+        td(String(c.A||"")),
+        td(String(c.H||"")),
+        td(codigos)
+      ];
+    });
+    const { ws } = sheetFromAOAStyled("Cajas", [header, ...body], {
+      cols:[{wch:16},{wch:16},{wch:18},{wch:12},{wch:10},{wch:10},{wch:10},{wch:40}],
+      rows:[{hpt:24}]
+    });
+    downloadXLSX(`Armado_cajas_${flight.codigo}.xlsx`, [{name:"Cajas", ws}]);
+  }
+
   return (
-    <Section title="Armado de cajas">
+    <Section title="Armado de cajas"
+      right={
+        <div className="flex gap-2 items-end">
+          <button onClick={exportXLSX} disabled={!flightId} className="px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50">Exportar XLSX</button>
+        </div>
+      }
+    >
       <div className="grid md:grid-cols-3 gap-4">
         <Field label="Seleccionar carga" required>
           <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>{setFlightId(e.target.value);}}>
@@ -1550,7 +1757,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
           <Input value={scan} onChange={e=>setScan(limpiar(e.target.value))} onKeyDown={e=>e.key==="Enter"&&assign()} placeholder="BOSSBOX1"/>
         </Field>
 
-        <div className="flex items-end">
+        <div className="flex items-end gap-2">
           <button onClick={addBox} disabled={!flightId} className={"px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50"}>Agregar caja</button>
         </div>
 
@@ -1563,10 +1770,11 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
             const isEditing = editingBoxId===c.id;
             const peso = parseComma(c.peso||"0");
             const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
+            const estimado = pesoEstimadoCaja(c); // cartón + suma kg reales de paquetes
 
             return (
               <div key={c.id} className={`border rounded-2xl p-3 mb-3 ${isActive?"ring-2 ring-indigo-400":"hover:ring-1 hover:ring-indigo-200"}`}>
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-1">
                   <div className="font-medium">
                     {c.codigo} — {etiqueta} — <span className="font-semibold">{fmtPeso(peso)} kg</span> — {L}x{A}x{H} cm
                     {isActive && <span className="ml-2 text-indigo-600 text-sm">(activa)</span>}
@@ -1582,9 +1790,14 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                   </div>
                 </div>
 
+                {/* Renglón pequeño con el peso de cartón y estimado */}
+                <div className="text-xs text-gray-600 mb-2">
+                  Peso cartón: <b>{fmtPeso(parseComma(c.peso_carton||"0"))} kg</b> · Peso estimado: <b>{fmtPeso(estimado)} kg</b>
+                </div>
+
                 {isEditing && (
-                  <div className="grid md:grid-cols-5 gap-2 mb-2">
-                    <Field label="Nombre de caja"><Input value={c.codigo} onChange={e=>updBox(c.id,"codigo",e.target.value)}/></Field>
+                  <div className="grid md:grid-cols-4 gap-2 mb-2">
+                    {/* Nombre de caja ya no editable */}
                     <Field label="Peso caja (kg)"><Input value={c.peso||""} onChange={e=>updBox(c.id,"peso", e.target.value)} placeholder="3,128"/></Field>
                     <Field label="Largo (cm)"><Input value={c.L||""} onChange={e=>updBox(c.id,"L", e.target.value)}/></Field>
                     <Field label="Ancho (cm)"><Input value={c.A||""} onChange={e=>updBox(c.id,"A", e.target.value)}/></Field>
@@ -1598,9 +1811,10 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                     return (
                       <li key={pid} className="flex items-center gap-2 py-1 border-b">
                         <span className="font-mono">{p.codigo}</span><span className="text-gray-600">{p.courier}</span>
+                        <span className="ml-auto text-gray-500">{fmtPeso(p.peso_real)} kg</span>
                         <button className="text-red-600 text-xs" onClick={()=>updBox(c.id,"paquetes", c.paquetes.filter(z=>z!==pid))}>Quitar</button>
                         {flight.cajas.length>1 && (
-                          <select className="text-xs border rounded px-1 py-0.5 ml-auto" defaultValue="" onChange={e=>move(pid,c.id,e.target.value)}>
+                          <select className="text-xs border rounded px-1 py-0.5" defaultValue="" onChange={e=>move(pid,c.id,e.target.value)}>
                             <option value="" disabled>Mover a…</option>
                             {flight.cajas.filter(x=>x.id!==c.id).map(x=><option key={x.id} value={x.id}>{x.codigo}</option>)}
                           </select>
@@ -1618,8 +1832,142 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     </Section>
   );
 }
+/* ========== Paquetes sin casilla ==========
+   - Campos: Fecha de recepción, Nº de paquete (1..999 cíclico), Nombre y apellido
+   - Orden ascendente por Nº
+   - Filtro por fechas + buscador
+   - Exportar a XLSX
+========================================== */
+const NOBOX_SEQ_KEY = "seq_paquetes_sin_casilla_v1";
 
-/* ========== Proformas (cant 3 dec; unit/sub 2; extras y 4% con cant=1) ========== */
+function nextNoBoxNumber(){
+  let cur = Number(localStorage.getItem(NOBOX_SEQ_KEY)) || 0;
+  cur = cur + 1;
+  if(cur > 999) cur = 1;
+  return cur;
+}
+
+function PaquetesSinCasilla({ items, setItems }){
+  const [q,setQ] = useState("");
+  const [from,setFrom] = useState("");
+  const [to,setTo] = useState("");
+
+  const [fecha,setFecha] = useState(new Date().toISOString().slice(0,10));
+  const [numeroTxt,setNumeroTxt] = useState(String(nextNoBoxNumber()));
+  const [nombre,setNombre] = useState("");
+
+  useEffect(()=>{
+    // siempre que cambiemos la fecha, sugerimos el siguiente número
+    setNumeroTxt(String(nextNoBoxNumber()));
+  },[]);
+
+  function add(){
+    const numParsed = parseIntEU(numeroTxt);
+    const numero = (numParsed>=1 && numParsed<=999) ? numParsed : nextNoBoxNumber();
+
+    if(!fecha || !nombre.trim()){
+      alert("Completá Fecha y Nombre y apellido.");
+      return;
+    }
+
+    const nuevo = { id: uuid(), fecha, numero, nombre: nombre.trim() };
+    const next = [...items, nuevo];
+    setItems(next);
+
+    // Actualizamos la secuencia al último número usado
+    localStorage.setItem(NOBOX_SEQ_KEY, String(numero));
+
+    // Limpiar e incrementar sugerencia
+    setNombre("");
+    const siguiente = numero+1 > 999 ? 1 : numero+1;
+    setNumeroTxt(String(siguiente));
+  }
+
+  function del(id){
+    const ok = window.confirm("¿Eliminar este registro?");
+    if(!ok) return;
+    setItems(items.filter(x=>x.id!==id));
+  }
+
+  const filtered = items
+    .filter(r=>!from || r.fecha>=from)
+    .filter(r=>!to   || r.fecha<=to)
+    .filter(r=>{
+      const s = (r.nombre + " " + r.numero).toLowerCase();
+      return s.includes(q.toLowerCase());
+    })
+    .sort((a,b)=> a.numero - b.numero || (a.fecha>b.fecha?1:-1));
+
+  function exportXLSX(){
+    const header = [ th("Fecha de recepción"), th("Nº paquete"), th("Nombre y apellido") ];
+    const body = filtered.map(r=> [ td(r.fecha), td(String(r.numero)), td(r.nombre) ]);
+
+    const { ws } = sheetFromAOAStyled("Sin casilla", [header, ...body], {
+      cols:[{wch:16},{wch:12},{wch:28}],
+      rows:[{hpt:24}]
+    });
+    downloadXLSX("Paquetes_sin_casilla.xlsx", [{name:"Sin casilla", ws}]);
+  }
+
+  return (
+    <Section
+      title="Paquetes sin casilla"
+      right={
+        <div className="flex gap-2 items-end flex-wrap">
+          <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)} /></Field>
+          <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)} /></Field>
+          <Input placeholder="Buscar por nombre o nº…" value={q} onChange={e=>setQ(e.target.value)} />
+          <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
+        </div>
+      }
+    >
+      {/* Alta */}
+      <div className="bg-gray-50 rounded-xl p-3 mb-4">
+        <div className="font-medium mb-2">Agregar registro</div>
+        <div className="grid md:grid-cols-3 gap-2">
+          <Field label="Fecha de recepción" required>
+            <Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} />
+          </Field>
+          <Field label="Nº de paquete (1–999)" required>
+            <Input value={numeroTxt} onChange={e=>setNumeroTxt(e.target.value)} placeholder="1" />
+          </Field>
+          <Field label="Nombre y apellido" required>
+            <Input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Nombre del cliente" />
+          </Field>
+        </div>
+        <div className="flex justify-end mt-3">
+          <button onClick={add} className={BTN_PRIMARY}>Agregar</button>
+        </div>
+      </div>
+
+      {/* Listado */}
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              {["Fecha de recepción","Nº paquete","Nombre y apellido","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(r=>(
+              <tr key={r.id} className="border-b">
+                <td className="px-3 py-2">{r.fecha}</td>
+                <td className="px-3 py-2 font-mono">{r.numero}</td>
+                <td className="px-3 py-2">{r.nombre}</td>
+                <td className="px-3 py-2">
+                  <button className="px-2 py-1 border rounded text-red-600" onClick={()=>del(r.id)}>Eliminar</button>
+                </td>
+              </tr>
+            ))}
+            {filtered.length===0 && <tr><td colSpan={4} className="text-center text-gray-500 py-6">Sin registros.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+/* ========== Proformas (igual que antes) ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
@@ -1702,34 +2050,38 @@ function Proformas({packages, flights, extras}){
         </div>
       }
     >
-      {!flight ? <div className="text-gray-500">Seleccioná una carga.</div> : (
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead><tr className="bg-gray-50">{["Courier","Kg facturable","Kg exceso","TOTAL USD","XLSX"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
-            <tbody>
-              {porCourier.map(r=>{
-                const proc=r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
-                const canje=canjeGuiaUSD(r.kg_fact), extrasMonto=extrasDeCourier(r.courier).reduce((s,e)=>s+parseComma(e.monto),0);
-                const com=0.04*(proc+fr+fe+extrasMonto); const tot = proc+fr+fe+desp+canje+extrasMonto+com;
-                return (
-                  <tr key={r.courier} className="border-b">
-                    <td className="px-3 py-2">{r.courier}</td>
-                    <td className="px-3 py-2">{fmtPeso(r.kg_fact)} kg</td>
-                    <td className="px-3 py-2">{fmtPeso(r.kg_exc)} kg</td>
-                    <td className="px-3 py-2 font-semibold">{fmtMoney(tot)}</td>
-                    <td className="px-3 py-2"><button className="px-2 py-1 border rounded" onClick={()=>exportX(r)}>Descargar</button></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {!flights.length ? <div className="text-gray-500">No hay cargas.</div> :
+        (!list.length ? <div className="text-gray-500">Filtrá por fechas o elegí una carga.</div> :
+          (!flight ? <div className="text-gray-500">Seleccioná una carga.</div> :
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead><tr className="bg-gray-50">{["Courier","Kg facturable","Kg exceso","TOTAL USD","XLSX"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+                <tbody>
+                  {porCourier.map(r=>{
+                    const proc=r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
+                    const canje=canjeGuiaUSD(r.kg_fact), extrasMonto=extrasDeCourier(r.courier).reduce((s,e)=>s+parseComma(e.monto),0);
+                    const com=0.04*(proc+fr+fe+extrasMonto); const tot = proc+fr+fe+desp+canje+extrasMonto+com;
+                    return (
+                      <tr key={r.courier} className="border-b">
+                        <td className="px-3 py-2">{r.courier}</td>
+                        <td className="px-3 py-2">{fmtPeso(r.kg_fact)} kg</td>
+                        <td className="px-3 py-2">{fmtPeso(r.kg_exc)} kg</td>
+                        <td className="px-3 py-2 font-semibold">{fmtMoney(tot)}</td>
+                        <td className="px-3 py-2"><button className="px-2 py-1 border rounded" onClick={()=>exportX(r)}>Descargar</button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        )
+      }
     </Section>
   );
 }
 
-/* ========== Extras ========== */
+/* ========== Extras (igual que antes) ========== */
 function Extras({flights, couriers, extras, setExtras}){
   const [flightId,setFlightId]=useState("");
   const [courier,setCourier]=useState("");
@@ -1816,29 +2168,7 @@ function Extras({flights, couriers, extras, setExtras}){
   );
 }
 
-/* ========== helpers listas sencillas ========== */
-function ManageList({label,items,setItems}){
-  const [txt,setTxt]=useState("");
-  return (
-    <div className="bg-gray-50 rounded-xl p-3">
-      <div className="font-medium mb-2">{label}</div>
-      <div className="flex gap-2">
-        <Input value={txt} onChange={e=>setTxt(e.target.value)} placeholder={`Agregar a ${label}`}/>
-        <button className={BTN} onClick={()=>{ if(!txt.trim()) return; setItems([...items, txt.trim()]); setTxt(""); }}>Añadir</button>
-      </div>
-      <ul className="mt-2 text-sm">
-        {items.map((x,i)=>(
-          <li key={i} className="flex items-center justify-between py-1">
-            <span>{x}</span>
-            <button className="text-red-600 text-xs" onClick={()=>setItems(items.filter((_,j)=>j!==i))}>Quitar</button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/* ========== App (tabs por rol + Usuarios) ========== */
+/* ========== App (tabs por rol + NUEVA pestaña "Paquetes sin casilla") ========== */
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
 
@@ -1850,6 +2180,9 @@ function App(){
   const [flights,setFlights]=useState([]);
   const [packages,setPackages]=useState([]);
   const [extras,setExtras]=useState([]);
+
+  // NUEVO: Paquetes sin casilla (no se persiste en localStorage, igual que flights/packages)
+  const [noBox,setNoBox]=useState([]);
 
   useEffect(()=>{
     if(currentUser){
@@ -1890,6 +2223,10 @@ function App(){
             flights={flights}
             onAdd={(p)=>setPackages([p,...packages])}
           />
+        )}
+
+        {tab==="Paquetes sin casilla" && (
+          <PaquetesSinCasilla items={noBox} setItems={setNoBox} />
         )}
 
         {tab==="Paquetes en bodega" && (

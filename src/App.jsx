@@ -57,19 +57,10 @@ function saveUsers(users){
 /** prefijo permitido para códigos de un courier (ej.: "GLOBAL BOX" -> "GLOBALBOX") */
 function courierPrefix(name){ return limpiar(name || ""); }
 
-/** pestañas por rol (ADMIN incluye nueva pestaña) */
+/** tabs por rol (incluye Paquetes sin casilla) */
 function tabsForRole(role){
   if(role==="COURIER") return ["Paquetes en bodega","Cargas enviadas"];
   return ["Recepción","Paquetes sin casilla","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
-}
-
-/** Estados permitidos por código de carga, tomando la lista dinámica actual */
-function estadosParaCarga(codigo, listaEstados){
-  const s = String(codigo||"").toUpperCase();
-  if (s.startsWith("AIR"))   return listaEstados.filter(x => x==="Aéreo");
-  if (s.startsWith("MAR"))   return listaEstados.filter(x => x==="Marítimo");
-  if (s.startsWith("COMP"))  return listaEstados.filter(x => x==="Ofrecer marítimo");
-  return listaEstados;
 }
 
 /* ========== impresión sin about:blank ========== */
@@ -174,7 +165,7 @@ function appendSheet(wb, name, rows, opts={}){
   XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
 }
 
-/* ========== ExcelJS específicos (Proforma con logo centrado) ========== */
+/* ========== ExcelJS específicos (Proforma con logo centrado en B1:D8) ========== */
 const LOGO_TL = { col: 2, row: 1 };   // B1
 const LOGO_BR = { col: 4, row: 8 };   // D8
 const PX_PER_CHAR = 7.2;
@@ -257,7 +248,7 @@ function findProformaAnchors(ws){
   return { headerRow: 15, colDesc:1, colCant:2, colUnit:3, colSub:4 };
 }
 
-/* Export PROFORMA (mantiene posiciones y logo centrado) */
+/* Export PROFORMA (mantiene tus posiciones A28/D28/D15 y logo centrado) */
 async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nombreArchivo, datosFactura }){
   const wb = new ExcelJS.Workbook();
   const ab = await (await fetch(plantillaUrl, { cache: "no-store" })).arrayBuffer();
@@ -422,7 +413,6 @@ function Modal({open,onClose,title,children}){
     </div>
   );
 }
-
 /* ========== datos iniciales (listas) ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
@@ -431,6 +421,15 @@ const COURIERS_INICIALES = [
   "MC Group","Miami Express","One Box","ParaguayBox","Royal Box"
 ];
 const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
+
+/* estados permitidos por código de carga — usa la lista dinámica de 'estados' */
+function estadosPermitidosPorCarga(codigo, estadosList){
+  const s = String(codigo||"").toUpperCase();
+  if (s.startsWith("AIR")) return ["Aéreo"];
+  if (s.startsWith("MAR")) return ["Marítimo"];
+  if (s.startsWith("COMP")) return ["Ofrecer marítimo"];
+  return estadosList && estadosList.length ? estadosList : ESTADOS_INICIALES;
+}
 
 /* ========== Login con contraseña (localStorage + SHA-256) ========== */
 function Login({onLogin}){
@@ -454,7 +453,6 @@ function Login({onLogin}){
     if(!u){ setErr("Usuario no encontrado."); return; }
     const h = await sha256Hex(password);
     if(u.pwHash !== h){ setErr("Contraseña incorrecta."); return; }
-    // sesión mínima
     onLogin({ id:u.id, email:u.email, role:u.role, courier:u.courier || null });
   }
 
@@ -466,13 +464,7 @@ function Login({onLogin}){
     if(adminPass1!==adminPass2){ setErr("Las contraseñas no coinciden."); return; }
     setCreating(true);
     try{
-      const newU = {
-        id: uuid(),
-        email: adminEmail.trim(),
-        role: "ADMIN",
-        courier: null,
-        pwHash: await sha256Hex(adminPass1)
-      };
+      const newU = { id: uuid(), email: adminEmail.trim(), role: "ADMIN", courier: null, pwHash: await sha256Hex(adminPass1) };
       const next = [newU];
       saveUsers(next);
       setUsers(next);
@@ -546,7 +538,7 @@ function Usuarios({ currentUser, onCurrentUserChange }){
   const [err,setErr]=useState("");
 
   // Edición
-  const [edit,setEdit]=useState(null); // user object or null
+  const [edit,setEdit]=useState(null);
   const [pw1e,setPw1e]=useState("");
   const [pw2e,setPw2e]=useState("");
 
@@ -554,21 +546,15 @@ function Usuarios({ currentUser, onCurrentUserChange }){
     (u.email+u.role+(u.courier||"")).toLowerCase().includes(q.toLowerCase())
   );
 
-  function refresh(){
-    const u = loadUsers();
-    setUsers(u);
-  }
+  function refresh(){ setUsers(loadUsers()); }
 
   async function addUser(){
     setErr("");
     if(!emailNew || !pw1 || !pw2){ setErr("Completá email y contraseña."); return; }
     if(pw1!==pw2){ setErr("Las contraseñas no coinciden."); return; }
-    if(users.some(u=>u.email.trim().toLowerCase()===emailNew.trim().toLowerCase())){
-      setErr("Ya existe un usuario con ese email."); return;
-    }
-    if(roleNew==="COURIER" && !courierNew.trim()){
-      setErr("Seleccioná/ingresá un courier."); return;
-    }
+    if(users.some(u=>u.email.trim().toLowerCase()===emailNew.trim().toLowerCase())){ setErr("Ya existe un usuario con ese email."); return; }
+    if(roleNew==="COURIER" && !courierNew.trim()){ setErr("Seleccioná/ingresá un courier."); return; }
+
     const newU = {
       id: uuid(),
       email: emailNew.trim(),
@@ -579,7 +565,6 @@ function Usuarios({ currentUser, onCurrentUserChange }){
     const next = [...users, newU];
     saveUsers(next);
     setUsers(next);
-    // reset form
     setEmailNew(""); setRoleNew("COURIER"); setCourierNew("");
     setPw1(""); setPw2("");
   }
@@ -591,31 +576,22 @@ function Usuarios({ currentUser, onCurrentUserChange }){
     if(idx<0) return;
 
     if(!edit.email){ setErr("El email es obligatorio."); return; }
-    // email único
-    if(users.some((u,i)=>i!==idx && u.email.trim().toLowerCase()===edit.email.trim().toLowerCase())){
-      setErr("Ya existe un usuario con ese email."); return;
-    }
-    if(edit.role==="COURIER" && !edit.courier?.trim()){
-      setErr("El courier es obligatorio para rol COURIER."); return;
-    }
+    if(users.some((u,i)=>i!==idx && u.email.trim().toLowerCase()===edit.email.trim().toLowerCase())){ setErr("Ya existe un usuario con ese email."); return; }
+    if(edit.role==="COURIER" && !edit.courier?.trim()){ setErr("El courier es obligatorio para rol COURIER."); return; }
+
     const next = [...users];
     const current = {...edit};
-
-    // cambiar password si se completó
     if(pw1e || pw2e){
       if(pw1e!==pw2e){ setErr("Las contraseñas no coinciden."); return; }
       current.pwHash = await sha256Hex(pw1e);
     }
-
     next[idx] = current;
     saveUsers(next);
     setUsers(next);
 
-    // si editó su propia cuenta, actualizar sesión visible
     if(currentUser?.id === current.id){
       onCurrentUserChange?.({ id:current.id, email:current.email, role:current.role, courier:current.courier||null });
     }
-
     setEdit(null); setPw1e(""); setPw2e("");
   }
 
@@ -651,7 +627,7 @@ function Usuarios({ currentUser, onCurrentUserChange }){
             </select>
           </Field>
           <Field label="Courier (si corresponde)">
-            {/* datalist permanece con la lista base, se puede escribir libremente */}
+            {/* Se puede escribir libre o elegir uno de la lista base */}
             <Input list="courierList" value={courierNew} onChange={e=>setCourierNew(e.target.value)} placeholder="Global Box / Buzón / ..." />
             <datalist id="courierList">
               {COURIERS_INICIALES.map(c=><option key={c} value={c} />)}
@@ -733,7 +709,8 @@ function Usuarios({ currentUser, onCurrentUserChange }){
     </Section>
   );
 }
-/* ========== Recepción (con listas dinámicas y foto opcional) ========== */
+
+/* ========== Recepción (listas dinámicas + foto opcional) ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const [flightId,setFlightId]=useState("");
@@ -743,8 +720,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     fecha:new Date().toISOString().slice(0,10),
     empresa:"", nombre:"", tracking:"", remitente:"",
     peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
-    desc:"", valor_txt:"", // sin valor por defecto
-    foto:null
+    desc:"", valor_txt:"",
+    foto:null // ahora OPCIONAL
   });
 
   // generar código correlativo por courier (prefijo sin acentos/espacios)
@@ -758,8 +735,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
   },[form.courier]);
 
   const codigoCargaSel = flights.find(f=>f.id===flightId)?.codigo || "";
-  const estadosPermitidos = estadosParaCarga(codigoCargaSel, estados);
-
+  const estadosPermitidos = estadosPermitidosPorCarga(codigoCargaSel, estados);
   useEffect(()=>{
     if(form.estado && !estadosPermitidos.includes(form.estado)){
       setForm(f=>({...f, estado: estadosPermitidos[0] || ""}));
@@ -780,7 +756,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
   const submit=()=>{
     if(!flightId){ alert("Seleccioná una Carga."); return; }
-    // FOTO OPCIONAL: ya no es obligatoria
+    // FOTO OPCIONAL — ya no se exige
     if(!okCampos()){ alert("Faltan campos."); return; }
 
     const key="seq_"+courierPrefix(form.courier);
@@ -802,7 +778,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     };
     onAdd(p);
 
-    // reset: vuelve Carga a "Seleccionar…" y limpia form (sin tocar courier si es COURIER logueado)
     setFlightId("");
     setForm(f=>({
       ...f,
@@ -859,7 +834,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
   const [showMgr,setShowMgr]=useState(false);
 
-  // Si por error un COURIER llega a esta pestaña, mostramos aviso
+  // Si un COURIER entra por error a esta pestaña, aviso
   if(currentUser.role==="COURIER"){
     return (
       <Section title="Recepción de paquete">
@@ -874,7 +849,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       right={
         <div className="flex items-center gap-2">
           <button className={BTN} onClick={()=>setShowMgr(s=>!s)}>Gestionar listas</button>
-          <span className="text-sm text-gray-500">Todos los campos obligatorios (foto opcional)</span>
+          <span className="text-sm text-gray-500">Todos los campos obligatorios (salvo foto)</span>
         </div>
       }
     >
@@ -971,6 +946,101 @@ const InfoBox=({title,value})=>(
   </div>
 );
 
+/* ========== Paquetes sin casilla (funcional) ========== */
+function PaquetesSinCasilla({ items, setItems }){
+  const [q,setQ] = useState("");
+  const [from,setFrom] = useState("");
+  const [to,setTo] = useState("");
+  const [fecha,setFecha] = useState(new Date().toISOString().slice(0,10));
+  const [nombre,setNombre] = useState("");
+
+  // genera número correlativo 1..999 (cíclico) y persiste contador
+  function nextNumero(){
+    const key="seq_sincasilla_v1";
+    let cur = (Number(localStorage.getItem(key))||0)+1;
+    if(cur>999) cur = 1;
+    localStorage.setItem(key,String(cur));
+    return cur;
+  }
+
+  function add(){
+    if(!fecha || !nombre.trim()){ alert("Completá Fecha y Nombre."); return; }
+    const numero = nextNumero();
+    const row = { id: uuid(), fecha, numero, nombre: nombre.trim() };
+    setItems([ ...items, row ]);
+    setNombre("");
+  }
+
+  const filtered = useMemo(()=>{
+    const arr = items
+      .filter(r => !from || (r.fecha||"") >= from)
+      .filter(r => !to   || (r.fecha||"") <= to)
+      .filter(r => (String(r.numero).includes(q) || (r.nombre||"").toLowerCase().includes(q.toLowerCase())));
+    // Orden ascendente por número
+    return arr.slice().sort((a,b)=>Number(a.numero)-Number(b.numero));
+  },[items,from,to,q]);
+
+  function exportXLSX(){
+    const header = [ th("Fecha recepción"), th("Nº paquete"), th("Nombre y apellido") ];
+    const body = filtered.map(r=>[ td(r.fecha||""), td(String(r.numero)), td(r.nombre||"") ]);
+    const { ws } = sheetFromAOAStyled("Sin casilla", [header, ...body], {
+      cols:[{wch:14},{wch:12},{wch:28}],
+      rows:[{hpt:24}]
+    });
+    downloadXLSX("Paquetes_sin_casilla.xlsx", [{name:"Sin casilla", ws}]);
+  }
+
+  return (
+    <Section
+      title="Paquetes sin casilla"
+      right={<button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>}
+    >
+      <div className="grid md:grid-cols-5 gap-3 mb-3">
+        <Field label="Fecha recepción" required>
+          <Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/>
+        </Field>
+        <Field label="Nombre y apellido" required>
+          <Input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Juan Pérez"/>
+        </Field>
+        <div className="flex items-end">
+          <button onClick={add} className={BTN_PRIMARY}>Agregar</button>
+        </div>
+        <Field label="Filtrar desde">
+          <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
+        </Field>
+        <Field label="Hasta">
+          <Input type="date" value={to} onChange={e=>setTo(e.target.value)}/>
+        </Field>
+      </div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <Input placeholder="Buscar por Nº o Nombre…" value={q} onChange={e=>setQ(e.target.value)} />
+      </div>
+
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="text-left px-3 py-2">Fecha recepción</th>
+              <th className="text-left px-3 py-2">Nº paquete</th>
+              <th className="text-left px-3 py-2">Nombre y apellido</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(r=>(
+              <tr key={r.id} className="border-b">
+                <td className="px-3 py-2">{r.fecha||""}</td>
+                <td className="px-3 py-2">{r.numero}</td>
+                <td className="px-3 py-2">{r.nombre||""}</td>
+              </tr>
+            ))}
+            {filtered.length===0 && <tr><td colSpan={3} className="text-center text-gray-500 py-6">Sin datos.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
 /* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
 function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   const [q,setQ]=useState("");
@@ -1031,7 +1101,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     return arr;
   },[baseRows, sort]);
 
-  // helper: etiqueta del paquete
   function printPkgLabel(p){
     const medidas = `${p.largo}x${p.ancho}x${p.alto} cm`;
     const html = labelHTML({
@@ -1046,7 +1115,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     printHTMLInIframe(html);
   }
 
-  // editor
   const [open,setOpen]=useState(false);
   const [form,setForm]=useState(null);
   const start=(p)=>{
@@ -1077,7 +1145,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
 
   const [viewer,setViewer]=useState(null);
 
-  // export
   async function exportXLSX(){
     const header = [
       th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"),
@@ -1233,7 +1300,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
             <Field label="Estado">
               {(() => {
                 const codigo = flights.find(f=>f.id===form.flight_id)?.codigo || "";
-                const opts = estadosParaCarga(codigo, ESTADOS_INICIALES.concat([])); // solo para edición rápida
+                const opts = estadosPermitidosPorCarga(codigo, ESTADOS_INICIALES);
                 return (
                   <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} disabled={user.role==="COURIER"}>
                     {opts.map(s=><option key={s}>{s}</option>)}
@@ -1276,12 +1343,8 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     </Section>
   );
 }
-/* ========== Armado de cajas ==========
-   - Al crear caja, pide *peso de cartón* (3 decimales).
-   - Muestra "Peso estimado" = (peso_carton) + suma(peso_real de paquetes).
-   - Campos editables siguen siendo: peso, L, A, H.
-   - Botón Exportar XLSX restaurado.
-====================================== */
+
+/* ========== Armado de cajas (peso de cartón al crear + Peso estimado + Export XLSX) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -1301,41 +1364,33 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
 
   function addBox(){
     if(!flightId) return;
+    // Solicitar peso de cartón con 3 decimales (coma o punto)
+    const inTxt = window.prompt("Ingresá el peso de la caja de cartón (kg), ej: 0,250", "0,250");
+    if(inTxt===null) return;
+    const peso_carton = fmtPeso(parseComma(inTxt));
+
     const n = (flight?.cajas?.length||0)+1;
-
-    // Pedir peso de cartón, 3 decimales
-    let valor = window.prompt("Peso de la caja de cartón (kg). Formato 0,000:", "0,000");
-    if(valor===null) return; // cancelado
-    valor = (valor||"").trim();
-    // Normalizamos: aceptamos coma o punto, mostramos siempre coma
-    const num = parseComma(valor);
-    const pesoCartonTxt = fmtPeso(num); // "0,000"
-
     setFlights(flights.map(f=>f.id!==flightId?f:{
       ...f,
-      cajas:[
-        ...f.cajas,
-        { id:uuid(), codigo:`Caja ${n}`, paquetes:[], peso:"", L:"", A:"", H:"", peso_carton: pesoCartonTxt }
-      ]
+      cajas:[...f.cajas,{id:uuid(),codigo:`Caja ${n}`,paquetes:[],peso:"",L:"",A:"",H:"", peso_carton}]
     }));
+    // seleccionar la nueva
     setTimeout(()=>{
       const nf = flights.find(f=>f.id===flightId);
       if(nf?.cajas?.length) setActiveBoxId(nf.cajas[nf.cajas.length-1]?.id);
     },0);
   }
-
   function updBox(id,field,val){
     if(!flightId||!id) return;
     if(field==="codigo"){
       const dup = flight.cajas.some(c=>c.id!==id && String(c.codigo).trim().toLowerCase()===String(val).trim().toLowerCase());
       if(dup){ alert("El nombre de la caja no puede repetirse para esta carga."); return; }
     }
-    setFlights(flights.map(f=>f.id!==flightId?f:{
-      ...f,
-      cajas:f.cajas.map(c=>c.id!==id?c:{...c,[field]:val})
-    }));
+    // Solo se permite editar: peso (de la caja completa) y L, A, H
+    const allowed = new Set(["codigo","peso","L","A","H","paquetes"]);
+    if(!allowed.has(field)) return;
+    setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id!==id?c:{...c,[field]:val})}));
   }
-
   function assign(){
     if(!scan||!flight) return;
     const pkg = packages.find(p=> p.flight_id===flightId && String(p.codigo||"").toUpperCase()===scan.toUpperCase());
@@ -1343,30 +1398,20 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     if(flight.cajas.some(c=>c.paquetes.includes(pkg.id))){ alert("Ya está en una caja."); setScan(""); return; }
     const activeId = activeBoxId || flight.cajas[0]?.id;
     if(!activeId){ alert("Creá una caja primero."); return; }
-    setFlights(flights.map(f=>f.id!==flightId?f:{
-      ...f,
-      cajas:f.cajas.map(c=>c.id!==activeId?c:{...c,paquetes:[...c.paquetes, pkg.id]})
-    }));
+    setFlights(flights.map(f=>f.id!==flightId?f:{...f, cajas:f.cajas.map(c=>c.id!==activeId?c:{...c,paquetes:[...c.paquetes, pkg.id]})}));
     onAssign(pkg.id); setScan("");
   }
-
   function move(pid,fromId,toId){
     if(!toId||!flight) return;
-    setFlights(prev=>prev.map(f=>f.id!==flightId?f:{
-      ...f, cajas:f.cajas.map(c=>c.id===fromId?{...c,paquetes:c.paquetes.filter(x=>x!==pid)}:c)
-    }));
-    setFlights(prev=>prev.map(f=>f.id!==flightId?f:{
-      ...f, cajas:f.cajas.map(c=>c.id===toId?{...c,paquetes:[...c.paquetes,pid]}:c)
-    }));
+    setFlights(prev=>prev.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id===fromId?{...c,paquetes:c.paquetes.filter(x=>x!==pid)}:c)}));
+    setFlights(prev=>prev.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id===toId?{...c,paquetes:[...c.paquetes,pid]}:c)}));
   }
-
   function removeBox(id){
     if(!flight) return;
     setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.filter(c=>c.id!==id)}));
     if(activeBoxId===id) setActiveBoxId(null);
     if(editingBoxId===id) setEditingBoxId(null);
   }
-
   function reorderBox(id,dir){
     if(!flight) return;
     const arr=[...flight.cajas];
@@ -1377,58 +1422,34 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:arr}));
   }
 
-  // Exportar XLSX (resumen de cajas + paquetes)
-  function exportArmadoXLSX(){
+  function pesoEstimado(caja){
+    const pesoCarton = parseComma(caja.peso_carton||"0");
+    const ids = caja.paquetes||[];
+    const pesoPkgs = sum(ids.map(pid => {
+      const p = packages.find(x=>x.id===pid);
+      return p ? Number(p.peso_real||0) : 0;
+    }));
+    return Number(pesoCarton + pesoPkgs);
+  }
+
+  function exportCajasXLSX(){
     if(!flight){ alert("Seleccioná una carga."); return; }
-    const headerCajas = [
-      th("Caja"), th("Peso cartón (kg)"), th("Peso (kg)"),
-      th("Largo"), th("Ancho"), th("Alto"), th("Volumétrico (kg)")
-    ];
-    const bodyCajas = (flight.cajas||[]).map(c=>{
-      const pc = parseComma(c.peso_carton||"0");
-      const p  = parseComma(c.peso||"0");
-      const L  = parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
-      const vol=(A*H*L)/6000 || 0;
-      return [
-        td(c.codigo), td(fmtPeso(pc)), td(fmtPeso(p)),
-        td(String(L)), td(String(A)), td(String(H)), td(fmtPeso(vol))
-      ];
+    const header = [th("Caja"), th("Peso caja (kg)"), th("Peso cartón (kg)"), th("Peso estimado (kg)"), th("Largo"), th("Ancho"), th("Alto"), th("Paquetes")];
+    const body = (flight.cajas||[]).map(c=>{
+      const est = fmtPeso(pesoEstimado(c));
+      const pkgs = (c.paquetes||[]).map(pid=>packages.find(p=>p.id===pid)?.codigo).filter(Boolean).join(", ");
+      return [ td(c.codigo), td(fmtPeso(parseComma(c.peso||"0"))), td(fmtPeso(parseComma(c.peso_carton||"0"))), td(est),
+               td(String(c.L||"")), td(String(c.A||"")), td(String(c.H||"")), td(pkgs) ];
     });
-
-    const ws1 = sheetFromAOAStyled("Cajas", [headerCajas, ...bodyCajas], {
-      cols:[{wch:14},{wch:16},{wch:12},{wch:10},{wch:10},{wch:10},{wch:18}],
+    const { ws } = sheetFromAOAStyled(`Cajas_${flight.codigo}`, [header, ...body], {
+      cols:[{wch:12},{wch:16},{wch:16},{wch:18},{wch:10},{wch:10},{wch:10},{wch:40}],
       rows:[{hpt:24}]
-    }).ws;
-
-    // Hoja paquetes por caja
-    const headerPaq = [ th("Caja"), th("Código"), th("Courier"), th("Peso real (kg)") ];
-    const bodyPaq = [];
-    (flight.cajas||[]).forEach(c=>{
-      c.paquetes.forEach(pid=>{
-        const p = packages.find(x=>x.id===pid);
-        if(!p) return;
-        bodyPaq.push([ td(c.codigo), td(p.codigo), td(p.courier), td(fmtPeso(p.peso_real)) ]);
-      });
     });
-    const ws2 = sheetFromAOAStyled("Paquetes", [headerPaq, ...bodyPaq], {
-      cols:[{wch:14},{wch:16},{wch:16},{wch:16}],
-      rows:[{hpt:24}]
-    }).ws;
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws1, "Cajas");
-    XLSX.utils.book_append_sheet(wb, ws2, "Paquetes");
-    XLSX.writeFile(wb, `Armado_${flight.codigo}.xlsx`);
+    downloadXLSX(`Cajas_${flight.codigo}.xlsx`, [{name:`Cajas_${flight.codigo}`.slice(0,31), ws}]);
   }
 
   return (
-    <Section title="Armado de cajas"
-      right={
-        <div className="flex gap-2 items-end">
-          <button onClick={exportArmadoXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
-        </div>
-      }
-    >
+    <Section title="Armado de cajas">
       <div className="grid md:grid-cols-3 gap-4">
         <Field label="Seleccionar carga" required>
           <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>{setFlightId(e.target.value);}}>
@@ -1441,8 +1462,9 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
           <Input value={scan} onChange={e=>setScan(limpiar(e.target.value))} onKeyDown={e=>e.key==="Enter"&&assign()} placeholder="BOSSBOX1"/>
         </Field>
 
-        <div className="flex items-end">
+        <div className="flex items-end gap-2">
           <button onClick={addBox} disabled={!flightId} className={"px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50"}>Agregar caja</button>
+          <button onClick={exportCajasXLSX} disabled={!flight} className={"px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50"}>Exportar XLSX</button>
         </div>
 
         <div className="md:col-span-3">
@@ -1452,16 +1474,9 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
             const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
             const isActive = activeBoxId===c.id;
             const isEditing = editingBoxId===c.id;
-            const peso = parseComma(c.peso||"0");               // peso de la caja (editable)
-            const pesoCarton = parseComma(c.peso_carton||"0");  // peso del cartón (creación)
+            const peso = parseComma(c.peso||"0");
             const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
-
-            // Peso estimado = cartón + suma de pesos reales de paquetes
-            const sumPaq = c.paquetes.reduce((acc,pid)=>{
-              const p = packages.find(x=>x.id===pid);
-              return acc + (p?.peso_real || 0);
-            },0);
-            const pesoEstimado = pesoCarton + sumPaq;
+            const est = pesoEstimado(c);
 
             return (
               <div key={c.id} className={`border rounded-2xl p-3 mb-3 ${isActive?"ring-2 ring-indigo-400":"hover:ring-1 hover:ring-indigo-200"}`}>
@@ -1480,18 +1495,19 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                     <button className="px-2 py-1 border rounded text-red-600" onClick={()=>removeBox(c.id)}>Eliminar</button>
                   </div>
                 </div>
+
+                {/* Línea adicional: Peso estimado */}
                 <div className="text-xs text-gray-600 mb-2">
-                  Peso cartón: <b>{fmtPeso(pesoCarton)} kg</b> · Peso estimado: <b>{fmtPeso(pesoEstimado)} kg</b>
+                  <b>Peso estimado:</b> {fmtPeso(est)} kg (cartón {fmtPeso(parseComma(c.peso_carton||"0"))} kg + paquetes reales)
                 </div>
 
                 {isEditing && (
                   <div className="grid md:grid-cols-5 gap-2 mb-2">
-                    {/* Nota: se edita peso, L, A, H (peso_carton no editable aquí) */}
+                    <Field label="Nombre de caja"><Input value={c.codigo} onChange={e=>updBox(c.id,"codigo",e.target.value)}/></Field>
                     <Field label="Peso caja (kg)"><Input value={c.peso||""} onChange={e=>updBox(c.id,"peso", e.target.value)} placeholder="3,128"/></Field>
                     <Field label="Largo (cm)"><Input value={c.L||""} onChange={e=>updBox(c.id,"L", e.target.value)}/></Field>
                     <Field label="Ancho (cm)"><Input value={c.A||""} onChange={e=>updBox(c.id,"A", e.target.value)}/></Field>
                     <Field label="Alto (cm)"><Input value={c.H||""} onChange={e=>updBox(c.id,"H", e.target.value)}/></Field>
-                    <Field label="Nombre de caja"><Input value={c.codigo} onChange={e=>updBox(c.id,"codigo",e.target.value)}/></Field>
                   </div>
                 )}
 
@@ -1501,10 +1517,9 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                     return (
                       <li key={pid} className="flex items-center gap-2 py-1 border-b">
                         <span className="font-mono">{p.codigo}</span><span className="text-gray-600">{p.courier}</span>
-                        <span className="ml-auto text-gray-600">{fmtPeso(p.peso_real)} kg</span>
-                        <button className="text-red-600 text-xs ml-2" onClick={()=>updBox(c.id,"paquetes", c.paquetes.filter(z=>z!==pid))}>Quitar</button>
+                        <button className="text-red-600 text-xs" onClick={()=>updBox(c.id,"paquetes", c.paquetes.filter(z=>z!==pid))}>Quitar</button>
                         {flight.cajas.length>1 && (
-                          <select className="text-xs border rounded px-1 py-0.5 ml-2" defaultValue="" onChange={e=>move(pid,c.id,e.target.value)}>
+                          <select className="text-xs border rounded px-1 py-0.5 ml-auto" defaultValue="" onChange={e=>move(pid,c.id,e.target.value)}>
                             <option value="" disabled>Mover a…</option>
                             {flight.cajas.filter(x=>x.id!==c.id).map(x=><option key={x.id} value={x.id}>{x.codigo}</option>)}
                           </select>
@@ -1523,9 +1538,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   );
 }
 
-/* ========== Cargas enviadas ==========
-   - Botón Exportar XLSX restaurado (exporta los paquetes del vuelo seleccionado)
-====================================== */
+/* ========== Cargas enviadas (filtro + export XLSX) ========== */
 function CargasEnviadas({packages, flights, user}){
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
@@ -1552,7 +1565,6 @@ function CargasEnviadas({packages, flights, user}){
       const peso=parseComma(c.peso||"0");
       const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
       const vol=(A*H*L)/6000 || 0;
-      // etiqueta por contenido (visible para el courier si aplica)
       const visibleIds = new Set(paquetesDeVuelo.map(p=>p.id));
       const idsDeCaja = c.paquetes.filter(pid=> visibleIds.has(pid));
       const couriers = new Set(idsDeCaja.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
@@ -1564,37 +1576,23 @@ function CargasEnviadas({packages, flights, user}){
   const totPeso=sum(resumen.map(r=>r.peso));
   const totVol=sum(resumen.map(r=>r.vol));
 
-  function exportCargasXLSX(){
-    if(!flight){ alert("Seleccioná una carga para exportar."); return; }
-    const headerPaq = [ th("Courier"), th("Código"), th("Casilla"), th("Fecha"), th("Nombre"), th("Tracking"), th("Peso real"), th("Facturable"), th("Volumétrico"), th("Exceso") ];
-    const bodyPaq = paquetesDeVuelo.map(p=>[
+  function exportPaquetesXLSX(){
+    if(!flight){ alert("Seleccioná una carga."); return; }
+    const header = ["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Facturable","Volumétrico","Exceso"].map(th);
+    const body = paquetesDeVuelo.map(p=>[
       td(p.courier), td(p.codigo), td(p.casilla), td(p.fecha), td(p.nombre_apellido), td(p.tracking),
       td(fmtPeso(p.peso_real)), td(fmtPeso(p.peso_facturable)), td(fmtPeso(p.peso_volumetrico)), td(fmtPeso(p.exceso_volumen))
     ]);
-
-    const headerCajas = [ th("Nº Caja"), th("Courier"), th("Peso"), th("Largo"), th("Ancho"), th("Alto"), th("Volumétrico") ];
-    const bodyCajas = resumen.map(r=>[
-      td(String(r.n)), td(r.courier), td(fmtPeso(r.peso)), td(String(r.L)), td(String(r.A)), td(String(r.H)), td(fmtPeso(r.vol))
-    ]);
-    bodyCajas.push([td(""), td("Totales"), td(fmtPeso(totPeso)), td(""), td(""), td(""), td(fmtPeso(totVol))]);
-
-    const wb = XLSX.utils.book_new();
-    const wsP = sheetFromAOAStyled("Paquetes", [headerPaq, ...bodyPaq], { cols:[{wch:16},{wch:16},{wch:12},{wch:12},{wch:22},{wch:16},{wch:12},{wch:12},{wch:12},{wch:12}], rows:[{hpt:24}] }).ws;
-    const wsC = sheetFromAOAStyled("Cajas", [headerCajas, ...bodyCajas], { cols:[{wch:10},{wch:16},{wch:12},{wch:10},{wch:10},{wch:10},{wch:16}], rows:[{hpt:24}] }).ws;
-    XLSX.utils.book_append_sheet(wb, wsP, "Paquetes");
-    XLSX.utils.book_append_sheet(wb, wsC, "Cajas");
-    XLSX.writeFile(wb, `Cargas_${flight.codigo}.xlsx`);
+    const { ws } = sheetFromAOAStyled(`Paquetes_${flight.codigo}`, [header, ...body], {
+      cols:[{wch:16},{wch:16},{wch:10},{wch:12},{wch:22},{wch:18},{wch:14},{wch:14},{wch:14},{wch:14}],
+      rows:[{hpt:24}]
+    });
+    downloadXLSX(`Cargas_enviadas_${flight.codigo}.xlsx`, [{name:`Paquetes_${flight.codigo}`.slice(0,31), ws}]);
   }
 
   return (
-    <Section title="Cargas enviadas"
-      right={
-        <button onClick={exportCargasXLSX} disabled={!flight} className={"px-3 py-2 rounded-xl "+(flight?"bg-gray-800 text-white":"bg-gray-200 text-gray-500 cursor-not-allowed")}>
-          Exportar XLSX
-        </button>
-      }
-    >
-      <div className="grid md:grid-cols-5 gap-3">
+    <Section title="Cargas enviadas">
+      <div className="grid md:grid-cols-6 gap-3 items-end">
         <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
         <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
         <Field label="Estado">
@@ -1608,7 +1606,11 @@ function CargasEnviadas({packages, flights, user}){
             {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
           </select>
         </Field>
-        <div className="flex items-end"><div className="text-sm text-gray-500">Seleccioná una carga</div></div>
+        <div className="md:col-span-2 flex items-end justify-end">
+          <button onClick={exportPaquetesXLSX} disabled={!flight} className={"px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50"}>
+            Exportar XLSX
+          </button>
+        </div>
       </div>
 
       {!flight ? <div className="text-gray-500 mt-4">Elegí una carga para ver contenido.</div> : (
@@ -1970,7 +1972,7 @@ function ManageList({label,items,setItems}){
     </div>
   );
 }
-/* ========== App (tabs por rol + nueva pestaña "Paquetes sin casilla") ========== */
+/* ========== App (tabs por rol + Usuarios + Sin Casilla persistente) ========== */
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
 
@@ -1983,8 +1985,23 @@ function App(){
   const [packages,setPackages]=useState([]);
   const [extras,setExtras]=useState([]);
 
-  // NUEVO: estado para "Paquetes sin casilla"
+  // Paquetes sin casilla (persistencia localStorage)
+  const SINCASILLA_KEY = "ee_sincasilla_v1";
   const [sinCasillaItems, setSinCasillaItems] = useState([]);
+  useEffect(()=>{
+    try{
+      const raw = localStorage.getItem(SINCASILLA_KEY);
+      if(raw){
+        const arr = JSON.parse(raw);
+        if(Array.isArray(arr)) setSinCasillaItems(arr);
+      }
+    }catch{}
+  },[]);
+  useEffect(()=>{
+    try{
+      localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems));
+    }catch{}
+  },[sinCasillaItems]);
 
   useEffect(()=>{
     if(currentUser){
@@ -2016,7 +2033,7 @@ function App(){
             <button
               key={t}
               onClick={()=>setTab(t)}
-              className={"px-3 py-2 rounded-xl text-sm "+(tab===t?"bg-indigo-600 text-white":"bg-white border")}
+              className={"px-3 py-2 rounded-xl text-sm " + (tab===t ? "bg-indigo-600 text-white" : "bg-white border")}
             >
               {t}
             </button>
@@ -2060,15 +2077,27 @@ function App(){
         )}
 
         {tab==="Cargas enviadas" && (
-          <CargasEnviadas packages={packages} flights={flights} user={currentUser} />
+          <CargasEnviadas
+            packages={packages}
+            flights={flights}
+            user={currentUser}
+          />
         )}
 
         {tab==="Gestión de cargas" && (
-          <CargasAdmin flights={flights} setFlights={setFlights} packages={packages} />
+          <CargasAdmin
+            flights={flights}
+            setFlights={setFlights}
+            packages={packages}
+          />
         )}
 
         {tab==="Proformas" && (
-          <Proformas packages={packages} flights={flights} extras={extras} />
+          <Proformas
+            packages={packages}
+            flights={flights}
+            extras={extras}
+          />
         )}
 
         {tab==="Usuarios" && (
@@ -2079,7 +2108,12 @@ function App(){
         )}
 
         {tab==="Extras" && (
-          <Extras flights={flights} couriers={couriers} extras={extras} setExtras={setExtras} />
+          <Extras
+            flights={flights}
+            couriers={couriers}
+            extras={extras}
+            setExtras={setExtras}
+          />
         )}
       </div>
     </div>

@@ -1,7 +1,7 @@
 /*  Europa Envíos – MVP auth + usuarios + mejoras
     - Nueva pestaña: Paquetes sin casilla (1..999 cíclico, filtros, buscador, XLSX)
     - Recepción: listas dinámicas (Gestionar listas) y foto opcional
-    - Armado de cajas: peso de cartón al crear + Peso estimado + Export XLSX
+    - Armado de cajas: peso de cartón al crear + Peso estimado + Export XLSX (plantilla cajas.xlsx con una hoja por caja)
     - Cargas enviadas: Export XLSX
 */
 
@@ -57,9 +57,9 @@ function saveUsers(users){
 /** prefijo permitido para códigos de un courier (ej.: "GLOBAL BOX" -> "GLOBALBOX") */
 function courierPrefix(name){ return limpiar(name || ""); }
 
-/** tabs por rol (incluye Paquetes sin casilla) */
+/** tabs por rol (incluye Paquetes sin casilla para COURIER con permisos de solo lectura) */
 function tabsForRole(role){
-  if(role==="COURIER") return ["Paquetes en bodega","Cargas enviadas"];
+  if(role==="COURIER") return ["Paquetes sin casilla","Paquetes en bodega","Cargas enviadas"];
   return ["Recepción","Paquetes sin casilla","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
 }
 
@@ -116,7 +116,7 @@ function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt
     </body></html>`;
 }
 
-/* ========== XLSX helpers breves (para listados) ========== */
+/* ========== XLSX helpers breves (para listados y plantillas) ========== */
 const bd = () => ({ top:{style:"thin",color:{rgb:"FFCBD5E1"}}, bottom:{style:"thin",color:{rgb:"FFCBD5E1"}},
   left:{style:"thin",color:{rgb:"FFCBD5E1"}}, right:{style:"thin",color:{rgb:"FFCBD5E1"}} });
 const th = (txt) => ({ v:txt, t:"s", s:{font:{bold:true,color:{rgb:"FFFFFFFF"}},fill:{fgColor:{rgb:"FF1F2937"}},
@@ -163,6 +163,75 @@ function replacePlaceholdersInWB(wb, map){
 function appendSheet(wb, name, rows, opts={}){
   const { ws } = sheetFromAOAStyled(name, rows, opts);
   XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
+}
+
+/* ========= Helpers para plantilla de CAJAS (xlsx-js-style) ========= */
+/** Clona una hoja del workbook preservando estilos/merges (deep copy del objeto worksheet). */
+function cloneSheetObject(ws){
+  return JSON.parse(JSON.stringify(ws));
+}
+/** Busca celdas cuyo texto cumpla un predicado. Devuelve [{r,c,addr,cell}] */
+function findCells(ws, predicate){
+  const out=[];
+  const ref = ws["!ref"] || "A1";
+  const rg = XLSX.utils.decode_range(ref);
+  for(let r=rg.s.r; r<=rg.e.r; r++){
+    for(let c=rg.s.c; c<=rg.e.c; c++){
+      const addr = XLSX.utils.encode_cell({r,c});
+      const cell = ws[addr];
+      if(!cell) continue;
+      const v = typeof cell.v === "string" ? cell.v : null;
+      if(v && predicate(v)) out.push({r,c,addr,cell});
+    }
+  }
+  return out;
+}
+function writeCell(ws, r, c, value){
+  const addr = XLSX.utils.encode_cell({r,c});
+  const prev = ws[addr] || { t:"s" };
+  ws[addr] = { ...prev, v: String(value ?? ""), t: "s" };
+}
+/** Llena una hoja de la plantilla de cajas:
+ *  - {{NUMERO DE CAJA}} -> número (o nombre) de caja
+ *  - {{CANTIDAD DE PAQUETES}} -> cantidad total en la caja
+ *  - Columnas: en cada celda con {{COURIER}} se escribe un courier.
+ *    Debajo, en las celdas con {{PAQUETE}} de esa misma columna se cargan los códigos.
+ */
+function fillCajaTemplateSheet(ws, { numeroCaja, cantidadPaquetes, columns }){
+  // Reemplazos directos (número y cantidad)
+  findCells(ws, v => v.includes("{{NUMERO DE CAJA}}"))
+    .forEach(({r,c}) => writeCell(ws, r, c, String(numeroCaja)));
+  findCells(ws, v => v.includes("{{CANTIDAD DE PAQUETES}}"))
+    .forEach(({r,c}) => writeCell(ws, r, c, String(cantidadPaquetes)));
+
+  // Columnas de couriers (encabezados)
+  const headerCells = findCells(ws, v => v.includes("{{COURIER}}"));
+  headerCells.forEach((cellInfo, idx) => {
+    const name = columns[idx]?.courier || "";
+    writeCell(ws, cellInfo.r, cellInfo.c, name);
+  });
+
+  // Para cada columna, llenar los {{PAQUETE}} hacia abajo en esa misma columna
+  headerCells.forEach((cellInfo, idx) => {
+    const pkgs = columns[idx]?.paquetes || [];
+    // Escanear hacia abajo la misma columna y ubicar celdas {{PAQUETE}}
+    const ref = ws["!ref"] || "A1";
+    const rg = XLSX.utils.decode_range(ref);
+    let k = 0;
+    for(let r=cellInfo.r+1; r<=rg.e.r; r++){
+      const addr = XLSX.utils.encode_cell({r, c: cellInfo.c});
+      const cell = ws[addr];
+      const isPlaceholder = cell && typeof cell.v==="string" && cell.v.includes("{{PAQUETE}}");
+      if(isPlaceholder){
+        writeCell(ws, r, cellInfo.c, pkgs[k] || "");
+        k++;
+      }
+    }
+  });
+
+  // Limpiar placeholders restantes {{COURIER}} / {{PAQUETE}} que hayan quedado
+  findCells(ws, v => v.includes("{{COURIER}}") || v.includes("{{PAQUETE}}"))
+    .forEach(({r,c}) => writeCell(ws, r, c, ""));
 }
 
 /* ========== ExcelJS específicos (Proforma con logo centrado en B1:D8) ========== */
@@ -248,7 +317,7 @@ function findProformaAnchors(ws){
   return { headerRow: 15, colDesc:1, colCant:2, colUnit:3, colSub:4 };
 }
 
-/* Export PROFORMA (mantiene tus posiciones A28/D28/D15 y logo centrado) */
+/* Export PROFORMA (mantiene posiciones y logo centrado) */
 async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nombreArchivo, datosFactura }){
   const wb = new ExcelJS.Workbook();
   const ab = await (await fetch(plantillaUrl, { cache: "no-store" })).arrayBuffer();
@@ -352,7 +421,6 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
   const buffer = await wb.xlsx.writeBuffer();
   downloadBufferAsXlsx(buffer, nombreArchivo);
 }
-
 /* ========== UI base ========== */
 const BTN = "px-3 py-2 rounded-xl border bg-white hover:bg-gray-50";
 const BTN_PRIMARY = "px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white";
@@ -413,6 +481,7 @@ function Modal({open,onClose,title,children}){
     </div>
   );
 }
+
 /* ========== datos iniciales (listas) ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
@@ -710,6 +779,27 @@ function Usuarios({ currentUser, onCurrentUserChange }){
   );
 }
 
+/* ========== helpers listas sencillas ========== */
+function ManageList({label,items,setItems}){
+  const [txt,setTxt]=useState("");
+  return (
+    <div className="bg-gray-50 rounded-xl p-3">
+      <div className="font-medium mb-2">{label}</div>
+      <div className="flex gap-2">
+        <Input value={txt} onChange={e=>setTxt(e.target.value)} placeholder={`Agregar a ${label}`}/>
+        <button className={BTN} onClick={()=>{ if(!txt.trim()) return; setItems([...items, txt.trim()]); setTxt(""); }}>Añadir</button>
+      </div>
+      <ul className="mt-2 text-sm">
+        {items.map((x,i)=>(
+          <li key={i} className="flex items-center justify-between py-1">
+            <span>{x}</span>
+            <button className="text-red-600 text-xs" onClick={()=>setItems(items.filter((_,j)=>j!==i))}>Quitar</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 /* ========== Recepción (listas dinámicas + foto opcional) ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
@@ -756,7 +846,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
   const submit=()=>{
     if(!flightId){ alert("Seleccioná una Carga."); return; }
-    // FOTO OPCIONAL — ya no se exige
     if(!okCampos()){ alert("Faltan campos."); return; }
 
     const key="seq_"+courierPrefix(form.courier);
@@ -946,13 +1035,22 @@ const InfoBox=({title,value})=>(
   </div>
 );
 
-/* ========== Paquetes sin casilla (funcional) ========== */
-function PaquetesSinCasilla({ items, setItems }){
+/* ========== Paquetes sin casilla (con tracking + edición/borrado ADMIN, visibilidad por rol) ========== */
+function PaquetesSinCasilla({ currentUser, items, setItems }){
+  const isAdmin = currentUser?.role === "ADMIN";
+
   const [q,setQ] = useState("");
   const [from,setFrom] = useState("");
   const [to,setTo] = useState("");
-  const [fecha,setFecha] = useState(new Date().toISOString().slice(0,10));
+
+  // alta (solo ADMIN)
+  const [fecha,setFecha]   = useState(new Date().toISOString().slice(0,10));
   const [nombre,setNombre] = useState("");
+  const [tracking,setTracking] = useState("");
+
+  // edición (solo ADMIN)
+  const [editId,setEditId] = useState(null);
+  const [editRow,setEditRow] = useState({ fecha:"", nombre:"", tracking:"" });
 
   // genera número correlativo 1..999 (cíclico) y persiste contador
   function nextNumero(){
@@ -964,27 +1062,63 @@ function PaquetesSinCasilla({ items, setItems }){
   }
 
   function add(){
+    if(!isAdmin) return;
     if(!fecha || !nombre.trim()){ alert("Completá Fecha y Nombre."); return; }
     const numero = nextNumero();
-    const row = { id: uuid(), fecha, numero, nombre: nombre.trim() };
+    const row = { id: uuid(), fecha, numero, nombre: nombre.trim(), tracking: tracking.trim() };
     setItems([ ...items, row ]);
-    setNombre("");
+    setNombre(""); setTracking("");
   }
 
   const filtered = useMemo(()=>{
     const arr = items
       .filter(r => !from || (r.fecha||"") >= from)
       .filter(r => !to   || (r.fecha||"") <= to)
-      .filter(r => (String(r.numero).includes(q) || (r.nombre||"").toLowerCase().includes(q.toLowerCase())));
+      .filter(r => {
+        const qq = q.toLowerCase();
+        const base = String(r.numero).includes(q) || (r.nombre||"").toLowerCase().includes(qq);
+        return isAdmin ? (base || (r.tracking||"").toLowerCase().includes(qq)) : base;
+      });
     // Orden ascendente por número
     return arr.slice().sort((a,b)=>Number(a.numero)-Number(b.numero));
-  },[items,from,to,q]);
+  },[items,from,to,q,isAdmin]);
+
+  function startEdit(r){
+    if(!isAdmin) return;
+    setEditId(r.id);
+    setEditRow({ fecha:r.fecha||"", nombre:r.nombre||"", tracking:r.tracking||"" });
+  }
+  function saveEdit(){
+    if(!isAdmin) return;
+    if(!editId) return;
+    const next = items.map(r => r.id===editId ? { ...r, ...editRow, nombre:(editRow.nombre||"").trim() } : r);
+    setItems(next);
+    setEditId(null);
+  }
+  function cancelEdit(){ setEditId(null); }
+  function removeRow(r){
+    if(!isAdmin) return;
+    const ok = window.confirm(`¿Eliminar el paquete Nº ${r.numero}?`);
+    if(!ok) return;
+    setItems(items.filter(x=>x.id!==r.id));
+  }
 
   function exportXLSX(){
-    const header = [ th("Fecha recepción"), th("Nº paquete"), th("Nombre y apellido") ];
-    const body = filtered.map(r=>[ td(r.fecha||""), td(String(r.numero)), td(r.nombre||"") ]);
+    // Solo ADMIN exporta (para evitar exponer tracking a couriers)
+    if(!isAdmin) return;
+
+    const header = isAdmin
+      ? [ th("Fecha recepción"), th("Nº paquete"), th("Nombre y apellido"), th("Tracking") ]
+      : [ th("Fecha recepción"), th("Nº paquete"), th("Nombre y apellido") ];
+
+    const body = filtered.map(r=>{
+      const row = [ td(r.fecha||""), td(String(r.numero)), td(r.nombre||"") ];
+      if(isAdmin) row.push(td(r.tracking||""));
+      return row;
+    });
+
     const { ws } = sheetFromAOAStyled("Sin casilla", [header, ...body], {
-      cols:[{wch:14},{wch:12},{wch:28}],
+      cols: isAdmin ? [{wch:14},{wch:12},{wch:28},{wch:24}] : [{wch:14},{wch:12},{wch:28}],
       rows:[{hpt:24}]
     });
     downloadXLSX("Paquetes_sin_casilla.xlsx", [{name:"Sin casilla", ws}]);
@@ -993,28 +1127,50 @@ function PaquetesSinCasilla({ items, setItems }){
   return (
     <Section
       title="Paquetes sin casilla"
-      right={<button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>}
+      right={
+        isAdmin
+          ? <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
+          : null
+      }
     >
-      <div className="grid md:grid-cols-5 gap-3 mb-3">
-        <Field label="Fecha recepción" required>
-          <Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/>
-        </Field>
-        <Field label="Nombre y apellido" required>
-          <Input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Juan Pérez"/>
-        </Field>
-        <div className="flex items-end">
-          <button onClick={add} className={BTN_PRIMARY}>Agregar</button>
+      {/* Alta solo para ADMIN */}
+      {isAdmin && (
+        <div className="grid md:grid-cols-6 gap-3 mb-3">
+          <Field label="Fecha recepción" required>
+            <Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/>
+          </Field>
+          <Field label="Nombre y apellido" required>
+            <Input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Juan Pérez"/>
+          </Field>
+          <Field label="Tracking">
+            <Input value={tracking} onChange={e=>setTracking(e.target.value)} placeholder="1Z999..." />
+          </Field>
+          <div className="flex items-end">
+            <button onClick={add} className={BTN_PRIMARY}>Agregar</button>
+          </div>
+          <Field label="Filtrar desde">
+            <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
+          </Field>
+          <Field label="Hasta">
+            <Input type="date" value={to} onChange={e=>setTo(e.target.value)}/>
+          </Field>
         </div>
-        <Field label="Filtrar desde">
-          <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
-        </Field>
-        <Field label="Hasta">
-          <Input type="date" value={to} onChange={e=>setTo(e.target.value)}/>
-        </Field>
-      </div>
+      )}
+
+      {/* Filtros visibles para ambos roles */}
+      {!isAdmin && (
+        <div className="grid md:grid-cols-2 gap-3 mb-3">
+          <Field label="Filtrar desde">
+            <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
+          </Field>
+          <Field label="Hasta">
+            <Input type="date" value={to} onChange={e=>setTo(e.target.value)}/>
+          </Field>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 mb-3">
-        <Input placeholder="Buscar por Nº o Nombre…" value={q} onChange={e=>setQ(e.target.value)} />
+        <Input placeholder={isAdmin ? "Buscar por Nº, Nombre o Tracking…" : "Buscar por Nº o Nombre…"} value={q} onChange={e=>setQ(e.target.value)} />
       </div>
 
       <div className="overflow-auto">
@@ -1024,17 +1180,47 @@ function PaquetesSinCasilla({ items, setItems }){
               <th className="text-left px-3 py-2">Fecha recepción</th>
               <th className="text-left px-3 py-2">Nº paquete</th>
               <th className="text-left px-3 py-2">Nombre y apellido</th>
+              {isAdmin && <th className="text-left px-3 py-2">Tracking</th>}
+              {isAdmin && <th className="text-left px-3 py-2">Acciones</th>}
             </tr>
           </thead>
           <tbody>
             {filtered.map(r=>(
               <tr key={r.id} className="border-b">
-                <td className="px-3 py-2">{r.fecha||""}</td>
-                <td className="px-3 py-2">{r.numero}</td>
-                <td className="px-3 py-2">{r.nombre||""}</td>
+                {editId===r.id ? (
+                  <>
+                    <td className="px-3 py-2"><Input type="date" value={editRow.fecha} onChange={e=>setEditRow({...editRow,fecha:e.target.value})}/></td>
+                    <td className="px-3 py-2">{r.numero}</td>
+                    <td className="px-3 py-2"><Input value={editRow.nombre} onChange={e=>setEditRow({...editRow,nombre:e.target.value})}/></td>
+                    {isAdmin && <td className="px-3 py-2"><Input value={editRow.tracking} onChange={e=>setEditRow({...editRow,tracking:e.target.value})}/></td>}
+                    {isAdmin && (
+                      <td className="px-3 py-2">
+                        <div className="flex gap-2">
+                          <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={saveEdit}>Guardar</button>
+                          <button className="px-2 py-1 border rounded" onClick={cancelEdit}>Cancelar</button>
+                        </div>
+                      </td>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <td className="px-3 py-2">{r.fecha||""}</td>
+                    <td className="px-3 py-2">{r.numero}</td>
+                    <td className="px-3 py-2">{r.nombre||""}</td>
+                    {isAdmin && <td className="px-3 py-2">{r.tracking||"—"}</td>}
+                    {isAdmin && (
+                      <td className="px-3 py-2">
+                        <div className="flex gap-2">
+                          <button className="px-2 py-1 border rounded" onClick={()=>startEdit(r)}>Editar</button>
+                          <button className="px-2 py-1 border rounded text-red-600" onClick={()=>removeRow(r)}>Eliminar</button>
+                        </div>
+                      </td>
+                    )}
+                  </>
+                )}
               </tr>
             ))}
-            {filtered.length===0 && <tr><td colSpan={3} className="text-center text-gray-500 py-6">Sin datos.</td></tr>}
+            {filtered.length===0 && <tr><td colSpan={isAdmin?5:3} className="text-center text-gray-500 py-6">Sin datos.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1344,7 +1530,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   );
 }
 
-/* ========== Armado de cajas (peso de cartón al crear + Peso estimado + Export XLSX) ========== */
+/* ========== Armado de cajas (peso de cartón al crear + Peso estimado + Export cajas.xlsx con una hoja por caja) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -1432,8 +1618,110 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     return Number(pesoCarton + pesoPkgs);
   }
 
-  function exportCajasXLSX(){
+  /* ==== HELPERS DE EXPORTACIÓN A PLANTILLA /templates/cajas.xlsx ==== */
+  function wsRange(ws){
+    const ref = ws["!ref"] || "A1:A1";
+    return XLSX.utils.decode_range(ref);
+  }
+  function cloneWs(ws){
+    // Clonado profundo para preservar estilos en xlsx-js-style
+    return JSON.parse(JSON.stringify(ws));
+  }
+  function replacePlaceholdersInSheet(ws, map){
+    const range = wsRange(ws);
+    for(let R=range.s.r; R<=range.e.r; R++){
+      for(let C=range.s.c; C<=range.e.c; C++){
+        const addr = XLSX.utils.encode_cell({r:R,c:C});
+        const cell = ws[addr];
+        if(cell && typeof cell.v==="string"){
+          let txt = cell.v;
+          Object.entries(map).forEach(([k,v])=>{ txt = txt.replaceAll(`{{${k}}}`, (v??"").toString()); });
+          if(txt!==cell.v) ws[addr] = {...cell, v: txt, t:"s"};
+        }
+      }
+    }
+  }
+  function findCellsWith(ws, regex){
+    const out=[];
+    const range = wsRange(ws);
+    for(let R=range.s.r; R<=range.e.r; R++){
+      for(let C=range.s.c; C<=range.e.c; C++){
+        const addr = XLSX.utils.encode_cell({r:R,c:C});
+        const cell = ws[addr];
+        const v = cell && typeof cell.v==="string" ? cell.v : "";
+        if(regex.test(v)) out.push({addr, r:R, c:C, v});
+      }
+    }
+    return out;
+  }
+  function fillCourierColumn(ws, headerCell, codes){
+    // headerCell: {r,c}
+    // Escribe el nombre ya puesto en el header y llena las filas inferiores donde haya {{PAQUETE}}
+    let idx = 0;
+    const range = wsRange(ws);
+    for(let R=headerCell.r+1; R<=range.e.r; R++){
+      const addr = XLSX.utils.encode_cell({r:R, c:headerCell.c});
+      const cell = ws[addr];
+      const isPlaceholder = cell && typeof cell.v==="string" && cell.v.includes("{{PAQUETE}}");
+      if(!isPlaceholder) continue;
+      const val = (idx < codes.length) ? codes[idx++] : "";
+      ws[addr] = { ...(cell||{t:"s"}), v: val, t:"s" };
+    }
+  }
+
+  async function exportCajasXLSX(){
     if(!flight){ alert("Seleccioná una carga."); return; }
+
+    const tpl = await tryLoadTemplate("/templates/cajas.xlsx");
+    if(tpl){
+      const baseName = tpl.SheetNames[0];
+      const baseWs   = tpl.Sheets[baseName];
+
+      // Creamos un nuevo libro para salida con una hoja por caja
+      const outWb = XLSX.utils.book_new();
+
+      (flight.cajas||[]).forEach((caja, idx)=>{
+        // agrupar paquetes por courier
+        const pkgObjs = (caja.paquetes||[]).map(pid=>packages.find(p=>p.id===pid)).filter(Boolean);
+        const byCourier = {};
+        pkgObjs.forEach(p=>{
+          if(!byCourier[p.courier]) byCourier[p.courier]=[];
+          byCourier[p.courier].push(p.codigo);
+        });
+        const couriers = Object.keys(byCourier).sort(); // orden alfabético para consistencia
+        const cantPaquetes = pkgObjs.length;
+
+        // clonar template y reemplazar placeholders de cabecera
+        const ws = cloneWs(baseWs);
+        replacePlaceholdersInSheet(ws, {
+          "NUMERO DE CAJA": String(idx+1),
+          "CANTIDAD DE PAQUETES": String(cantPaquetes)
+        });
+
+        // localizar cabeceras {{COURIER}}
+        const headers = findCellsWith(ws, /{{\s*COURIER\s*}}/i)
+          .sort((a,b)=>a.c-b.c); // ordenar por columna
+
+        // para cada header disponible, asignar courier y llenar su columna
+        headers.forEach((h, i)=>{
+          const name = couriers[i] || "";
+          // escribir header
+          const addr = XLSX.utils.encode_cell({r:h.r, c:h.c});
+          const orig = ws[addr] || { t:"s" };
+          ws[addr] = { ...orig, v: name, t:"s" };
+
+          // llenar los {{PAQUETE}} debajo
+          fillCourierColumn(ws, {r:h.r, c:h.c}, byCourier[name] || []);
+        });
+
+        XLSX.utils.book_append_sheet(outWb, ws, `CAJA ${idx+1}`.slice(0,31));
+      });
+
+      XLSX.writeFile(outWb, `cajas_${flight.codigo}.xlsx`);
+      return;
+    }
+
+    // --- Fallback simple (si no se encuentra la plantilla) ---
     const header = [th("Caja"), th("Peso caja (kg)"), th("Peso cartón (kg)"), th("Peso estimado (kg)"), th("Largo"), th("Ancho"), th("Alto"), th("Paquetes")];
     const body = (flight.cajas||[]).map(c=>{
       const est = fmtPeso(pesoEstimado(c));
@@ -1537,7 +1825,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     </Section>
   );
 }
-
 /* ========== Cargas enviadas (filtro + export XLSX) ========== */
 function CargasEnviadas({packages, flights, user}){
   const [from,setFrom]=useState("");
@@ -1663,6 +1950,7 @@ function CargasEnviadas({packages, flights, user}){
     </Section>
   );
 }
+
 /* ========== Gestión de cargas (crear/editar/eliminar con confirmación) ========== */
 function CargasAdmin({flights,setFlights, packages}){
   const [code,setCode]=useState("");
@@ -1735,7 +2023,7 @@ function CargasAdmin({flights,setFlights, packages}){
                 <td className="px-3 py-2"><Input type="date" value={f.fecha_salida} onChange={e=>upd(f.id,"fecha_salida",e.target.value)}/></td>
                 <td className="px-3 py-2">
                   <select className="border rounded px-2 py-1" value={f.estado} onChange={e=>upd(f.id,"estado",e.target.value)}>
-                    {ESTADOS_CARGA.map(s=><option key={s}>{s}</option>)}
+                    {["En bodega","En tránsito","Arribado"].map(s=><option key={s}>{s}</option>)}
                   </select>
                 </td>
                 <td className="px-3 py-2"><Input value={f.awb||""} onChange={e=>upd(f.id,"awb",e.target.value)}/></td>
@@ -1951,28 +2239,7 @@ function Extras({flights, couriers, extras, setExtras}){
   );
 }
 
-/* ========== helpers listas sencillas ========== */
-function ManageList({label,items,setItems}){
-  const [txt,setTxt]=useState("");
-  return (
-    <div className="bg-gray-50 rounded-xl p-3">
-      <div className="font-medium mb-2">{label}</div>
-      <div className="flex gap-2">
-        <Input value={txt} onChange={e=>setTxt(e.target.value)} placeholder={`Agregar a ${label}`}/>
-        <button className={BTN} onClick={()=>{ if(!txt.trim()) return; setItems([...items, txt.trim()]); setTxt(""); }}>Añadir</button>
-      </div>
-      <ul className="mt-2 text-sm">
-        {items.map((x,i)=>(
-          <li key={i} className="flex items-center justify-between py-1">
-            <span>{x}</span>
-            <button className="text-red-600 text-xs" onClick={()=>setItems(items.filter((_,j)=>j!==i))}>Quitar</button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-/* ========== App (tabs por rol + Usuarios + Sin Casilla persistente) ========== */
+/* ========== App (tabs por rol + Usuarios + Sin Casilla con permisos) ========== */
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
 
@@ -2052,6 +2319,7 @@ function App(){
 
         {tab==="Paquetes sin casilla" && (
           <PaquetesSinCasilla
+            currentUser={currentUser}
             items={sinCasillaItems}
             setItems={setSinCasillaItems}
           />

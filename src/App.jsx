@@ -166,11 +166,9 @@ function appendSheet(wb, name, rows, opts={}){
 }
 
 /* ========= Helpers para plantilla de CAJAS (xlsx-js-style) ========= */
-/** Clona una hoja del workbook preservando estilos/merges (deep copy del objeto worksheet). */
 function cloneSheetObject(ws){
   return JSON.parse(JSON.stringify(ws));
 }
-/** Busca celdas cuyo texto cumpla un predicado. Devuelve [{r,c,addr,cell}] */
 function findCells(ws, predicate){
   const out=[];
   const ref = ws["!ref"] || "A1";
@@ -191,30 +189,20 @@ function writeCell(ws, r, c, value){
   const prev = ws[addr] || { t:"s" };
   ws[addr] = { ...prev, v: String(value ?? ""), t: "s" };
 }
-/** Llena una hoja de la plantilla de cajas:
- *  - {{NUMERO DE CAJA}} -> número (o nombre) de caja
- *  - {{CANTIDAD DE PAQUETES}} -> cantidad total en la caja
- *  - Columnas: en cada celda con {{COURIER}} se escribe un courier.
- *    Debajo, en las celdas con {{PAQUETE}} de esa misma columna se cargan los códigos.
- */
 function fillCajaTemplateSheet(ws, { numeroCaja, cantidadPaquetes, columns }){
-  // Reemplazos directos (número y cantidad)
   findCells(ws, v => v.includes("{{NUMERO DE CAJA}}"))
     .forEach(({r,c}) => writeCell(ws, r, c, String(numeroCaja)));
   findCells(ws, v => v.includes("{{CANTIDAD DE PAQUETES}}"))
     .forEach(({r,c}) => writeCell(ws, r, c, String(cantidadPaquetes)));
 
-  // Columnas de couriers (encabezados)
   const headerCells = findCells(ws, v => v.includes("{{COURIER}}"));
   headerCells.forEach((cellInfo, idx) => {
     const name = columns[idx]?.courier || "";
     writeCell(ws, cellInfo.r, cellInfo.c, name);
   });
 
-  // Para cada columna, llenar los {{PAQUETE}} hacia abajo en esa misma columna
   headerCells.forEach((cellInfo, idx) => {
     const pkgs = columns[idx]?.paquetes || [];
-    // Escanear hacia abajo la misma columna y ubicar celdas {{PAQUETE}}
     const ref = ws["!ref"] || "A1";
     const rg = XLSX.utils.decode_range(ref);
     let k = 0;
@@ -229,7 +217,6 @@ function fillCajaTemplateSheet(ws, { numeroCaja, cantidadPaquetes, columns }){
     }
   });
 
-  // Limpiar placeholders restantes {{COURIER}} / {{PAQUETE}} que hayan quedado
   findCells(ws, v => v.includes("{{COURIER}}") || v.includes("{{PAQUETE}}"))
     .forEach(({r,c}) => writeCell(ws, r, c, ""));
 }
@@ -421,6 +408,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
   const buffer = await wb.xlsx.writeBuffer();
   downloadBufferAsXlsx(buffer, nombreArchivo);
 }
+
 /* ========== UI base ========== */
 const BTN = "px-3 py-2 rounded-xl border bg-white hover:bg-gray-50";
 const BTN_PRIMARY = "px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white";
@@ -485,11 +473,70 @@ function Modal({open,onClose,title,children}){
 /* ========== datos iniciales (listas) ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
+  "Aero Box", // agregado
   "Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos",
   "FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers",
   "MC Group","Miami Express","One Box","ParaguayBox","Royal Box"
 ];
 const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
+
+/* ---- Restricciones por prefijo de CASILLA y por CARGA ---- */
+/** Mapa de prefijos de casilla -> lista de couriers válidos.
+ *  Nota: algunos prefijos se repiten para distintos couriers (ej.: AB),
+ *  por eso devolvemos la UNIÓN de coincidencias.
+ *  Los nombres de courier aquí deben coincidir con los de COURIERS_INICIALES.
+ */
+const CASILLA_PREFIX_MAP = {
+  "Aero Box": ["ABH","ABC","AB","ABL","ABK","ACD"],
+  "Aladín": ["ALD"],
+  "Boss Box": ["BBC"],
+  "Buzón": ["BP","BA","BS","BE","BC","BJ","BK"],
+  "Caba Box": ["CABA","CB","PB"],
+  "Click Box": ["CLI","FM","CDE","MR","MRA","CBL","CDELB","CPO"],
+  "Easy Box": ["EF","EZ","EB","EBS","EBC"],
+  "Europa Envíos": ["EE"],
+  // En el sistema el nombre es "FastBox"
+  "FastBox": ["FPY"],
+  "Fixo Cargo": ["FCPY"],
+  "Fox Box": ["FAS"],
+  "Global Box": ["GB"],
+  "Home Box": ["HB","UNITED","UB","MYB"],
+  "Inflight Box": ["IN","IA","IE","IV"],
+  "Inter Couriers": ["IC"],
+  "MC Group": ["MC"],
+  "Miami Express": ["ME","ML"],
+  "One Box": ["OB","PGT"],
+  "ParaguayBox": ["AB","AS","AY","BE","CB","CC","CE","CH","CN","CZ","ER","FA","FI","GA","KA","LB","LQ","ML","NB","NW","PI","PJ","SG","SI","SL","SR","SV","TS","VM","TT"],
+  "Royal Box": ["1A","1B","1E","1G","1M","1P","1Z","2A","2B","2E","2M","2P","2Z","3E","3P","3Z","4C","4E","1C","1CB","2C","3C","5C","NB","PI"]
+};
+
+/** Dada una casilla y una lista de couriers disponibles, devuelve
+ *  las opciones válidas según prefijos. Si no hay match, [].
+ */
+function couriersFromCasilla(casilla, availCouriers){
+  const c = limpiar(casilla).toUpperCase();
+  if(!c) return [];
+  const hits = new Set();
+  Object.entries(CASILLA_PREFIX_MAP).forEach(([courier, prefixes])=>{
+    if(!availCouriers.includes(courier)) return;
+    for(const p of prefixes){
+      if(c.startsWith(p)) { hits.add(courier); break; }
+    }
+  });
+  return Array.from(hits);
+}
+
+/** Combina reglas: si la carga empieza con AIR-PYBOX => solo ParaguayBox.
+ *  Si no, filtra por prefijo de casilla. Si no hay match, devuelve todos.
+ */
+function allowedCouriersByContext({ casilla, flightCode, avail }){
+  const code = (flightCode||"").toUpperCase();
+  if(code.startsWith("AIR-PYBOX")){
+    return avail.includes("ParaguayBox") ? ["ParaguayBox"] : [];
+  }
+  const byCasilla = couriersFromCasilla(casilla, avail);
+  return byCasilla.length ? byCasilla : avail;
+}
 
 /* estados permitidos por código de carga — usa la lista dinámica de 'estados' */
 function estadosPermitidosPorCarga(codigo, estadosList){
@@ -696,8 +743,7 @@ function Usuarios({ currentUser, onCurrentUserChange }){
             </select>
           </Field>
           <Field label="Courier (si corresponde)">
-            {/* Se puede escribir libre o elegir uno de la lista base */}
-            <Input list="courierList" value={courierNew} onChange={e=>setCourierNew(e.target.value)} placeholder="Global Box / Buzón / ..." />
+            <Input list="courierList" value={courierNew} onChange={e=>setCourierNew(e.target.value)} placeholder="Aero Box / Global Box / ..." />
             <datalist id="courierList">
               {COURIERS_INICIALES.map(c=><option key={c} value={c} />)}
             </datalist>
@@ -778,7 +824,6 @@ function Usuarios({ currentUser, onCurrentUserChange }){
     </Section>
   );
 }
-
 /* ========== helpers listas sencillas ========== */
 function ManageList({label,items,setItems}){
   const [txt,setTxt]=useState("");
@@ -800,7 +845,8 @@ function ManageList({label,items,setItems}){
     </div>
   );
 }
-/* ========== Recepción (listas dinámicas + foto opcional) ========== */
+
+/* ========== Recepción (listas dinámicas + foto opcional + REGLAS NUEVAS) ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const [flightId,setFlightId]=useState("");
@@ -811,12 +857,12 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     empresa:"", nombre:"", tracking:"", remitente:"",
     peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
     desc:"", valor_txt:"",
-    foto:null // ahora OPCIONAL
+    foto:null // opcional
   });
 
-  // generar código correlativo por courier (prefijo sin acentos/espacios)
+  // Código correlativo por courier (prefijo sin acentos/espacios)
   useEffect(()=>{
-    if(!form.courier) return;
+    if(!form.courier) { setForm(f=>({...f, codigo:""})); return; }
     const key="seq_"+courierPrefix(form.courier);
     const next=(Number(localStorage.getItem(key))||0)+1;
     const n= next>999?1:next;
@@ -826,6 +872,29 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
   const codigoCargaSel = flights.find(f=>f.id===flightId)?.codigo || "";
   const estadosPermitidos = estadosPermitidosPorCarga(codigoCargaSel, estados);
+
+  // Limitar opciones de courier en función de CARGA y prefijo de CASILLA
+  const courierOptions = useMemo(()=>{
+    return allowedCouriersByContext({
+      casilla: form.casilla,
+      flightCode: codigoCargaSel,
+      avail: couriers
+    });
+  }, [form.casilla, codigoCargaSel, couriers]);
+
+  // Si la opción actual no es válida, o hay una sola válida, ajustar selección
+  useEffect(()=>{
+    if(!courierOptions.includes(form.courier)){
+      if(courierOptions.length===1){
+        setForm(f=>({...f, courier:courierOptions[0]}));
+      }else{
+        setForm(f=>({...f, courier:""}));
+      }
+    }
+    // eslint-disable-next-line
+  },[courierOptions.join("|")]);
+
+  // Forzar estado permitido si cambia la carga o los estados
   useEffect(()=>{
     if(form.estado && !estadosPermitidos.includes(form.estado)){
       setForm(f=>({...f, estado: estadosPermitidos[0] || ""}));
@@ -848,6 +917,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     if(!flightId){ alert("Seleccioná una Carga."); return; }
     if(!okCampos()){ alert("Faltan campos."); return; }
 
+    // Persistir secuencia por courier
     const key="seq_"+courierPrefix(form.courier);
     let cur=(Number(localStorage.getItem(key))||0)+1; if(cur>999) cur=1;
     localStorage.setItem(key,String(cur));
@@ -865,12 +935,27 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       peso_facturable: Number(fact.toFixed(3)), peso_volumetrico: Number(vol.toFixed(3)), exceso_volumen: Number(exc.toFixed(3)),
       foto: form.foto, estado_bodega: "En bodega",
     };
-    onAdd(p);
 
-    setFlightId("");
+    // Imprimir etiqueta AUTOMÁTICAMENTE al guardar
+    const medidas = `${L}x${A}x${H} cm`;
+    const html = labelHTML({
+      codigo: form.codigo,
+      nombre: form.nombre,
+      casilla: form.casilla,
+      pesoKg: peso,
+      medidasTxt: medidas,
+      desc: form.desc,
+      cargaTxt: fl?.codigo || "-"
+    });
+
+    onAdd(p);
+    printHTMLInIframe(html);
+
+    // Resetear TODOS los desplegables a "Seleccionar…" y limpiar formulario
+    setFlightId(""); // Carga
     setForm(f=>({
       ...f,
-      estado:"",
+      courier:"", estado:"",
       casilla:"", codigo:"",
       empresa:"", nombre:"", tracking:"", remitente:"",
       peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
@@ -898,21 +983,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     const ctx=canvas.getContext("2d"); ctx.drawImage(v,0,0);
     const data=canvas.toDataURL("image/jpeg",0.85);
     setForm(f=>({...f, foto:data})); setCamOpen(false);
-  };
-
-  const printLabel=()=>{
-    if(!(form.codigo && form.desc && form.casilla && form.nombre)){ alert("Completá Código, Casilla, Nombre y Descripción."); return; }
-    const medidas = `${L}x${A}x${H} cm`;
-    const html = labelHTML({
-      codigo: form.codigo,
-      nombre: form.nombre,
-      casilla: form.casilla,
-      pesoKg: peso,
-      medidasTxt: medidas,
-      desc: form.desc,
-      cargaTxt: flights.find(f=>f.id===flightId)?.codigo || "-"
-    });
-    printHTMLInIframe(html);
   };
 
   const fileRef = useRef(null);
@@ -950,23 +1020,35 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       )}
 
       <div className="grid md:grid-cols-3 gap-4">
+        {/* CARGA */}
         <Field label="Carga" required>
           <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Seleccionar…</option>
             {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
         </Field>
+
+        {/* CASILLA (ahora ANTES que Courier) */}
+        <Field label="Casilla" required>
+          <Input value={form.casilla} onChange={e=>setForm({...form,casilla:limpiar(e.target.value)})}/>
+        </Field>
+
+        {/* COURIER (limitado por Carga AIR-PYBOX y por prefijo de casilla) */}
         <Field label="Courier" required>
           <select
             className="w-full rounded-xl border px-3 py-2"
             value={form.courier}
             onChange={e=>setForm({...form,courier:e.target.value})}
-            disabled={currentUser.role==="COURIER"}
           >
             <option value="">Seleccionar…</option>
-            {couriers.map(c=><option key={c}>{c}</option>)}
+            {courierOptions.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
+          {codigoCargaSel.startsWith("AIR-PYBOX") && (
+            <div className="text-xs text-indigo-600 mt-1">Esta carga solo admite courier ParaguayBox.</div>
+          )}
         </Field>
+
+        {/* ESTADO (filtrado por tipo de carga) */}
         <Field label="Estado" required>
           <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
             <option value="">Seleccionar…</option>
@@ -974,11 +1056,14 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
           </select>
         </Field>
 
-        <Field label="Casilla" required><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})}/></Field>
+        {/* CÓDIGO (NO editable) */}
         <Field label="Código de paquete" required>
-          <Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} placeholder="BOSSBOX1"/>
+          <Input value={form.codigo} disabled placeholder="Se genera al elegir Courier"/>
         </Field>
-        <Field label="Fecha" required><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></Field>
+
+        <Field label="Fecha" required>
+          <Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/>
+        </Field>
 
         <Field label="Empresa de envío" required><Input value={form.empresa} onChange={e=>setForm({...form,empresa:e.target.value})}/></Field>
         <Field label="Nombre y apellido" required><Input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})}/></Field>
@@ -1011,8 +1096,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         <InfoBox title="Exceso de volumen" value={`${fmtPeso(exc)} kg`}/>
       </div>
 
-      <div className="flex justify-between mt-4">
-        <button onClick={printLabel} className={BTN}>Imprimir etiqueta</button>
+      <div className="flex justify-end mt-4">
+        {/* Se quita el botón "Imprimir etiqueta" – ahora se imprime al Guardar */}
         <button onClick={submit} className={BTN_PRIMARY}>Guardar paquete</button>
       </div>
 
@@ -1034,7 +1119,6 @@ const InfoBox=({title,value})=>(
     <div className="text-2xl font-semibold">{value}</div>
   </div>
 );
-
 /* ========== Paquetes sin casilla (con tracking + edición/borrado ADMIN, visibilidad por rol) ========== */
 function PaquetesSinCasilla({ currentUser, items, setItems }){
   const isAdmin = currentUser?.role === "ADMIN";
@@ -1227,6 +1311,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems }){
     </Section>
   );
 }
+
 /* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
 function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   const [q,setQ]=useState("");
@@ -1529,7 +1614,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     </Section>
   );
 }
-
 /* ========== Armado de cajas (peso de cartón al crear + Peso estimado + Export cajas.xlsx con una hoja por caja) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
@@ -1825,6 +1909,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     </Section>
   );
 }
+
 /* ========== Cargas enviadas (filtro + export XLSX) ========== */
 function CargasEnviadas({packages, flights, user}){
   const [from,setFrom]=useState("");
@@ -1950,7 +2035,6 @@ function CargasEnviadas({packages, flights, user}){
     </Section>
   );
 }
-
 /* ========== Gestión de cargas (crear/editar/eliminar con confirmación) ========== */
 function CargasAdmin({flights,setFlights, packages}){
   const [code,setCode]=useState("");

@@ -1,9 +1,12 @@
-/*  Europa Envíos – MVP auth + usuarios + mejoras + Pendientes
+/*  Europa Envíos – MVP auth + usuarios + mejoras + Pendientes + FIX pestañas en blanco
     - Nueva pestaña: Paquetes sin casilla (1..999 cíclico, filtros, buscador, XLSX)
     - Recepción: listas dinámicas (Gestionar listas) y foto opcional
     - Armado de cajas: peso de cartón al crear + Peso estimado + Export XLSX (plantilla cajas.xlsx con una hoja por caja)
-    - Cargas enviadas: Export XLSX
+    - Cargas enviadas: Export XLSX (FIX)
+    - Gestión de cargas: ABM de cargas + estado (FIX)
+    - Proformas: planilla ExcelJS (FIX)
     - Pendientes: movimientos a realizar en bodega (desde Sin casilla y cambios de carga desde Bodega)
+    - Extras: catálogo de cargos adicionales reutilizables (FIX)
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -476,7 +479,7 @@ function Modal({open,onClose,title,children}){
 /* ========== datos iniciales (listas) ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
-  "Aero Box", // agregado
+  "Aero Box",
   "Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos",
   "FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers",
   "MC Group","Miami Express","One Box","ParaguayBox","Royal Box"
@@ -484,11 +487,6 @@ const COURIERS_INICIALES = [
 const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
 
 /* ---- Restricciones por prefijo de CASILLA y por CARGA ---- */
-/** Mapa de prefijos de casilla -> lista de couriers válidos.
- *  Nota: algunos prefijos se repiten para distintos couriers (ej.: AB),
- *  por eso devolvemos la UNIÓN de coincidencias.
- *  Los nombres de courier aquí deben coincidir con los de COURIERS_INICIALES.
- */
 const CASILLA_PREFIX_MAP = {
   "Aero Box": ["ABH","ABC","AB","ABL","ABK","ACD"],
   "Aladín": ["ALD"],
@@ -498,7 +496,6 @@ const CASILLA_PREFIX_MAP = {
   "Click Box": ["CLI","FM","CDE","MR","MRA","CBL","CDELB","CPO"],
   "Easy Box": ["EF","EZ","EB","EBS","EBC"],
   "Europa Envíos": ["EE"],
-  // En el sistema el nombre es "FastBox"
   "FastBox": ["FPY"],
   "Fixo Cargo": ["FCPY"],
   "Fox Box": ["FAS"],
@@ -513,9 +510,7 @@ const CASILLA_PREFIX_MAP = {
   "Royal Box": ["1A","1B","1E","1G","1M","1P","1Z","2A","2B","2E","2M","2P","2Z","3E","3P","3Z","4C","4E","1C","1CB","2C","3C","5C","NB","PI"]
 };
 
-/** Dada una casilla y una lista de couriers disponibles, devuelve
- *  las opciones válidas según prefijos. Si no hay match, [].
- */
+/** Dada una casilla y una lista de couriers disponibles, devuelve las opciones válidas según prefijos. */
 function couriersFromCasilla(casilla, availCouriers){
   const c = limpiar(casilla).toUpperCase();
   if(!c) return [];
@@ -529,9 +524,7 @@ function couriersFromCasilla(casilla, availCouriers){
   return Array.from(hits);
 }
 
-/** Combina reglas: si la carga empieza con AIR-PYBOX => solo ParaguayBox.
- *  Si no, filtra por prefijo de casilla. Si no hay match, devuelve todos.
- */
+/** Combina reglas: si la carga empieza con AIR-PYBOX => solo ParaguayBox; si no, filtra por prefijo de casilla. */
 function allowedCouriersByContext({ casilla, flightCode, avail }){
   const code = (flightCode||"").toUpperCase();
   if(code.startsWith("AIR-PYBOX")){
@@ -549,6 +542,7 @@ function estadosPermitidosPorCarga(codigo, estadosList){
   if (s.startsWith("COMP")) return ["Ofrecer marítimo"];
   return estadosList && estadosList.length ? estadosList : ESTADOS_INICIALES;
 }
+
 /* ========== Login con contraseña (localStorage + SHA-256) ========== */
 function Login({onLogin}){
   const [users,setUsers] = useState(loadUsers());
@@ -826,6 +820,7 @@ function Usuarios({ currentUser, onCurrentUserChange }){
     </Section>
   );
 }
+
 /* ========== helpers listas sencillas ========== */
 function ManageList({label,items,setItems}){
   const [txt,setTxt]=useState("");
@@ -847,7 +842,6 @@ function ManageList({label,items,setItems}){
     </div>
   );
 }
-
 /* ========== Recepción (listas dinámicas + foto opcional + REGLAS NUEVAS) ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
@@ -2126,8 +2120,576 @@ function Pendientes({ pending, setPending, flights, packages }) {
     </Section>
   );
 }
+/* ========== Cargas enviadas (listado + export XLSX) ========== */
+function CargasEnviadas({ packages, flights, user }) {
+  const [flightId, setFlightId] = useState("");
+  const [q, setQ] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
 
-/* ========== App (con PENDIENTES integrado) ========== */
+  const flightsEnviadas = flights.filter(f => f.estado !== "En bodega");
+  const selectedFlight = flights.find(f => f.id === flightId) || null;
+
+  // helper: obtener caja donde está un paquete
+  const cajaDe = (pid) => {
+    const f = flights.find(x => x.id === flightId);
+    if (!f) return "";
+    const c = (f.cajas || []).find(cj => (cj.paquetes || []).includes(pid));
+    return c ? c.codigo : "";
+    };
+
+  const rows = packages
+    .filter(p => selectedFlight ? p.flight_id === flightId : flightsEnviadas.some(f => f.id === p.flight_id))
+    .filter(p => !from || (p.fecha || "") >= from)
+    .filter(p => !to   || (p.fecha || "") <= to)
+    .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()));
+
+  const totReal = sum(rows.map(p => Number(p.peso_real || 0)));
+  const totExc  = sum(rows.map(p => Number(p.exceso_volumen || 0)));
+  const totFact = sum(rows.map(p => Number(p.peso_facturable || 0)));
+
+  async function exportXLSX() {
+    const header = [
+      th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código"),
+      th("Fecha"), th("Nombre y apellido"), th("Tracking"),
+      th("Peso real"), th("Exceso de volumen"), th("Peso facturable"),
+      th("Caja"), th("Descripción")
+    ];
+    const body = rows.map(p => {
+      const carga = flights.find(f => f.id === p.flight_id)?.codigo || "";
+      return [
+        td(carga), td(p.courier), td(p.estado), td(p.casilla), td(p.codigo),
+        td(p.fecha), td(p.nombre_apellido || ""), td(p.tracking || ""),
+        td(fmtPeso(p.peso_real)), td(fmtPeso(p.exceso_volumen)), td(fmtPeso(p.peso_facturable)),
+        td(cajaDe(p.id)), td(p.descripcion || "")
+      ];
+    });
+
+    const { ws } = sheetFromAOAStyled("Cargas enviadas", [header, ...body], {
+      cols: [{wch:12},{wch:14},{wch:12},{wch:10},{wch:14},{wch:12},{wch:26},{wch:16},{wch:14},{wch:18},{wch:18},{wch:12},{wch:28}],
+      rows: [{hpt:24}]
+    });
+    downloadXLSX(`Cargas_enviadas_${selectedFlight ? selectedFlight.codigo : "todas"}.xlsx`, [{ name: "Cargas enviadas", ws }]);
+  }
+
+  return (
+    <Section
+      title="Cargas enviadas"
+      right={
+        <div className="grid md:grid-cols-5 gap-2 items-end">
+          <Field label="Carga">
+            <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e => setFlightId(e.target.value)}>
+              <option value="">Todas (En tránsito + Arribado)</option>
+              {flightsEnviadas.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
+            </select>
+          </Field>
+          <Field label="Desde">
+            <Input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+          </Field>
+          <Field label="Hasta">
+            <Input type="date" value={to} onChange={e => setTo(e.target.value)} />
+          </Field>
+          <div className="md:col-span-2">
+            <Input placeholder="Buscar…" value={q} onChange={e => setQ(e.target.value)} />
+          </div>
+        </div>
+      }
+    >
+      <div className="text-sm text-gray-700 mb-3">
+        <b>Paquetes:</b> {rows.length} — <b>Kg reales:</b> {fmtPeso(totReal)} — <b>Exceso:</b> {fmtPeso(totExc)} — <b>Facturable:</b> {fmtPeso(totFact)}
+      </div>
+
+      <div className="flex justify-end mb-3">
+        <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
+      </div>
+
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="text-left px-3 py-2">Carga</th>
+              <th className="text-left px-3 py-2">Código</th>
+              <th className="text-left px-3 py-2">Casilla</th>
+              <th className="text-left px-3 py-2">Nombre</th>
+              <th className="text-left px-3 py-2">Tracking</th>
+              <th className="text-left px-3 py-2">Peso real</th>
+              <th className="text-left px-3 py-2">Exceso</th>
+              <th className="text-left px-3 py-2">Facturable</th>
+              <th className="text-left px-3 py-2">Caja</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(p => {
+              const carga = flights.find(f => f.id === p.flight_id)?.codigo || "";
+              return (
+                <tr key={p.id} className="border-b">
+                  <td className="px-3 py-2">{carga}</td>
+                  <td className="px-3 py-2 font-mono">{p.codigo}</td>
+                  <td className="px-3 py-2">{p.casilla}</td>
+                  <td className="px-3 py-2">{p.nombre_apellido}</td>
+                  <td className="px-3 py-2 font-mono">{p.tracking}</td>
+                  <td className="px-3 py-2">{fmtPeso(p.peso_real)} kg</td>
+                  <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)} kg</td>
+                  <td className="px-3 py-2">{fmtPeso(p.peso_facturable)} kg</td>
+                  <td className="px-3 py-2">{cajaDe(p.id) || "—"}</td>
+                </tr>
+              );
+            })}
+            {rows.length===0 && <tr><td colSpan={9} className="text-center text-gray-500 py-6">Sin datos.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+/* ========== Gestión de cargas (crear/editar/eliminar) ========== */
+function CargasAdmin({ flights, setFlights, packages }) {
+  const [q, setQ] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [fecha, setFecha] = useState(new Date().toISOString().slice(0,10));
+  const [estado, setEstado] = useState("En bodega");
+
+  const [editId, setEditId] = useState(null);
+  const [rowEdit, setRowEdit] = useState({ codigo:"", fecha_salida:"", estado:"En bodega" });
+
+  const filtered = flights
+    .filter(f => (f.codigo + f.estado + (f.fecha_salida || "")).toLowerCase().includes(q.toLowerCase()))
+    .sort((a,b) => String(b.fecha_salida||"").localeCompare(String(a.fecha_salida||"")));
+
+  function add() {
+    if (!codigo.trim()) { alert("Ingresá el código de la carga."); return; }
+    if (flights.some(f => f.codigo.trim().toUpperCase() === codigo.trim().toUpperCase())) {
+      alert("Ya existe una carga con ese código."); return;
+    }
+    const f = { id: uuid(), codigo: codigo.trim(), fecha_salida: fecha, estado, cajas: [] };
+    setFlights([f, ...flights]);
+    setCodigo(""); setEstado("En bodega");
+  }
+  function startEdit(f) {
+    setEditId(f.id);
+    setRowEdit({ codigo: f.codigo, fecha_salida: f.fecha_salida, estado: f.estado });
+  }
+  function saveEdit() {
+    if (!editId) return;
+    setFlights(flights.map(f => f.id === editId ? { ...f, ...rowEdit } : f));
+    setEditId(null);
+  }
+  function remove(f) {
+    const usados = packages.some(p => p.flight_id === f.id);
+    if (usados) { alert("No se puede eliminar: hay paquetes asociados."); return; }
+    const ok = window.confirm(`¿Eliminar la carga ${f.codigo}?`);
+    if (!ok) return;
+    setFlights(flights.filter(x => x.id !== f.id));
+  }
+
+  return (
+    <Section
+      title="Gestión de cargas"
+      right={
+        <div className="flex items-end gap-2">
+          <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
+        </div>
+      }
+    >
+      <div className="bg-gray-50 rounded-xl p-3 mb-3">
+        <div className="font-medium mb-2">Crear carga</div>
+        <div className="grid md:grid-cols-4 gap-2">
+          <Field label="Código" required><Input value={codigo} onChange={e=>setCodigo(e.target.value)} placeholder="AIR-001 / MAR-001 / COMP-001" /></Field>
+          <Field label="Fecha de salida" required><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} /></Field>
+          <Field label="Estado" required>
+            <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
+              {ESTADOS_CARGA.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </Field>
+          <div className="flex items-end"><button className={BTN_PRIMARY} onClick={add}>Crear</button></div>
+        </div>
+      </div>
+
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="text-left px-3 py-2">Código</th>
+              <th className="text-left px-3 py-2">Fecha salida</th>
+              <th className="text-left px-3 py-2">Estado</th>
+              <th className="text-left px-3 py-2"># Paquetes</th>
+              <th className="text-left px-3 py-2">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(f => {
+              const nPkgs = packages.filter(p => p.flight_id === f.id).length;
+              const isEdit = editId === f.id;
+              return (
+                <tr key={f.id} className="border-b">
+                  <td className="px-3 py-2">
+                    {!isEdit ? f.codigo : <Input value={rowEdit.codigo} onChange={e=>setRowEdit({...rowEdit, codigo:e.target.value})}/>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {!isEdit ? f.fecha_salida : <Input type="date" value={rowEdit.fecha_salida} onChange={e=>setRowEdit({...rowEdit, fecha_salida:e.target.value})}/>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {!isEdit ? f.estado : (
+                      <select className="w-full rounded-xl border px-3 py-2" value={rowEdit.estado} onChange={e=>setRowEdit({...rowEdit, estado:e.target.value})}>
+                        {ESTADOS_CARGA.map(s => <option key={s}>{s}</option>)}
+                      </select>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">{nPkgs}</td>
+                  <td className="px-3 py-2">
+                    {!isEdit ? (
+                      <div className="flex gap-2">
+                        <button className="px-2 py-1 border rounded" onClick={()=>startEdit(f)}>Editar</button>
+                        <button className="px-2 py-1 border rounded text-red-600" onClick={()=>remove(f)}>Eliminar</button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={saveEdit}>Guardar</button>
+                        <button className="px-2 py-1 border rounded" onClick={()=>setEditId(null)}>Cancelar</button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length===0 && <tr><td colSpan={5} className="text-center text-gray-500 py-6">Sin cargas.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+/* ========== Proformas (cálculo + export usando plantilla ExcelJS, con fallback) ========== */
+function Proformas({ packages, flights, extras }) {
+  const [flightId, setFlightId] = useState("");
+  const [courier, setCourier] = useState("");
+  const [pu_proc, setPuProc] = useState("0,00");
+  const [pu_real, setPuReal] = useState("0,00");
+  const [pu_exc,  setPuExc ] = useState("0,00");
+  const [pu_desp, setPuDesp] = useState("0,00");
+  const [canje,   setCanje ] = useState("0,00");
+  const [logoUrl, setLogoUrl] = useState("/templates/logo.png");
+  const [tplUrl,  setTplUrl ] = useState("/templates/proforma.xlsx");
+
+  const selFlight = flights.find(f => f.id === flightId) || null;
+
+  const pkgs = packages
+    .filter(p => flightId ? p.flight_id === flightId : true)
+    .filter(p => courier ? p.courier === courier : true);
+
+  const kg_real = sum(pkgs.map(p => Number(p.peso_real || 0)));
+  const kg_exc  = sum(pkgs.map(p => Number(p.exceso_volumen || 0)));
+  const kg_fact = sum(pkgs.map(p => Number(p.peso_facturable || 0)));
+
+  const v_proc = parseComma(pu_proc);
+  const v_real = parseComma(pu_real);
+  const v_exc  = parseComma(pu_exc);
+  const v_desp = parseComma(pu_desp);
+  const v_canje= parseComma(canje);
+
+  const sub_proc = Number((kg_fact * v_proc).toFixed(2));
+  const sub_real = Number((kg_real * v_real).toFixed(2));
+  const sub_exc  = Number((kg_exc  * v_exc ).toFixed(2));
+  const sub_desp = Number((kg_fact * v_desp).toFixed(2));
+
+  // Extras para la selección actual (por carga y courier)
+  const extrasRows = extras
+    .filter(x => (!flightId || x.flight_id === flightId) && (!courier || x.courier === courier));
+
+  const totalExtras = sum(extrasRows.map(x => Number(x.monto || 0)));
+
+  const base = sub_proc + sub_real + sub_exc + sub_desp + v_canje + totalExtras;
+  const comision = Number((base * 0.04).toFixed(2));
+  const total = Number((base + comision).toFixed(2));
+
+  const detalleParaSheet = [
+    ["Procesamiento", kg_fact, v_proc, sub_proc],
+    ["Flete peso real", kg_real, v_real, sub_real],
+    ["Flete exceso de volumen", kg_exc, v_exc, sub_exc],
+    ["Servicio de despacho", kg_fact, v_desp, sub_desp],
+    ["Comisión por canje de guía", 1, v_canje, v_canje],
+    ...extrasRows.map(x => [x.descripcion, 1, Number(x.monto || 0), Number(x.monto || 0)]),
+    ["Comisión por transferencia (4%)", 1, comision, comision],
+  ];
+
+  async function exportar() {
+    const datosFactura = {
+      fechaCarga: selFlight?.fecha_salida || "",
+      courier: courier || "",
+      kg_fact, pu_proc: v_proc, sub_proc,
+      kg_real, pu_real: v_real, sub_real,
+      kg_exc,  pu_exc:  v_exc,  sub_exc,
+      pu_desp: v_desp,  sub_desp,
+      canje: v_canje,
+      extras: extrasRows.map(x => [x.descripcion, 1, Number(x.monto||0), Number(x.monto||0)]),
+      comision,
+      total,
+      detalleParaSheet
+    };
+
+    try {
+      await exportProformaExcelJS_usingTemplate({
+        plantillaUrl: tplUrl,
+        logoUrl,
+        nombreArchivo: `Proforma_${courier || "Todos"}_${selFlight ? selFlight.codigo : "Todas"}.xlsx`,
+        datosFactura
+      });
+    } catch (e) {
+      // Fallback simple si la plantilla no está disponible
+      const header = [th("Descripción"), th("Cantidad"), th("P. unitario"), th("Importe")];
+      const body = detalleParaSheet.map(r => [td(String(r[0])), td(String(r[1])), td(fmtMoney(r[2])), td(fmtMoney(r[3]))]);
+      const tot = [[td("Total"), td(""), td(""), td(fmtMoney(total))]];
+      const { ws } = sheetFromAOAStyled("Proforma", [header, ...body, ...tot], {
+        cols: [{wch:36},{wch:12},{wch:14},{wch:14}],
+        rows: [{hpt:24}]
+      });
+      downloadXLSX(`Proforma_${courier || "Todos"}_${selFlight ? selFlight.codigo : "Todas"}.xlsx`, [{ name:"Proforma", ws }]);
+    }
+  }
+
+  const couriersDisponibles = Array.from(new Set(packages
+    .filter(p => !flightId || p.flight_id === flightId)
+    .map(p => p.courier))).sort();
+
+  return (
+    <Section
+      title="Proformas"
+      right={
+        <div className="grid md:grid-cols-6 gap-2 items-end">
+          <Field label="Carga">
+            <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+              <option value="">— Todas —</option>
+              {flights.map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
+            </select>
+          </Field>
+          <Field label="Courier">
+            <select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}>
+              <option value="">— Todos —</option>
+              {couriersDisponibles.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label="Plantilla XLSX (URL)">
+            <Input value={tplUrl} onChange={e=>setTplUrl(e.target.value)} placeholder="/templates/proforma.xlsx" />
+          </Field>
+          <Field label="Logo (URL)">
+            <Input value={logoUrl} onChange={e=>setLogoUrl(e.target.value)} placeholder="/templates/logo.png" />
+          </Field>
+          <div className="md:col-span-2 flex items-end justify-end">
+            <button className={BTN_PRIMARY} onClick={exportar}>Exportar Proforma</button>
+          </div>
+        </div>
+      }
+    >
+      <div className="grid md:grid-cols-4 gap-3 mb-3">
+        <InfoBox title="Kg facturable" value={`${fmtPeso(kg_fact)} kg`} />
+        <InfoBox title="Kg reales" value={`${fmtPeso(kg_real)} kg`} />
+        <InfoBox title="Exceso de volumen" value={`${fmtPeso(kg_exc)} kg`} />
+        <InfoBox title="Total estimado" value={`€ ${fmtMoney(total)}`} />
+      </div>
+
+      <div className="grid md:grid-cols-4 gap-3">
+        <Field label="PU Procesamiento (€/kg)"><Input value={pu_proc} onChange={e=>setPuProc(e.target.value)} placeholder="0,00" /></Field>
+        <Field label="PU Flete real (€/kg)"><Input value={pu_real} onChange={e=>setPuReal(e.target.value)} placeholder="0,00" /></Field>
+        <Field label="PU Exceso volumen (€/kg)"><Input value={pu_exc} onChange={e=>setPuExc(e.target.value)} placeholder="0,00" /></Field>
+        <Field label="PU Despacho (€/kg)"><Input value={pu_desp} onChange={e=>setPuDesp(e.target.value)} placeholder="0,00" /></Field>
+        <Field label="Canje de guía (€)"><Input value={canje} onChange={e=>setCanje(e.target.value)} placeholder="0,00" /></Field>
+      </div>
+
+      <div className="bg-gray-50 rounded-xl p-3 mt-4">
+        <div className="font-medium mb-2">Extras incluidos</div>
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="text-left px-3 py-2">Fecha</th>
+                <th className="text-left px-3 py-2">Descripción</th>
+                <th className="text-left px-3 py-2">Courier</th>
+                <th className="text-left px-3 py-2">Carga</th>
+                <th className="text-left px-3 py-2">Importe</th>
+              </tr>
+            </thead>
+            <tbody>
+              {extrasRows.map(x => (
+                <tr key={x.id} className="border-b">
+                  <td className="px-3 py-2">{x.fecha || ""}</td>
+                  <td className="px-3 py-2">{x.descripcion || ""}</td>
+                  <td className="px-3 py-2">{x.courier || ""}</td>
+                  <td className="px-3 py-2">{flights.find(f=>f.id===x.flight_id)?.codigo || ""}</td>
+                  <td className="px-3 py-2">€ {fmtMoney(x.monto || 0)}</td>
+                </tr>
+              ))}
+              {extrasRows.length===0 && <tr><td colSpan={5} className="text-center text-gray-500 py-6">No hay extras en esta selección.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/* ========== Extras (ABM simple, asociados a carga y courier) ========== */
+function Extras({ flights, couriers, extras, setExtras }) {
+  const [flightId, setFlightId] = useState("");
+  const [courier, setCourier] = useState("");
+  const [q, setQ] = useState("");
+
+  const [fecha, setFecha] = useState(new Date().toISOString().slice(0,10));
+  const [desc, setDesc] = useState("");
+  const [monto, setMonto] = useState("0,00");
+
+  const [editId, setEditId] = useState(null);
+  const [rowEdit, setRowEdit] = useState({ fecha:"", descripcion:"", monto:"0,00", flight_id:"", courier:"" });
+
+  const filtered = extras
+    .filter(x => !flightId || x.flight_id === flightId)
+    .filter(x => !courier || x.courier === courier)
+    .filter(x => (x.descripcion + (x.fecha||"") + (x.courier||"")).toLowerCase().includes(q.toLowerCase()))
+    .sort((a,b) => String(b.fecha||"").localeCompare(String(a.fecha||"")));
+
+  function add() {
+    if (!desc.trim() || !monto) { alert("Completá descripción e importe."); return; }
+    const nx = { id: uuid(), fecha, descripcion: desc.trim(), monto: parseComma(monto), flight_id: flightId || "", courier: courier || "" };
+    setExtras([nx, ...extras]);
+    setDesc(""); setMonto("0,00");
+  }
+  function startEdit(x) {
+    setEditId(x.id);
+    setRowEdit({
+      fecha: x.fecha || "",
+      descripcion: x.descripcion || "",
+      monto: fmtMoney(x.monto || 0),
+      flight_id: x.flight_id || "",
+      courier: x.courier || ""
+    });
+  }
+  function saveEdit() {
+    setExtras(extras.map(x => x.id === editId ? {
+      ...x,
+      ...rowEdit,
+      monto: parseComma(rowEdit.monto)
+    } : x));
+    setEditId(null);
+  }
+  function remove(x) {
+    const ok = window.confirm("¿Eliminar este extra?");
+    if (!ok) return;
+    setExtras(extras.filter(e => e.id !== x.id));
+  }
+
+  return (
+    <Section
+      title="Extras"
+      right={
+        <div className="grid md:grid-cols-3 gap-2 items-end">
+          <Field label="Filtrar por carga">
+            <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+              <option value="">— Todas —</option>
+              {flights.map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
+            </select>
+          </Field>
+          <Field label="Filtrar por courier">
+            <select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}>
+              <option value="">— Todos —</option>
+              {couriers.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)} />
+        </div>
+      }
+    >
+      <div className="bg-gray-50 rounded-xl p-3 mb-3">
+        <div className="font-medium mb-2">Agregar extra</div>
+        <div className="grid md:grid-cols-5 gap-2">
+          <Field label="Fecha"><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} /></Field>
+          <Field label="Descripción"><Input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Servicio adicional…" /></Field>
+          <Field label="Importe (€)"><Input value={monto} onChange={e=>setMonto(e.target.value)} placeholder="0,00" /></Field>
+          <Field label="Carga">
+            <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+              <option value="">—</option>
+              {flights.map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
+            </select>
+          </Field>
+          <Field label="Courier">
+            <select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}>
+              <option value="">—</option>
+              {couriers.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </Field>
+        </div>
+        <div className="flex justify-end mt-2">
+          <button className={BTN_PRIMARY} onClick={add}>Agregar</button>
+        </div>
+      </div>
+
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-100">
+              <th className="text-left px-3 py-2">Fecha</th>
+              <th className="text-left px-3 py-2">Descripción</th>
+              <th className="text-left px-3 py-2">Courier</th>
+              <th className="text-left px-3 py-2">Carga</th>
+              <th className="text-left px-3 py-2">Importe (€)</th>
+              <th className="text-left px-3 py-2">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(x => {
+              const isEdit = editId === x.id;
+              return (
+                <tr key={x.id} className="border-b">
+                  <td className="px-3 py-2">
+                    {!isEdit ? (x.fecha || "") : <Input type="date" value={rowEdit.fecha} onChange={e=>setRowEdit({...rowEdit, fecha:e.target.value})}/>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {!isEdit ? (x.descripcion || "") : <Input value={rowEdit.descripcion} onChange={e=>setRowEdit({...rowEdit, descripcion:e.target.value})}/>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {!isEdit ? (x.courier || "") : (
+                      <select className="w-full rounded-xl border px-3 py-2" value={rowEdit.courier||""} onChange={e=>setRowEdit({...rowEdit, courier:e.target.value})}>
+                        <option value="">—</option>
+                        {couriers.map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {!isEdit ? (flights.find(f=>f.id===x.flight_id)?.codigo || "") : (
+                      <select className="w-full rounded-xl border px-3 py-2" value={rowEdit.flight_id||""} onChange={e=>setRowEdit({...rowEdit, flight_id:e.target.value})}>
+                        <option value="">—</option>
+                        {flights.map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
+                      </select>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {!isEdit ? `€ ${fmtMoney(x.monto || 0)}` : <Input value={rowEdit.monto} onChange={e=>setRowEdit({...rowEdit, monto:e.target.value})}/>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {!isEdit ? (
+                      <div className="flex gap-2">
+                        <button className="px-2 py-1 border rounded" onClick={()=>startEdit(x)}>Editar</button>
+                        <button className="px-2 py-1 border rounded text-red-600" onClick={()=>remove(x)}>Eliminar</button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={saveEdit}>Guardar</button>
+                        <button className="px-2 py-1 border rounded" onClick={()=>setEditId(null)}>Cancelar</button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length===0 && <tr><td colSpan={6} className="text-center text-gray-500 py-6">Sin extras.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+/* ========== App (tabs, estado global, integración Pendientes) ========== */
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
 
@@ -2143,53 +2705,24 @@ function App(){
   // Paquetes sin casilla (persistencia localStorage)
   const SINCASILLA_KEY = "ee_sincasilla_v1";
   const [sinCasillaItems, setSinCasillaItems] = useState([]);
-  useEffect(()=>{
-    try{
-      const raw = localStorage.getItem(SINCASILLA_KEY);
-      if(raw){
-        const arr = JSON.parse(raw);
-        if(Array.isArray(arr)) setSinCasillaItems(arr);
-      }
-    }catch{}
-  },[]);
-  useEffect(()=>{
-    try{
-      localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems));
-    }catch{}
-  },[sinCasillaItems]);
+  useEffect(()=>{ try{ const raw=localStorage.getItem(SINCASILLA_KEY); if(raw){ const arr=JSON.parse(raw); if(Array.isArray(arr)) setSinCasillaItems(arr); } }catch{} },[]);
+  useEffect(()=>{ try{ localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems)); }catch{} },[sinCasillaItems]);
 
   // PENDIENTES (persistencia localStorage)
   const PEND_KEY = "ee_pendientes_v1";
   const [pending, setPending] = useState([]);
-  useEffect(()=>{
-    try{
-      const raw = localStorage.getItem(PEND_KEY);
-      if(raw){
-        const arr = JSON.parse(raw);
-        if(Array.isArray(arr)) setPending(arr);
-      }
-    }catch{}
-  },[]);
-  useEffect(()=>{
-    try{ localStorage.setItem(PEND_KEY, JSON.stringify(pending)); }catch{}
-  },[pending]);
+  useEffect(()=>{ try{ const raw=localStorage.getItem(PEND_KEY); if(raw){ const arr=JSON.parse(raw); if(Array.isArray(arr)) setPending(arr); } }catch{} },[]);
+  useEffect(()=>{ try{ localStorage.setItem(PEND_KEY, JSON.stringify(pending)); }catch{} },[pending]);
 
-  // Mantener tabs permitidos por rol, asegurando que "Pendientes" esté presente
-  useEffect(()=>{
-    if(currentUser){
-      const base = tabsForRole(currentUser.role);
-      const allowed = Array.from(new Set([...base, "Pendientes"]));
-      if(!allowed.includes(tab)) setTab(allowed[0]);
-    }
-  },[currentUser]); // eslint-disable-line
+  // Tabs permitidos por rol (forzando que Pendientes exista)
+  useEffect(()=>{ if(currentUser){ const base=tabsForRole(currentUser.role); const allowed=Array.from(new Set([...base,"Pendientes"])); if(!allowed.includes(tab)) setTab(allowed[0]); } },[currentUser]); // eslint-disable-line
 
   if(!currentUser) return <Login onLogin={setCurrentUser} />;
 
   const allowedTabs = Array.from(new Set([...tabsForRole(currentUser.role), "Pendientes"]));
 
-  // === Callbacks de integración con Pendientes ===
-  // 1) Desde Sin casilla → crear pendiente ASIGNAR_CASILLA y eliminar del listado
-  function handleAssignFromSinCasilla({ id, fecha, numero, nombre, tracking, casilla_asignar }){
+  // Integración con Pendientes
+  function handleAssignFromSinCasilla({ id, fecha, numero, nombre, tracking, casilla }) {
     // quitar de sin casilla
     setSinCasillaItems(prev => prev.filter(r => r.id !== id));
     // crear pendiente
@@ -2200,27 +2733,21 @@ function App(){
         creado_en: new Date().toISOString(),
         fecha_original: fecha || new Date().toISOString().slice(0,10),
         numero, nombre, tracking,
-        casilla_asignar
+        casilla_asignar: casilla
       },
       ...prev
     ]);
-    // saltar a pestaña Pendientes para ver la tarea recién creada
     setTab("Pendientes");
   }
-
-  // Alias por si el componente usa otro nombre de prop
   const onAssignCasilla = (payload) => handleAssignFromSinCasilla(payload);
   const onAssignToPendings = (payload) => handleAssignFromSinCasilla(payload);
 
-  // 2) Desde Bodega → crear pendiente CAMBIO_CARGA cuando cambie de vuelo
   function onCreatePending(payload){
-    // payload viene desde PaquetesBodega ya con campos listos
     setPending(prev => [{ ...payload, creado_en: payload.creado_en || new Date().toISOString() }, ...prev]);
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* header simple */}
       <div className="px-6 py-4 flex items-center justify-between">
         <div>
           <div className="text-lg font-semibold">Gestor de Paquetes</div>
@@ -2234,11 +2761,7 @@ function App(){
       <div className="px-6">
         <div className="flex gap-2 flex-wrap mb-4">
           {allowedTabs.map(t=>(
-            <button
-              key={t}
-              onClick={()=>setTab(t)}
-              className={"px-3 py-2 rounded-xl text-sm " + (tab===t ? "bg-indigo-600 text-white" : "bg-white border")}
-            >
+            <button key={t} onClick={()=>setTab(t)} className={"px-3 py-2 rounded-xl text-sm " + (tab===t ? "bg-indigo-600 text-white" : "bg-white border")}>
               {t}
             </button>
           ))}
@@ -2259,7 +2782,6 @@ function App(){
             currentUser={currentUser}
             items={sinCasillaItems}
             setItems={setSinCasillaItems}
-            // nuevos props (el componente puede usar cualquiera de los dos)
             onAssignCasilla={onAssignCasilla}
             onAssignToPendings={onAssignToPendings}
           />
@@ -2272,7 +2794,6 @@ function App(){
             user={currentUser}
             onUpdate={(p)=>setPackages(packages.map(x=>x.id===p.id?p:x))}
             onDelete={(id)=>setPackages(packages.filter(p=>p.id!==id))}
-            // para crear pendiente de cambio de carga
             onCreatePending={onCreatePending}
           />
         )}

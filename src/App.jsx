@@ -1,4 +1,7 @@
-/*  Europa Envíos – MVP auth + usuarios + mejoras
+/* Europa Envíos – MVP auth + usuarios + mejoras
+    - Nueva pestaña: Pendientes (para tareas de bodega)
+    - Sin casilla: Botón para asignar casilla y enviar a Pendientes
+    - Paquetes en bodega: Editar carga envía a Pendientes + Gráfico sin ceros
     - Nueva pestaña: Paquetes sin casilla (1..999 cíclico, filtros, buscador, XLSX)
     - Recepción: listas dinámicas (Gestionar listas) y foto opcional
     - Armado de cajas: peso de cartón al crear + Peso estimado + Export XLSX (plantilla cajas.xlsx con una hoja por caja)
@@ -60,7 +63,7 @@ function courierPrefix(name){ return limpiar(name || ""); }
 /** tabs por rol (incluye Paquetes sin casilla para COURIER con permisos de solo lectura) */
 function tabsForRole(role){
   if(role==="COURIER") return ["Paquetes sin casilla","Paquetes en bodega","Cargas enviadas"];
-  return ["Recepción","Paquetes sin casilla","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
+  return ["Recepción","Paquetes sin casilla","Pendientes","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
 }
 
 /* ========== impresión sin about:blank ========== */
@@ -482,9 +485,9 @@ const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
 
 /* ---- Restricciones por prefijo de CASILLA y por CARGA ---- */
 /** Mapa de prefijos de casilla -> lista de couriers válidos.
- *  Nota: algunos prefijos se repiten para distintos couriers (ej.: AB),
- *  por eso devolvemos la UNIÓN de coincidencias.
- *  Los nombres de courier aquí deben coincidir con los de COURIERS_INICIALES.
+ * Nota: algunos prefijos se repiten para distintos couriers (ej.: AB),
+ * por eso devolvemos la UNIÓN de coincidencias.
+ * Los nombres de courier aquí deben coincidir con los de COURIERS_INICIALES.
  */
 const CASILLA_PREFIX_MAP = {
   "Aero Box": ["ABH","ABC","AB","ABL","ABK","ACD"],
@@ -511,7 +514,7 @@ const CASILLA_PREFIX_MAP = {
 };
 
 /** Dada una casilla y una lista de couriers disponibles, devuelve
- *  las opciones válidas según prefijos. Si no hay match, [].
+ * las opciones válidas según prefijos. Si no hay match, [].
  */
 function couriersFromCasilla(casilla, availCouriers){
   const c = limpiar(casilla).toUpperCase();
@@ -527,7 +530,7 @@ function couriersFromCasilla(casilla, availCouriers){
 }
 
 /** Combina reglas: si la carga empieza con AIR-PYBOX => solo ParaguayBox.
- *  Si no, filtra por prefijo de casilla. Si no hay match, devuelve todos.
+ * Si no, filtra por prefijo de casilla. Si no hay match, devuelve todos.
  */
 function allowedCouriersByContext({ casilla, flightCode, avail }){
   const code = (flightCode||"").toUpperCase();
@@ -1120,7 +1123,7 @@ const InfoBox=({title,value})=>(
   </div>
 );
 /* ========== Paquetes sin casilla (con tracking + edición/borrado ADMIN, visibilidad por rol) ========== */
-function PaquetesSinCasilla({ currentUser, items, setItems }){
+function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
   const isAdmin = currentUser?.role === "ADMIN";
 
   const [q,setQ] = useState("");
@@ -1153,6 +1156,26 @@ function PaquetesSinCasilla({ currentUser, items, setItems }){
     setItems([ ...items, row ]);
     setNombre(""); setTracking("");
   }
+
+  const handleAsignarCasilla = (paquete) => {
+    if(!isAdmin) return;
+    const casilla = window.prompt(`Asignar casilla para el paquete Nº ${paquete.numero} (${paquete.nombre}):`);
+    if (casilla && casilla.trim()) {
+      const nuevaTarea = {
+        id: uuid(),
+        type: "ASIGNAR_CASILLA",
+        fecha: new Date().toISOString().slice(0,10),
+        data: {
+          numero: paquete.numero,
+          nombre: paquete.nombre,
+          tracking: paquete.tracking,
+          casilla: casilla.trim().toUpperCase(),
+        }
+      };
+      setPendientes(prev => [nuevaTarea, ...prev]);
+      setItems(prev => prev.filter(p => p.id !== paquete.id));
+    }
+  };
 
   const filtered = useMemo(()=>{
     const arr = items
@@ -1295,6 +1318,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems }){
                     {isAdmin && (
                       <td className="px-3 py-2">
                         <div className="flex gap-2">
+                          <button className="px-2 py-1 border rounded bg-green-600 text-white" onClick={()=>handleAsignarCasilla(r)}>Asignar casilla</button>
                           <button className="px-2 py-1 border rounded" onClick={()=>startEdit(r)}>Editar</button>
                           <button className="px-2 py-1 border rounded text-red-600" onClick={()=>removeRow(r)}>Eliminar</button>
                         </div>
@@ -1311,9 +1335,133 @@ function PaquetesSinCasilla({ currentUser, items, setItems }){
     </Section>
   );
 }
+/* ========== NUEVA Pestaña de Pendientes ========== */
+function Pendientes({ items, setItems, flights }) {
+  const [editId, setEditId] = useState(null);
+  const [editData, setEditData] = useState(null);
+
+  const startEdit = (item) => {
+    setEditId(item.id);
+    setEditData(item.data);
+  };
+
+  const saveEdit = () => {
+    setItems(prev => prev.map(item =>
+      item.id === editId ? { ...item, data: editData } : item
+    ));
+    setEditId(null);
+    setEditData(null);
+  };
+
+  const cancelEdit = () => {
+    setEditId(null);
+    setEditData(null);
+  };
+
+  const markAsDone = (id) => {
+    const ok = window.confirm("¿Marcar esta tarea como realizada? Se eliminará de la lista.");
+    if (ok) {
+      setItems(prev => prev.filter(item => item.id !== id));
+    }
+  };
+
+  const deleteTask = (id) => {
+    const ok = window.confirm("¿Seguro que quieres eliminar esta tarea pendiente?");
+    if (ok) {
+      setItems(prev => prev.filter(item => item.id !== id));
+    }
+  };
+
+  const renderTaskDetails = (item) => {
+    const { type, data } = item;
+
+    if (editId === item.id) {
+      switch (type) {
+        case 'ASIGNAR_CASILLA':
+          return (
+            <>
+              <td className="px-3 py-2"><Input value={editData.numero} onChange={e => setEditData(d => ({ ...d, numero: e.target.value }))} /></td>
+              <td className="px-3 py-2"><Input value={editData.nombre} onChange={e => setEditData(d => ({ ...d, nombre: e.target.value }))} /></td>
+              <td className="px-3 py-2"><Input value={editData.casilla} onChange={e => setEditData(d => ({ ...d, casilla: e.target.value.toUpperCase() }))} /></td>
+            </>
+          );
+        case 'CAMBIO_CARGA':
+          return (
+            <>
+              <td className="px-3 py-2"><Input value={editData.codigo} onChange={e => setEditData(d => ({ ...d, codigo: e.target.value }))} /></td>
+              <td className="px-3 py-2"><Input value={editData.oldFlight} onChange={e => setEditData(d => ({ ...d, oldFlight: e.target.value }))} /></td>
+              <td className="px-3 py-2"><Input value={editData.newFlight} onChange={e => setEditData(d => ({ ...d, newFlight: e.target.value }))} /></td>
+            </>
+          );
+        default: return <td colSpan="3">Tipo de tarea desconocido</td>;
+      }
+    }
+
+    switch (type) {
+      case 'ASIGNAR_CASILLA':
+        return (
+          <td colSpan="3" className="px-3 py-2">
+            Mover paquete <b>Nº {data.numero}</b> ({data.nombre}) a la casilla <b>{data.casilla}</b>.
+          </td>
+        );
+      case 'CAMBIO_CARGA':
+        return (
+          <td colSpan="3" className="px-3 py-2">
+            Cambiar paquete <b>{data.codigo}</b> de la carga <s>{data.oldFlight}</s> a la carga <b>{data.newFlight}</b>.
+          </td>
+        );
+      default:
+        return <td colSpan="3" className="px-3 py-2">Tarea desconocida.</td>;
+    }
+  };
+
+
+  return (
+    <Section title="Tareas Pendientes en Bodega">
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="text-left px-3 py-2 w-1/5">Fecha</th>
+              <th className="text-left px-3 py-2 w-1/5">Tipo de Tarea</th>
+              <th className="text-left px-3 py-2" colSpan="3">Detalles</th>
+              <th className="text-left px-3 py-2 w-1/4">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(item => (
+              <tr key={item.id} className="border-b">
+                <td className="px-3 py-2">{item.fecha}</td>
+                <td className="px-3 py-2">{item.type === 'ASIGNAR_CASILLA' ? 'Asignar Casilla' : 'Cambio de Carga'}</td>
+                {renderTaskDetails(item)}
+                <td className="px-3 py-2">
+                  {editId === item.id ? (
+                    <div className="flex gap-2">
+                      <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={saveEdit}>Guardar</button>
+                      <button className="px-2 py-1 border rounded" onClick={cancelEdit}>Cancelar</button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2 flex-wrap">
+                      <button className="px-2 py-1 border rounded bg-green-600 text-white" onClick={() => markAsDone(item.id)}>Realizado</button>
+                      <button className="px-2 py-1 border rounded" onClick={() => startEdit(item)}>Editar</button>
+                      <button className="px-2 py-1 border rounded text-red-600" onClick={() => deleteTask(item.id)}>Eliminar</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {items.length === 0 && (
+              <tr><td colSpan="6" className="text-center text-gray-500 py-6">No hay tareas pendientes.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
 
 /* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
-function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
+function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendientes}){
   const [q,setQ]=useState("");
   const [flightId,setFlightId]=useState("");
   const [dateFrom,setDateFrom]=useState("");
@@ -1398,6 +1546,23 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
     setOpen(true);
   };
   const save=()=>{
+    const originalPackage = packages.find(p => p.id === form.id);
+    if (originalPackage && originalPackage.flight_id !== form.flight_id) {
+        const oldFlight = flights.find(f => f.id === originalPackage.flight_id);
+        const newFlight = flights.find(f => f.id === form.flight_id);
+        const tarea = {
+            id: uuid(),
+            type: "CAMBIO_CARGA",
+            fecha: new Date().toISOString().slice(0, 10),
+            data: {
+                codigo: form.codigo,
+                oldFlight: oldFlight?.codigo || 'N/A',
+                newFlight: newFlight?.codigo || 'N/A',
+            }
+        };
+        setPendientes(prev => [tarea, ...prev]);
+    }
+
     const peso = parseComma(form.peso_real_txt);
     const L = parseIntEU(form.L_txt), A = parseIntEU(form.A_txt), H = parseIntEU(form.H_txt);
     const fact = Math.max(MIN_FACTURABLE, peso||0);
@@ -1530,7 +1695,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
           const aggReal = {}; const aggExc = {};
           rows.forEach(p=>{ aggReal[p.courier]=(aggReal[p.courier]||0)+p.peso_real; aggExc[p.courier]=(aggExc[p.courier]||0)+p.exceso_volumen; });
           const dataReal = Object.entries(aggReal).map(([courier,kg_real])=>({courier,kg_real}));
-          const dataExc  = Object.entries(aggExc).map(([courier,kg_exceso])=>({courier,kg_exceso}));
+          const dataExc  = Object.entries(aggExc).filter(([, kg]) => kg > 0).map(([courier,kg_exceso])=>({courier,kg_exceso}));
           const totalReal = sum(dataReal.map(d=>d.kg_real));
           const totalExc = sum(dataExc.map(d=>d.kg_exceso));
           return (
@@ -1811,7 +1976,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
       const est = fmtPeso(pesoEstimado(c));
       const pkgs = (c.paquetes||[]).map(pid=>packages.find(p=>p.id===pid)?.codigo).filter(Boolean).join(", ");
       return [ td(c.codigo), td(fmtPeso(parseComma(c.peso||"0"))), td(fmtPeso(parseComma(c.peso_carton||"0"))), td(est),
-               td(String(c.L||"")), td(String(c.A||"")), td(String(c.H||"")), td(pkgs) ];
+              td(String(c.L||"")), td(String(c.A||"")), td(String(c.H||"")), td(pkgs) ];
     });
     const { ws } = sheetFromAOAStyled(`Cajas_${flight.codigo}`, [header, ...body], {
       cols:[{wch:12},{wch:16},{wch:16},{wch:18},{wch:10},{wch:10},{wch:10},{wch:40}],
@@ -2354,6 +2519,24 @@ function App(){
     }catch{}
   },[sinCasillaItems]);
 
+  // NUEVO: Tareas pendientes (persistencia localStorage)
+  const PENDIENTES_KEY = "ee_pendientes_v1";
+  const [pendientes, setPendientes] = useState([]);
+  useEffect(()=>{
+    try{
+      const raw = localStorage.getItem(PENDIENTES_KEY);
+      if(raw){
+        const arr = JSON.parse(raw);
+        if(Array.isArray(arr)) setPendientes(arr);
+      }
+    }catch{}
+  },[]);
+  useEffect(()=>{
+    try{
+      localStorage.setItem(PENDIENTES_KEY, JSON.stringify(pendientes));
+    }catch{}
+  },[pendientes]);
+
   useEffect(()=>{
     if(currentUser){
       const allowed = tabsForRole(currentUser.role);
@@ -2406,7 +2589,16 @@ function App(){
             currentUser={currentUser}
             items={sinCasillaItems}
             setItems={setSinCasillaItems}
+            setPendientes={setPendientes}
           />
+        )}
+
+        {tab==="Pendientes" && (
+            <Pendientes
+                items={pendientes}
+                setItems={setPendientes}
+                flights={flights}
+            />
         )}
 
         {tab==="Paquetes en bodega" && (
@@ -2416,6 +2608,7 @@ function App(){
             user={currentUser}
             onUpdate={(p)=>setPackages(packages.map(x=>x.id===p.id?p:x))}
             onDelete={(id)=>setPackages(packages.filter(p=>p.id!==id))}
+            setPendientes={setPendientes}
           />
         )}
 

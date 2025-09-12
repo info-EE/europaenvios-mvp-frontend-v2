@@ -2470,6 +2470,6 @@ function App(){
       </div>
     </div>
   );
-}d
+}
 
 export default App;

@@ -1,12 +1,8 @@
-/*  Europa Envíos – MVP auth + usuarios + mejoras + Pendientes + FIX pestañas en blanco
+/*  Europa Envíos – MVP auth + usuarios + mejoras
     - Nueva pestaña: Paquetes sin casilla (1..999 cíclico, filtros, buscador, XLSX)
     - Recepción: listas dinámicas (Gestionar listas) y foto opcional
     - Armado de cajas: peso de cartón al crear + Peso estimado + Export XLSX (plantilla cajas.xlsx con una hoja por caja)
-    - Cargas enviadas: Export XLSX (FIX)
-    - Gestión de cargas: ABM de cargas + estado (FIX)
-    - Proformas: planilla ExcelJS (FIX)
-    - Pendientes: movimientos a realizar en bodega (desde Sin casilla y cambios de carga desde Bodega)
-    - Extras: catálogo de cargos adicionales reutilizables (FIX)
+    - Cargas enviadas: Export XLSX
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -61,12 +57,10 @@ function saveUsers(users){
 /** prefijo permitido para códigos de un courier (ej.: "GLOBAL BOX" -> "GLOBALBOX") */
 function courierPrefix(name){ return limpiar(name || ""); }
 
-/** tabs por rol (incluye Paquetes sin casilla para COURIER con permisos de solo lectura)
- *  y agrega la nueva pestaña Pendientes para ADMIN.
- */
+/** tabs por rol (incluye Paquetes sin casilla para COURIER con permisos de solo lectura) */
 function tabsForRole(role){
   if(role==="COURIER") return ["Paquetes sin casilla","Paquetes en bodega","Cargas enviadas"];
-  return ["Recepción","Paquetes sin casilla","Paquetes en bodega","Pendientes","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
+  return ["Recepción","Paquetes sin casilla","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
 }
 
 /* ========== impresión sin about:blank ========== */
@@ -267,8 +261,8 @@ function downloadBufferAsXlsx(buf, filename){
 function replacePlaceholdersExcelJS(ws, map){
   const maxR = Math.min(ws.rowCount || 200, 200);
   const maxC = Math.min(ws.columnCount || 30, 30);
-  for(let r=1; r<=maxR; r++){
-    for(let c=1; c<=maxC; c++){
+  for(let r=1;r<=maxR;r++){
+    for(let c=1;c<=maxC;c++){
       const cell = ws.getCell(r,c);
       const v = cell.value;
       let txt;
@@ -479,7 +473,7 @@ function Modal({open,onClose,title,children}){
 /* ========== datos iniciales (listas) ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
-  "Aero Box",
+  "Aero Box", // agregado
   "Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos",
   "FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers",
   "MC Group","Miami Express","One Box","ParaguayBox","Royal Box"
@@ -487,6 +481,11 @@ const COURIERS_INICIALES = [
 const ESTADOS_CARGA = ["En bodega","En tránsito","Arribado"];
 
 /* ---- Restricciones por prefijo de CASILLA y por CARGA ---- */
+/** Mapa de prefijos de casilla -> lista de couriers válidos.
+ *  Nota: algunos prefijos se repiten para distintos couriers (ej.: AB),
+ *  por eso devolvemos la UNIÓN de coincidencias.
+ *  Los nombres de courier aquí deben coincidir con los de COURIERS_INICIALES.
+ */
 const CASILLA_PREFIX_MAP = {
   "Aero Box": ["ABH","ABC","AB","ABL","ABK","ACD"],
   "Aladín": ["ALD"],
@@ -496,6 +495,7 @@ const CASILLA_PREFIX_MAP = {
   "Click Box": ["CLI","FM","CDE","MR","MRA","CBL","CDELB","CPO"],
   "Easy Box": ["EF","EZ","EB","EBS","EBC"],
   "Europa Envíos": ["EE"],
+  // En el sistema el nombre es "FastBox"
   "FastBox": ["FPY"],
   "Fixo Cargo": ["FCPY"],
   "Fox Box": ["FAS"],
@@ -510,7 +510,9 @@ const CASILLA_PREFIX_MAP = {
   "Royal Box": ["1A","1B","1E","1G","1M","1P","1Z","2A","2B","2E","2M","2P","2Z","3E","3P","3Z","4C","4E","1C","1CB","2C","3C","5C","NB","PI"]
 };
 
-/** Dada una casilla y una lista de couriers disponibles, devuelve las opciones válidas según prefijos. */
+/** Dada una casilla y una lista de couriers disponibles, devuelve
+ *  las opciones válidas según prefijos. Si no hay match, [].
+ */
 function couriersFromCasilla(casilla, availCouriers){
   const c = limpiar(casilla).toUpperCase();
   if(!c) return [];
@@ -524,7 +526,9 @@ function couriersFromCasilla(casilla, availCouriers){
   return Array.from(hits);
 }
 
-/** Combina reglas: si la carga empieza con AIR-PYBOX => solo ParaguayBox; si no, filtra por prefijo de casilla. */
+/** Combina reglas: si la carga empieza con AIR-PYBOX => solo ParaguayBox.
+ *  Si no, filtra por prefijo de casilla. Si no hay match, devuelve todos.
+ */
 function allowedCouriersByContext({ casilla, flightCode, avail }){
   const code = (flightCode||"").toUpperCase();
   if(code.startsWith("AIR-PYBOX")){
@@ -820,7 +824,6 @@ function Usuarios({ currentUser, onCurrentUserChange }){
     </Section>
   );
 }
-
 /* ========== helpers listas sencillas ========== */
 function ManageList({label,items,setItems}){
   const [txt,setTxt]=useState("");
@@ -842,6 +845,7 @@ function ManageList({label,items,setItems}){
     </div>
   );
 }
+
 /* ========== Recepción (listas dinámicas + foto opcional + REGLAS NUEVAS) ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
@@ -862,7 +866,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     const key="seq_"+courierPrefix(form.courier);
     const next=(Number(localStorage.getItem(key))||0)+1;
     const n= next>999?1:next;
-    setForm(f=>({...f, codigo: `${courierPrefix(form.courier)}${n}`})); // eslint-disable-next-line
+    setForm(f=>({...f, codigo: `${courierPrefix(form.courier)}${n}`}));
+    // eslint-disable-next-line
   },[form.courier]);
 
   const codigoCargaSel = flights.find(f=>f.id===flightId)?.codigo || "";
@@ -885,14 +890,16 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       }else{
         setForm(f=>({...f, courier:""}));
       }
-    } // eslint-disable-next-line
+    }
+    // eslint-disable-next-line
   },[courierOptions.join("|")]);
 
   // Forzar estado permitido si cambia la carga o los estados
   useEffect(()=>{
     if(form.estado && !estadosPermitidos.includes(form.estado)){
       setForm(f=>({...f, estado: estadosPermitidos[0] || ""}));
-    } // eslint-disable-next-line
+    }
+    // eslint-disable-next-line
   },[flightId, estados]);
 
   const peso = parseComma(form.peso_real_txt);
@@ -1112,9 +1119,8 @@ const InfoBox=({title,value})=>(
     <div className="text-2xl font-semibold">{value}</div>
   </div>
 );
-
-/* ========== Paquetes sin casilla (ahora con botón ASIGNAR CASILLA -> Pendientes) ========== */
-function PaquetesSinCasilla({ currentUser, items, setItems, onAssignCasilla }){
+/* ========== Paquetes sin casilla (con tracking + edición/borrado ADMIN, visibilidad por rol) ========== */
+function PaquetesSinCasilla({ currentUser, items, setItems }){
   const isAdmin = currentUser?.role === "ADMIN";
 
   const [q,setQ] = useState("");
@@ -1179,29 +1185,6 @@ function PaquetesSinCasilla({ currentUser, items, setItems, onAssignCasilla }){
     const ok = window.confirm(`¿Eliminar el paquete Nº ${r.numero}?`);
     if(!ok) return;
     setItems(items.filter(x=>x.id!==r.id));
-  }
-
-  // === NUEVO: Asignar casilla -> crea tarea en "Pendientes" y elimina de esta lista ===
-  function doAssignCasilla(r){
-    const cas = window.prompt(`Ingresá la casilla para el Nº ${r.numero} (${r.nombre})`, "");
-    if(!cas || !cas.trim()) return;
-    try{
-      onAssignCasilla?.({
-        id: uuid(),
-        tipo: "ASIGNAR_CASILLA",
-        creado_en: new Date().toISOString(),
-        // datos relevantes para la tarea de bodega:
-        fecha: r.fecha || new Date().toISOString().slice(0,10),
-        numero: r.numero,
-        nombre: r.nombre || "",
-        tracking: r.tracking || "",
-        casilla: limpiar(cas)
-      });
-      // quitarlo de esta lista
-      setItems(items.filter(x=>x.id!==r.id));
-    }catch(e){
-      alert("No se pudo crear la tarea de Pendientes.");
-    }
   }
 
   function exportXLSX(){
@@ -1281,8 +1264,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems, onAssignCasilla }){
               <th className="text-left px-3 py-2">Fecha recepción</th>
               <th className="text-left px-3 py-2">Nº paquete</th>
               <th className="text-left px-3 py-2">Nombre y apellido</th>
-              {!isAdmin ? null : <th className="text-left px-3 py-2">Tracking</th>}
-              <th className="text-left px-3 py-2">Asignar casilla</th>
+              {isAdmin && <th className="text-left px-3 py-2">Tracking</th>}
               {isAdmin && <th className="text-left px-3 py-2">Acciones</th>}
             </tr>
           </thead>
@@ -1295,9 +1277,6 @@ function PaquetesSinCasilla({ currentUser, items, setItems, onAssignCasilla }){
                     <td className="px-3 py-2">{r.numero}</td>
                     <td className="px-3 py-2"><Input value={editRow.nombre} onChange={e=>setEditRow({...editRow,nombre:e.target.value})}/></td>
                     {isAdmin && <td className="px-3 py-2"><Input value={editRow.tracking} onChange={e=>setEditRow({...editRow,tracking:e.target.value})}/></td>}
-                    <td className="px-3 py-2">
-                      <button className="px-2 py-1 border rounded" onClick={()=>doAssignCasilla(r)}>Asignar</button>
-                    </td>
                     {isAdmin && (
                       <td className="px-3 py-2">
                         <div className="flex gap-2">
@@ -1312,10 +1291,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems, onAssignCasilla }){
                     <td className="px-3 py-2">{r.fecha||""}</td>
                     <td className="px-3 py-2">{r.numero}</td>
                     <td className="px-3 py-2">{r.nombre||""}</td>
-                    {isAdmin && <td className="px-3 py-2 font-mono">{r.tracking||"—"}</td>}
-                    <td className="px-3 py-2">
-                      <button className="px-2 py-1 border rounded" onClick={()=>doAssignCasilla(r)}>Asignar</button>
-                    </td>
+                    {isAdmin && <td className="px-3 py-2">{r.tracking||"—"}</td>}
                     {isAdmin && (
                       <td className="px-3 py-2">
                         <div className="flex gap-2">
@@ -1328,15 +1304,16 @@ function PaquetesSinCasilla({ currentUser, items, setItems, onAssignCasilla }){
                 )}
               </tr>
             ))}
-            {filtered.length===0 && <tr><td colSpan={isAdmin?6:4} className="text-center text-gray-500 py-6">Sin datos.</td></tr>}
+            {filtered.length===0 && <tr><td colSpan={isAdmin?5:3} className="text-center text-gray-500 py-6">Sin datos.</td></tr>}
           </tbody>
         </table>
       </div>
     </Section>
   );
 }
+
 /* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
-function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onCreatePending}){
+function PaquetesBodega({packages, flights, user, onUpdate, onDelete}){
   const [q,setQ]=useState("");
   const [flightId,setFlightId]=useState("");
   const [dateFrom,setDateFrom]=useState("");
@@ -1414,8 +1391,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onCreatePe
   const start=(p)=>{
     setForm({
       ...p,
-      // guardamos ID original para detectar cambio de carga y crear PENDIENTE
-      orig_flight_id: p.flight_id,
       peso_real_txt: fmtPeso(p.peso_real),
       L_txt: String(p.largo||0), A_txt: String(p.ancho||0), H_txt: String(p.alto||0),
       valor_txt: fmtMoney(p.valor_aerolinea)
@@ -1436,29 +1411,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onCreatePe
       exceso_volumen: Number(exc.toFixed(3)),
       valor_aerolinea: parseComma(form.valor_txt),
     };
-
-    // === NUEVO: si cambió de carga, creamos una tarea en "Pendientes"
-    if(form.orig_flight_id && form.orig_flight_id !== upd.flight_id){
-      const deCod = flights.find(f=>f.id===form.orig_flight_id)?.codigo || "(?)";
-      const aCod  = flights.find(f=>f.id===upd.flight_id)?.codigo || "(?)";
-      onCreatePending?.({
-        id: uuid(),
-        tipo: "CAMBIO_CARGA",
-        creado_en: new Date().toISOString(),
-        paquete_id: upd.id,
-        codigo: upd.codigo,
-        casilla: upd.casilla,
-        courier: upd.courier,
-        de_carga_id: form.orig_flight_id,
-        de_carga_codigo: deCod,
-        a_carga_id: upd.flight_id,
-        a_carga_codigo: aCod
-      });
-    }
-
-    delete upd.orig_flight_id; // campo interno
-    onUpdate(upd);
-    setOpen(false);
+    onUpdate(upd); setOpen(false);
   };
 
   const [viewer,setViewer]=useState(null);
@@ -1577,12 +1530,9 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onCreatePe
           const aggReal = {}; const aggExc = {};
           rows.forEach(p=>{ aggReal[p.courier]=(aggReal[p.courier]||0)+p.peso_real; aggExc[p.courier]=(aggExc[p.courier]||0)+p.exceso_volumen; });
           const dataReal = Object.entries(aggReal).map(([courier,kg_real])=>({courier,kg_real}));
-          // === NUEVO: quitar empresas con 0,000 kg de exceso en el gráfico
-          const dataExc  = Object.entries(aggExc).map(([courier,kg_exceso])=>({courier,kg_exceso})).filter(d=>d.kg_exceso>0);
-
+          const dataExc  = Object.entries(aggExc).map(([courier,kg_exceso])=>({courier,kg_exceso}));
           const totalReal = sum(dataReal.map(d=>d.kg_real));
           const totalExc = sum(dataExc.map(d=>d.kg_exceso));
-
           return (
             <>
               {[{data:dataReal,key:"kg_real",title:`Kg reales por courier. Total: `,total:totalReal},
@@ -1664,7 +1614,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onCreatePe
     </Section>
   );
 }
-
 /* ========== Armado de cajas (peso de cartón al crear + Peso estimado + Export cajas.xlsx con una hoja por caja) ========== */
 function ArmadoCajas({packages, flights, setFlights, onAssign}){
   const [flightId,setFlightId]=useState("");
@@ -1960,728 +1909,413 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     </Section>
   );
 }
-/* ========== Pendientes (nueva pestaña) ========== */
-function Pendientes({ pending, setPending, flights, packages }) {
-  const [q, setQ] = useState("");
-  const [type, setType] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [editId, setEditId] = useState(null);
-  const [editRow, setEditRow] = useState(null);
 
-  const tipoLabel = (t) =>
-    t === "ASIGNAR_CASILLA" ? "Asignar casilla" :
-    t === "CAMBIO_CARGA" ? "Cambio de carga" :
-    t;
+/* ========== Cargas enviadas (filtro + export XLSX) ========== */
+function CargasEnviadas({packages, flights, user}){
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
+  const [estado,setEstado]=useState("");
+  const [flightId,setFlightId]=useState("");
 
-  const startEdit = (row) => {
-    setEditId(row.id);
-    setEditRow({ ...row });
-  };
-  const cancelEdit = () => {
-    setEditId(null);
-    setEditRow(null);
-  };
-  const saveEdit = () => {
-    setPending(pending.map(p => p.id === editId ? { ...p, ...editRow } : p));
-    cancelEdit();
-  };
-  const removeRow = (id) => {
-    const ok = window.confirm("¿Eliminar este pendiente?");
-    if (!ok) return;
-    setPending(pending.filter(p => p.id !== id));
-  };
-  const markDone = (id) => {
-    // En este MVP, marcar como realizado solamente lo quita de la lista.
-    setPending(pending.filter(p => p.id !== id));
-  };
+  const list = flights
+    .filter(f=>f.estado!=="En bodega")
+    .filter(f=>!from || f.fecha_salida>=from)
+    .filter(f=>!to || f.fecha_salida<=to)
+    .filter(f=>!estado || f.estado===estado);
 
-  const filtered = pending
-    .filter(p => !type || p.tipo === type)
-    .filter(p => !from || (p.creado_en || "").slice(0,10) >= from)
-    .filter(p => !to   || (p.creado_en || "").slice(0,10) <= to)
-    .filter(p => {
-      const text = JSON.stringify(p).toLowerCase();
-      return text.includes(q.toLowerCase());
-    })
-    .sort((a,b)=> String(b.creado_en||"").localeCompare(String(a.creado_en||"")));
+  const flight = flights.find(f=>f.id===flightId);
+  const pref = user.role==="COURIER" ? courierPrefix(user.courier) : null;
 
-  const vuelosMap = Object.fromEntries(flights.map(f=>[f.id, f.codigo]));
+  const paquetesDeVuelo = (flight
+    ? packages.filter(p=>p.flight_id===flightId)
+    : []
+  ).filter(p => user.role!=="COURIER" || (p.courier===user.courier && String(p.codigo||"").toUpperCase().startsWith(pref)));
+
+  const resumen = useMemo(()=>{
+    if(!flight) return [];
+    return flight.cajas.map((c,i)=>{
+      const peso=parseComma(c.peso||"0");
+      const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
+      const vol=(A*H*L)/6000 || 0;
+      const visibleIds = new Set(paquetesDeVuelo.map(p=>p.id));
+      const idsDeCaja = c.paquetes.filter(pid=> visibleIds.has(pid));
+      const couriers = new Set(idsDeCaja.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
+      const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
+      return {n:i+1, courier:etiqueta, peso, L,A,H, vol};
+    });
+  },[flight,packages,paquetesDeVuelo]);
+
+  const totPeso=sum(resumen.map(r=>r.peso));
+  const totVol=sum(resumen.map(r=>r.vol));
+
+  function exportPaquetesXLSX(){
+    if(!flight){ alert("Seleccioná una carga."); return; }
+    const header = ["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Facturable","Volumétrico","Exceso"].map(th);
+    const body = paquetesDeVuelo.map(p=>[
+      td(p.courier), td(p.codigo), td(p.casilla), td(p.fecha), td(p.nombre_apellido), td(p.tracking),
+      td(fmtPeso(p.peso_real)), td(fmtPeso(p.peso_facturable)), td(fmtPeso(p.peso_volumetrico)), td(fmtPeso(p.exceso_volumen))
+    ]);
+    const { ws } = sheetFromAOAStyled(`Paquetes_${flight.codigo}`, [header, ...body], {
+      cols:[{wch:16},{wch:16},{wch:10},{wch:12},{wch:22},{wch:18},{wch:14},{wch:14},{wch:14},{wch:14}],
+      rows:[{hpt:24}]
+    });
+    downloadXLSX(`Cargas_enviadas_${flight.codigo}.xlsx`, [{name:`Paquetes_${flight.codigo}`.slice(0,31), ws}]);
+  }
 
   return (
-    <Section
-      title="Pendientes de bodega"
-      right={
-        <div className="grid md:grid-cols-5 gap-2 items-end">
-          <Field label="Tipo">
-            <select className="w-full rounded-xl border px-3 py-2" value={type} onChange={e=>setType(e.target.value)}>
-              <option value="">Todos</option>
-              <option value="ASIGNAR_CASILLA">Asignar casilla</option>
-              <option value="CAMBIO_CARGA">Cambio de carga</option>
-            </select>
-          </Field>
-          <Field label="Desde">
-            <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
-          </Field>
-          <Field label="Hasta">
-            <Input type="date" value={to} onChange={e=>setTo(e.target.value)}/>
-          </Field>
-          <div className="md:col-span-2">
-            <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)} />
-          </div>
+    <Section title="Cargas enviadas">
+      <div className="grid md:grid-cols-6 gap-3 items-end">
+        <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
+        <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+        <Field label="Estado">
+          <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
+            <option value="">Todos</option><option>En tránsito</option><option>Arribado</option>
+          </select>
+        </Field>
+        <Field label="Carga">
+          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+            <option value="">Seleccionar…</option>
+            {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
+          </select>
+        </Field>
+        <div className="md:col-span-2 flex items-end justify-end">
+          <button onClick={exportPaquetesXLSX} disabled={!flight} className={"px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50"}>
+            Exportar XLSX
+          </button>
         </div>
+      </div>
+
+      {!flight ? <div className="text-gray-500 mt-4">Elegí una carga para ver contenido.</div> : (
+        <>
+          <div className="mt-4 text-sm text-gray-600">Paquetes del vuelo <b>{flight.codigo}</b></div>
+          <div className="overflow-auto mb-6">
+            <table className="min-w-full text-sm">
+              <thead><tr className="bg-gray-50">{["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Facturable","Volumétrico","Exceso"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <tbody>
+                {paquetesDeVuelo.map(p=>(
+                  <tr key={p.id} className="border-b">
+                    <td className="px-3 py-2">{p.courier}</td>
+                    <td className="px-3 py-2 font-mono">{p.codigo}</td>
+                    <td className="px-3 py-2">{p.casilla}</td>
+                    <td className="px-3 py-2">{p.fecha}</td>
+                    <td className="px-3 py-2">{p.nombre_apellido}</td>
+                    <td className="px-3 py-2 font-mono">{p.tracking}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_real)}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_facturable)}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_volumetrico)}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)}</td>
+                  </tr>
+                ))}
+                {paquetesDeVuelo.length===0 && <tr><td colSpan={10} className="text-center text-gray-500 py-6">No hay paquetes para tu usuario.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="overflow-auto">
+            <table className="min-w-full text-sm">
+              <thead><tr className="bg-gray-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <tbody>
+                {resumen.map(r=>(
+                  <tr key={r.n} className="border-b">
+                    <td className="px-3 py-2">{r.n}</td>
+                    <td className="px-3 py-2">{r.courier}</td>
+                    <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
+                    <td className="px-3 py-2">{r.L}</td>
+                    <td className="px-3 py-2">{r.A}</td>
+                    <td className="px-3 py-2">{r.H}</td>
+                    <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
+                  </tr>
+                ))}
+                <tr><td></td><td className="px-3 py-2 font-semibold">Totales</td><td className="px-3 py-2 font-semibold">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2 font-semibold">{fmtPeso(totVol)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+/* ========== Gestión de cargas (crear/editar/eliminar con confirmación) ========== */
+function CargasAdmin({flights,setFlights, packages}){
+  const [code,setCode]=useState("");
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const [awb,setAwb]=useState("");
+  const [fac,setFac]=useState("");
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
+
+  function create(){
+    if(!code) return;
+    setFlights([{id:uuid(),codigo:code,fecha_salida:date,estado:"En bodega",awb,factura_cacesa:fac,cajas:[]},...flights]);
+    setCode(""); setAwb(""); setFac("");
+  }
+  function missingScans(flight){
+    const idsDeCarga = packages.filter(p=>p.flight_id===flight.id).map(p=>p.id);
+    const asignados = new Set((flight.cajas||[]).flatMap(c=>c.paquetes||[]));
+    return idsDeCarga.filter(id=>!asignados.has(id)).length;
+  }
+  function upd(id,field,value){
+    if(field==="estado" && (value==="En tránsito" || value==="Arribado")){
+      const f = flights.find(x=>x.id===id);
+      if(f){
+        const faltan = missingScans(f);
+        if(faltan>0){
+          const ok = window.confirm(`Atención: faltan escanear ${faltan} paquete(s) en "Armado de cajas" para la carga ${f.codigo}. ¿Deseás continuar igualmente?`);
+          if(!ok) return;
+        }
       }
-    >
+    }
+    setFlights(flights.map(f=>f.id===id?{...f,[field]:value}:f));
+  }
+  function del(id){
+    const f = flights.find(x=>x.id===id);
+    const tienePaquetes = packages.some(p=>p.flight_id===id);
+    if(tienePaquetes){
+      alert(`No se puede eliminar la carga ${f?.codigo||""} porque tiene paquetes asociados.`);
+      return;
+    }
+    const ok = window.confirm(`¿Eliminar la carga ${f?.codigo||id}?`);
+    if(!ok) return;
+    setFlights(flights.filter(x=>x.id!==id));
+  }
+
+  const list = flights
+    .filter(f=>!from || f.fecha_salida>=from)
+    .filter(f=>!to || f.fecha_salida<=to);
+
+  return (
+    <Section title="Gestión de cargas"
+      right={
+        <div className="flex gap-2 items-end">
+          <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
+          <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+          <div className="w-px h-10 bg-gray-200 mx-1"/>
+          <Input placeholder="Código de carga" value={code} onChange={e=>setCode(e.target.value)}/>
+          <Input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+          <Input placeholder="AWB (opcional)" value={awb} onChange={e=>setAwb(e.target.value)}/>
+          <Input placeholder="Factura Cacesa (opcional)" value={fac} onChange={e=>setFac(e.target.value)}/>
+          <button onClick={create} className={BTN_PRIMARY}>Crear</button>
+        </div>
+      }>
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50">
-              <th className="text-left px-3 py-2">Fecha</th>
-              <th className="text-left px-3 py-2">Tipo</th>
-              <th className="text-left px-3 py-2">Detalle</th>
-              <th className="text-left px-3 py-2">Acciones</th>
-            </tr>
-          </thead>
+          <thead><tr className="bg-gray-50">{["Código","Fecha salida","Estado","AWB","Factura Cacesa","Cajas","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
           <tbody>
-            {filtered.map(row => {
-              const isEdit = editId === row.id;
-              return (
-                <tr key={row.id} className="border-b align-top">
-                  <td className="px-3 py-2 whitespace-nowrap">{(row.creado_en||"").slice(0,16).replace("T"," ")}</td>
-                  <td className="px-3 py-2">{tipoLabel(row.tipo)}</td>
-                  <td className="px-3 py-2">
-                    {row.tipo === "ASIGNAR_CASILLA" && (
-                      <>
-                        <div><b>Paquete Nº:</b> {row.numero ?? "—"}</div>
-                        <div><b>Nombre:</b> {row.nombre ?? "—"}</div>
-                        <div><b>Tracking:</b> {row.tracking ?? "—"}</div>
-                        {!isEdit ? (
-                          <div><b>Casilla a asignar:</b> {row.casilla_asignar ?? "—"}</div>
-                        ) : (
-                          <Field label="Casilla a asignar">
-                            <Input value={editRow.casilla_asignar||""} onChange={e=>setEditRow({...editRow, casilla_asignar:e.target.value})}/>
-                          </Field>
-                        )}
-                      </>
-                    )}
-                    {row.tipo === "CAMBIO_CARGA" && (
-                      <>
-                        <div><b>Código:</b> {row.codigo}</div>
-                        <div><b>Casilla:</b> {row.casilla}</div>
-                        <div><b>Courier:</b> {row.courier}</div>
-                        {!isEdit ? (
-                          <div>
-                            <b>De:</b> {row.de_carga_codigo || vuelosMap[row.de_carga_id] || "—"}{" "}
-                            <b className="ml-2">A:</b> {row.a_carga_codigo || vuelosMap[row.a_carga_id] || "—"}
-                          </div>
-                        ) : (
-                          <div className="grid md:grid-cols-2 gap-2">
-                            <Field label="De (solo informativo)">
-                              <Input disabled value={row.de_carga_codigo || vuelosMap[row.de_carga_id] || ""}/>
-                            </Field>
-                            <Field label="A (carga destino)">
-                              <select className="w-full rounded-xl border px-3 py-2"
-                                      value={editRow.a_carga_id||""}
-                                      onChange={e=>setEditRow({...editRow, a_carga_id:e.target.value, a_carga_codigo:vuelosMap[e.target.value]})}>
-                                <option value="">—</option>
-                                {flights.filter(f=>f.estado==="En bodega").map(f=>
-                                  <option key={f.id} value={f.id}>{f.codigo}</option>
-                                )}
-                              </select>
-                            </Field>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {!isEdit ? (
-                      <div className="flex gap-2">
-                        <button className="px-2 py-1 border rounded" onClick={()=>startEdit(row)}>Editar</button>
-                        <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={()=>markDone(row.id)}>Realizado</button>
-                        <button className="px-2 py-1 border rounded text-red-600" onClick={()=>removeRow(row.id)}>Eliminar</button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={saveEdit}>Guardar</button>
-                        <button className="px-2 py-1 border rounded" onClick={cancelEdit}>Cancelar</button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {filtered.length===0 && (
-              <tr><td colSpan={4} className="text-center text-gray-500 py-6">Sin pendientes.</td></tr>
-            )}
+            {list.map(f=>(
+              <tr key={f.id} className="border-b">
+                <td className="px-3 py-2"><Input value={f.codigo} onChange={e=>upd(f.id,"codigo",e.target.value)}/></td>
+                <td className="px-3 py-2"><Input type="date" value={f.fecha_salida} onChange={e=>upd(f.id,"fecha_salida",e.target.value)}/></td>
+                <td className="px-3 py-2">
+                  <select className="border rounded px-2 py-1" value={f.estado} onChange={e=>upd(f.id,"estado",e.target.value)}>
+                    {["En bodega","En tránsito","Arribado"].map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </td>
+                <td className="px-3 py-2"><Input value={f.awb||""} onChange={e=>upd(f.id,"awb",e.target.value)}/></td>
+                <td className="px-3 py-2"><Input value={f.factura_cacesa||""} onChange={e=>upd(f.id,"factura_cacesa",e.target.value)}/></td>
+                <td className="px-3 py-2">{f.cajas.length}</td>
+                <td className="px-3 py-2">
+                  <button className="px-2 py-1 border rounded text-red-600" onClick={()=>del(f.id)}>Eliminar</button>
+                </td>
+              </tr>
+            ))}
+            {list.length===0 && <tr><td colSpan={7} className="text-center text-gray-500 py-6">Sin resultados.</td></tr>}
           </tbody>
         </table>
       </div>
     </Section>
   );
 }
-/* ========== Cargas enviadas (listado + export XLSX) ========== */
-function CargasEnviadas({ packages, flights, user }) {
-  const [flightId, setFlightId] = useState("");
-  const [q, setQ] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
 
-  const flightsEnviadas = flights.filter(f => f.estado !== "En bodega");
-  const selectedFlight = flights.find(f => f.id === flightId) || null;
+/* ========== Proformas (cant 3 dec; unit/sub 2; extras y 4% con cant=1) ========== */
+const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
+const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
-  // helper: obtener caja donde está un paquete
-  const cajaDe = (pid) => {
-    const f = flights.find(x => x.id === flightId);
-    if (!f) return "";
-    const c = (f.cajas || []).find(cj => (cj.paquetes || []).includes(pid));
-    return c ? c.codigo : "";
-    };
+function Proformas({packages, flights, extras}){
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
+  const [flightId,setFlightId]=useState("");
 
-  const rows = packages
-    .filter(p => selectedFlight ? p.flight_id === flightId : flightsEnviadas.some(f => f.id === p.flight_id))
-    .filter(p => !from || (p.fecha || "") >= from)
-    .filter(p => !to   || (p.fecha || "") <= to)
-    .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()));
+  const list = flights
+    .filter(f=>!from || f.fecha_salida>=from)
+    .filter(f=>!to || f.fecha_salida<=to);
 
-  const totReal = sum(rows.map(p => Number(p.peso_real || 0)));
-  const totExc  = sum(rows.map(p => Number(p.exceso_volumen || 0)));
-  const totFact = sum(rows.map(p => Number(p.peso_facturable || 0)));
+  const flight = flights.find(f=>f.id===flightId);
 
-  async function exportXLSX() {
-    const header = [
-      th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código"),
-      th("Fecha"), th("Nombre y apellido"), th("Tracking"),
-      th("Peso real"), th("Exceso de volumen"), th("Peso facturable"),
-      th("Caja"), th("Descripción")
+  const porCourier = useMemo(()=>{
+    if(!flight) return [];
+    const m=new Map();
+    flight.cajas.forEach(c=>c.paquetes.forEach(pid=>{
+      const p=packages.find(x=>x.id===pid); if(!p) return;
+      if(!m.has(p.courier)) m.set(p.courier,{courier:p.courier,kg_real:0,kg_fact:0,kg_exc:0});
+      const a=m.get(p.courier); a.kg_real+=p.peso_real; a.kg_fact+=p.peso_facturable; a.kg_exc+=p.exceso_volumen;
+    }));
+    return Array.from(m.values());
+  },[flight,packages]);
+
+  const extrasDeCourier = (courier)=> extras.filter(e=>e.flight_id===flightId && e.courier===courier);
+
+  async function exportX(r){
+    if(!flight) return;
+    const proc = r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
+    const canje=canjeGuiaUSD(r.kg_fact);
+    const extrasList = extrasDeCourier(r.courier);
+    const extrasMonto = extrasList.reduce((s,e)=>s+parseComma(e.monto),0);
+    const com = 0.04*(proc+fr+fe+extrasMonto);
+    const total = proc+fr+fe+desp+canje+extrasMonto+com;
+
+    const detalle = [
+      ["Procesamiento", Number(r.kg_fact.toFixed(3)), Number(T.proc.toFixed(2)), Number(proc.toFixed(2))],
+      ["Flete peso real", Number(r.kg_real.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))],
+      ["Flete exceso de volumen", Number(r.kg_exc.toFixed(3)), Number(T.fleteExc.toFixed(2)), Number(fe.toFixed(2))],
+      ["Servicio de despacho", Number(r.kg_fact.toFixed(3)), Number(T.despacho.toFixed(2)), Number(desp.toFixed(2))],
+      ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))],
+      ...extrasList.map(e=>[e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))]),
+      ["Comisión por transferencia (4%)", 1, Number(com.toFixed(2)), Number(com.toFixed(2))],
     ];
-    const body = rows.map(p => {
-      const carga = flights.find(f => f.id === p.flight_id)?.codigo || "";
-      return [
-        td(carga), td(p.courier), td(p.estado), td(p.casilla), td(p.codigo),
-        td(p.fecha), td(p.nombre_apellido || ""), td(p.tracking || ""),
-        td(fmtPeso(p.peso_real)), td(fmtPeso(p.exceso_volumen)), td(fmtPeso(p.peso_facturable)),
-        td(cajaDe(p.id)), td(p.descripcion || "")
-      ];
+
+    await exportProformaExcelJS_usingTemplate({
+      plantillaUrl: "/templates/proforma.xlsx",
+      logoUrl: "/logo.png",
+      nombreArchivo: `proforma_${flight.codigo}_${r.courier}.xlsx`,
+      datosFactura: {
+        fechaCarga: flight.fecha_salida || "",
+        courier: r.courier,
+        kg_real: Number(r.kg_real.toFixed(3)),
+        kg_fact: Number(r.kg_fact.toFixed(3)),
+        kg_exc: Number(r.kg_exc.toFixed(3)),
+        pu_proc: Number(T.proc.toFixed(2)), sub_proc: Number(proc.toFixed(2)),
+        pu_real: Number(T.fleteReal.toFixed(2)), sub_real: Number(fr.toFixed(2)),
+        pu_exc: Number(T.fleteExc.toFixed(2)), sub_exc: Number(fe.toFixed(2)),
+        pu_desp: Number(T.despacho.toFixed(2)), sub_desp: Number(desp.toFixed(2)),
+        canje: Number(canje.toFixed(2)),
+        comision: Number(com.toFixed(2)),
+        extras: extrasList.map(e=>[e.descripcion, "", "", Number(parseComma(e.monto).toFixed(2))]),
+        total: Number(total.toFixed(2)),
+        detalleParaSheet: detalle
+      }
     });
-
-    const { ws } = sheetFromAOAStyled("Cargas enviadas", [header, ...body], {
-      cols: [{wch:12},{wch:14},{wch:12},{wch:10},{wch:14},{wch:12},{wch:26},{wch:16},{wch:14},{wch:18},{wch:18},{wch:12},{wch:28}],
-      rows: [{hpt:24}]
-    });
-    downloadXLSX(`Cargas_enviadas_${selectedFlight ? selectedFlight.codigo : "todas"}.xlsx`, [{ name: "Cargas enviadas", ws }]);
   }
 
   return (
-    <Section
-      title="Cargas enviadas"
+    <Section title="Proformas por courier"
       right={
-        <div className="grid md:grid-cols-5 gap-2 items-end">
-          <Field label="Carga">
-            <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e => setFlightId(e.target.value)}>
-              <option value="">Todas (En tránsito + Arribado)</option>
-              {flightsEnviadas.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
-            </select>
-          </Field>
-          <Field label="Desde">
-            <Input type="date" value={from} onChange={e => setFrom(e.target.value)} />
-          </Field>
-          <Field label="Hasta">
-            <Input type="date" value={to} onChange={e => setTo(e.target.value)} />
-          </Field>
-          <div className="md:col-span-2">
-            <Input placeholder="Buscar…" value={q} onChange={e => setQ(e.target.value)} />
-          </div>
+        <div className="flex gap-2 items-end">
+          <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
+          <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+          <select className="rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+            <option value="">Seleccionar carga…</option>
+            {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
+          </select>
         </div>
       }
     >
-      <div className="text-sm text-gray-700 mb-3">
-        <b>Paquetes:</b> {rows.length} — <b>Kg reales:</b> {fmtPeso(totReal)} — <b>Exceso:</b> {fmtPeso(totExc)} — <b>Facturable:</b> {fmtPeso(totFact)}
-      </div>
-
-      <div className="flex justify-end mb-3">
-        <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
-      </div>
-
-      <div className="overflow-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50">
-              <th className="text-left px-3 py-2">Carga</th>
-              <th className="text-left px-3 py-2">Código</th>
-              <th className="text-left px-3 py-2">Casilla</th>
-              <th className="text-left px-3 py-2">Nombre</th>
-              <th className="text-left px-3 py-2">Tracking</th>
-              <th className="text-left px-3 py-2">Peso real</th>
-              <th className="text-left px-3 py-2">Exceso</th>
-              <th className="text-left px-3 py-2">Facturable</th>
-              <th className="text-left px-3 py-2">Caja</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(p => {
-              const carga = flights.find(f => f.id === p.flight_id)?.codigo || "";
-              return (
-                <tr key={p.id} className="border-b">
-                  <td className="px-3 py-2">{carga}</td>
-                  <td className="px-3 py-2 font-mono">{p.codigo}</td>
-                  <td className="px-3 py-2">{p.casilla}</td>
-                  <td className="px-3 py-2">{p.nombre_apellido}</td>
-                  <td className="px-3 py-2 font-mono">{p.tracking}</td>
-                  <td className="px-3 py-2">{fmtPeso(p.peso_real)} kg</td>
-                  <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)} kg</td>
-                  <td className="px-3 py-2">{fmtPeso(p.peso_facturable)} kg</td>
-                  <td className="px-3 py-2">{cajaDe(p.id) || "—"}</td>
-                </tr>
-              );
-            })}
-            {rows.length===0 && <tr><td colSpan={9} className="text-center text-gray-500 py-6">Sin datos.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </Section>
-  );
-}
-
-/* ========== Gestión de cargas (crear/editar/eliminar) ========== */
-function CargasAdmin({ flights, setFlights, packages }) {
-  const [q, setQ] = useState("");
-  const [codigo, setCodigo] = useState("");
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0,10));
-  const [estado, setEstado] = useState("En bodega");
-
-  const [editId, setEditId] = useState(null);
-  const [rowEdit, setRowEdit] = useState({ codigo:"", fecha_salida:"", estado:"En bodega" });
-
-  const filtered = flights
-    .filter(f => (f.codigo + f.estado + (f.fecha_salida || "")).toLowerCase().includes(q.toLowerCase()))
-    .sort((a,b) => String(b.fecha_salida||"").localeCompare(String(a.fecha_salida||"")));
-
-  function add() {
-    if (!codigo.trim()) { alert("Ingresá el código de la carga."); return; }
-    if (flights.some(f => f.codigo.trim().toUpperCase() === codigo.trim().toUpperCase())) {
-      alert("Ya existe una carga con ese código."); return;
-    }
-    const f = { id: uuid(), codigo: codigo.trim(), fecha_salida: fecha, estado, cajas: [] };
-    setFlights([f, ...flights]);
-    setCodigo(""); setEstado("En bodega");
-  }
-  function startEdit(f) {
-    setEditId(f.id);
-    setRowEdit({ codigo: f.codigo, fecha_salida: f.fecha_salida, estado: f.estado });
-  }
-  function saveEdit() {
-    if (!editId) return;
-    setFlights(flights.map(f => f.id === editId ? { ...f, ...rowEdit } : f));
-    setEditId(null);
-  }
-  function remove(f) {
-    const usados = packages.some(p => p.flight_id === f.id);
-    if (usados) { alert("No se puede eliminar: hay paquetes asociados."); return; }
-    const ok = window.confirm(`¿Eliminar la carga ${f.codigo}?`);
-    if (!ok) return;
-    setFlights(flights.filter(x => x.id !== f.id));
-  }
-
-  return (
-    <Section
-      title="Gestión de cargas"
-      right={
-        <div className="flex items-end gap-2">
-          <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
-        </div>
-      }
-    >
-      <div className="bg-gray-50 rounded-xl p-3 mb-3">
-        <div className="font-medium mb-2">Crear carga</div>
-        <div className="grid md:grid-cols-4 gap-2">
-          <Field label="Código" required><Input value={codigo} onChange={e=>setCodigo(e.target.value)} placeholder="AIR-001 / MAR-001 / COMP-001" /></Field>
-          <Field label="Fecha de salida" required><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} /></Field>
-          <Field label="Estado" required>
-            <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
-              {ESTADOS_CARGA.map(s => <option key={s}>{s}</option>)}
-            </select>
-          </Field>
-          <div className="flex items-end"><button className={BTN_PRIMARY} onClick={add}>Crear</button></div>
-        </div>
-      </div>
-
-      <div className="overflow-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50">
-              <th className="text-left px-3 py-2">Código</th>
-              <th className="text-left px-3 py-2">Fecha salida</th>
-              <th className="text-left px-3 py-2">Estado</th>
-              <th className="text-left px-3 py-2"># Paquetes</th>
-              <th className="text-left px-3 py-2">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(f => {
-              const nPkgs = packages.filter(p => p.flight_id === f.id).length;
-              const isEdit = editId === f.id;
-              return (
-                <tr key={f.id} className="border-b">
-                  <td className="px-3 py-2">
-                    {!isEdit ? f.codigo : <Input value={rowEdit.codigo} onChange={e=>setRowEdit({...rowEdit, codigo:e.target.value})}/>}
-                  </td>
-                  <td className="px-3 py-2">
-                    {!isEdit ? f.fecha_salida : <Input type="date" value={rowEdit.fecha_salida} onChange={e=>setRowEdit({...rowEdit, fecha_salida:e.target.value})}/>}
-                  </td>
-                  <td className="px-3 py-2">
-                    {!isEdit ? f.estado : (
-                      <select className="w-full rounded-xl border px-3 py-2" value={rowEdit.estado} onChange={e=>setRowEdit({...rowEdit, estado:e.target.value})}>
-                        {ESTADOS_CARGA.map(s => <option key={s}>{s}</option>)}
-                      </select>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">{nPkgs}</td>
-                  <td className="px-3 py-2">
-                    {!isEdit ? (
-                      <div className="flex gap-2">
-                        <button className="px-2 py-1 border rounded" onClick={()=>startEdit(f)}>Editar</button>
-                        <button className="px-2 py-1 border rounded text-red-600" onClick={()=>remove(f)}>Eliminar</button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={saveEdit}>Guardar</button>
-                        <button className="px-2 py-1 border rounded" onClick={()=>setEditId(null)}>Cancelar</button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {filtered.length===0 && <tr><td colSpan={5} className="text-center text-gray-500 py-6">Sin cargas.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </Section>
-  );
-}
-
-/* ========== Proformas (cálculo + export usando plantilla ExcelJS, con fallback) ========== */
-function Proformas({ packages, flights, extras }) {
-  const [flightId, setFlightId] = useState("");
-  const [courier, setCourier] = useState("");
-  const [pu_proc, setPuProc] = useState("0,00");
-  const [pu_real, setPuReal] = useState("0,00");
-  const [pu_exc,  setPuExc ] = useState("0,00");
-  const [pu_desp, setPuDesp] = useState("0,00");
-  const [canje,   setCanje ] = useState("0,00");
-  const [logoUrl, setLogoUrl] = useState("/templates/logo.png");
-  const [tplUrl,  setTplUrl ] = useState("/templates/proforma.xlsx");
-
-  const selFlight = flights.find(f => f.id === flightId) || null;
-
-  const pkgs = packages
-    .filter(p => flightId ? p.flight_id === flightId : true)
-    .filter(p => courier ? p.courier === courier : true);
-
-  const kg_real = sum(pkgs.map(p => Number(p.peso_real || 0)));
-  const kg_exc  = sum(pkgs.map(p => Number(p.exceso_volumen || 0)));
-  const kg_fact = sum(pkgs.map(p => Number(p.peso_facturable || 0)));
-
-  const v_proc = parseComma(pu_proc);
-  const v_real = parseComma(pu_real);
-  const v_exc  = parseComma(pu_exc);
-  const v_desp = parseComma(pu_desp);
-  const v_canje= parseComma(canje);
-
-  const sub_proc = Number((kg_fact * v_proc).toFixed(2));
-  const sub_real = Number((kg_real * v_real).toFixed(2));
-  const sub_exc  = Number((kg_exc  * v_exc ).toFixed(2));
-  const sub_desp = Number((kg_fact * v_desp).toFixed(2));
-
-  // Extras para la selección actual (por carga y courier)
-  const extrasRows = extras
-    .filter(x => (!flightId || x.flight_id === flightId) && (!courier || x.courier === courier));
-
-  const totalExtras = sum(extrasRows.map(x => Number(x.monto || 0)));
-
-  const base = sub_proc + sub_real + sub_exc + sub_desp + v_canje + totalExtras;
-  const comision = Number((base * 0.04).toFixed(2));
-  const total = Number((base + comision).toFixed(2));
-
-  const detalleParaSheet = [
-    ["Procesamiento", kg_fact, v_proc, sub_proc],
-    ["Flete peso real", kg_real, v_real, sub_real],
-    ["Flete exceso de volumen", kg_exc, v_exc, sub_exc],
-    ["Servicio de despacho", kg_fact, v_desp, sub_desp],
-    ["Comisión por canje de guía", 1, v_canje, v_canje],
-    ...extrasRows.map(x => [x.descripcion, 1, Number(x.monto || 0), Number(x.monto || 0)]),
-    ["Comisión por transferencia (4%)", 1, comision, comision],
-  ];
-
-  async function exportar() {
-    const datosFactura = {
-      fechaCarga: selFlight?.fecha_salida || "",
-      courier: courier || "",
-      kg_fact, pu_proc: v_proc, sub_proc,
-      kg_real, pu_real: v_real, sub_real,
-      kg_exc,  pu_exc:  v_exc,  sub_exc,
-      pu_desp: v_desp,  sub_desp,
-      canje: v_canje,
-      extras: extrasRows.map(x => [x.descripcion, 1, Number(x.monto||0), Number(x.monto||0)]),
-      comision,
-      total,
-      detalleParaSheet
-    };
-
-    try {
-      await exportProformaExcelJS_usingTemplate({
-        plantillaUrl: tplUrl,
-        logoUrl,
-        nombreArchivo: `Proforma_${courier || "Todos"}_${selFlight ? selFlight.codigo : "Todas"}.xlsx`,
-        datosFactura
-      });
-    } catch (e) {
-      // Fallback simple si la plantilla no está disponible
-      const header = [th("Descripción"), th("Cantidad"), th("P. unitario"), th("Importe")];
-      const body = detalleParaSheet.map(r => [td(String(r[0])), td(String(r[1])), td(fmtMoney(r[2])), td(fmtMoney(r[3]))]);
-      const tot = [[td("Total"), td(""), td(""), td(fmtMoney(total))]];
-      const { ws } = sheetFromAOAStyled("Proforma", [header, ...body, ...tot], {
-        cols: [{wch:36},{wch:12},{wch:14},{wch:14}],
-        rows: [{hpt:24}]
-      });
-      downloadXLSX(`Proforma_${courier || "Todos"}_${selFlight ? selFlight.codigo : "Todas"}.xlsx`, [{ name:"Proforma", ws }]);
-    }
-  }
-
-  const couriersDisponibles = Array.from(new Set(packages
-    .filter(p => !flightId || p.flight_id === flightId)
-    .map(p => p.courier))).sort();
-
-  return (
-    <Section
-      title="Proformas"
-      right={
-        <div className="grid md:grid-cols-6 gap-2 items-end">
-          <Field label="Carga">
-            <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
-              <option value="">— Todas —</option>
-              {flights.map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
-            </select>
-          </Field>
-          <Field label="Courier">
-            <select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}>
-              <option value="">— Todos —</option>
-              {couriersDisponibles.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </Field>
-          <Field label="Plantilla XLSX (URL)">
-            <Input value={tplUrl} onChange={e=>setTplUrl(e.target.value)} placeholder="/templates/proforma.xlsx" />
-          </Field>
-          <Field label="Logo (URL)">
-            <Input value={logoUrl} onChange={e=>setLogoUrl(e.target.value)} placeholder="/templates/logo.png" />
-          </Field>
-          <div className="md:col-span-2 flex items-end justify-end">
-            <button className={BTN_PRIMARY} onClick={exportar}>Exportar Proforma</button>
-          </div>
-        </div>
-      }
-    >
-      <div className="grid md:grid-cols-4 gap-3 mb-3">
-        <InfoBox title="Kg facturable" value={`${fmtPeso(kg_fact)} kg`} />
-        <InfoBox title="Kg reales" value={`${fmtPeso(kg_real)} kg`} />
-        <InfoBox title="Exceso de volumen" value={`${fmtPeso(kg_exc)} kg`} />
-        <InfoBox title="Total estimado" value={`€ ${fmtMoney(total)}`} />
-      </div>
-
-      <div className="grid md:grid-cols-4 gap-3">
-        <Field label="PU Procesamiento (€/kg)"><Input value={pu_proc} onChange={e=>setPuProc(e.target.value)} placeholder="0,00" /></Field>
-        <Field label="PU Flete real (€/kg)"><Input value={pu_real} onChange={e=>setPuReal(e.target.value)} placeholder="0,00" /></Field>
-        <Field label="PU Exceso volumen (€/kg)"><Input value={pu_exc} onChange={e=>setPuExc(e.target.value)} placeholder="0,00" /></Field>
-        <Field label="PU Despacho (€/kg)"><Input value={pu_desp} onChange={e=>setPuDesp(e.target.value)} placeholder="0,00" /></Field>
-        <Field label="Canje de guía (€)"><Input value={canje} onChange={e=>setCanje(e.target.value)} placeholder="0,00" /></Field>
-      </div>
-
-      <div className="bg-gray-50 rounded-xl p-3 mt-4">
-        <div className="font-medium mb-2">Extras incluidos</div>
+      {!flight ? <div className="text-gray-500">Seleccioná una carga.</div> : (
         <div className="overflow-auto">
           <table className="min-w-full text-sm">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="text-left px-3 py-2">Fecha</th>
-                <th className="text-left px-3 py-2">Descripción</th>
-                <th className="text-left px-3 py-2">Courier</th>
-                <th className="text-left px-3 py-2">Carga</th>
-                <th className="text-left px-3 py-2">Importe</th>
-              </tr>
-            </thead>
+            <thead><tr className="bg-gray-50">{["Courier","Kg facturable","Kg exceso","TOTAL USD","XLSX"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
             <tbody>
-              {extrasRows.map(x => (
-                <tr key={x.id} className="border-b">
-                  <td className="px-3 py-2">{x.fecha || ""}</td>
-                  <td className="px-3 py-2">{x.descripcion || ""}</td>
-                  <td className="px-3 py-2">{x.courier || ""}</td>
-                  <td className="px-3 py-2">{flights.find(f=>f.id===x.flight_id)?.codigo || ""}</td>
-                  <td className="px-3 py-2">€ {fmtMoney(x.monto || 0)}</td>
-                </tr>
-              ))}
-              {extrasRows.length===0 && <tr><td colSpan={5} className="text-center text-gray-500 py-6">No hay extras en esta selección.</td></tr>}
+              {porCourier.map(r=>{
+                const proc=r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
+                const canje=canjeGuiaUSD(r.kg_fact), extrasMonto=extrasDeCourier(r.courier).reduce((s,e)=>s+parseComma(e.monto),0);
+                const com=0.04*(proc+fr+fe+extrasMonto); const tot = proc+fr+fe+desp+canje+extrasMonto+com;
+                return (
+                  <tr key={r.courier} className="border-b">
+                    <td className="px-3 py-2">{r.courier}</td>
+                    <td className="px-3 py-2">{fmtPeso(r.kg_fact)} kg</td>
+                    <td className="px-3 py-2">{fmtPeso(r.kg_exc)} kg</td>
+                    <td className="px-3 py-2 font-semibold">{fmtMoney(tot)}</td>
+                    <td className="px-3 py-2"><button className="px-2 py-1 border rounded" onClick={()=>exportX(r)}>Descargar</button></td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-      </div>
+      )}
     </Section>
   );
 }
 
-/* ========== Extras (ABM simple, asociados a carga y courier) ========== */
-function Extras({ flights, couriers, extras, setExtras }) {
-  const [flightId, setFlightId] = useState("");
-  const [courier, setCourier] = useState("");
-  const [q, setQ] = useState("");
+/* ========== Extras ========== */
+function Extras({flights, couriers, extras, setExtras}){
+  const [flightId,setFlightId]=useState("");
+  const [courier,setCourier]=useState("");
+  const [desc,setDesc]=useState("");
+  const [monto,setMonto]=useState("");
+  const [estado,setEstado]=useState("Pendiente");
+  const [fecha,setFecha]=useState(new Date().toISOString().slice(0,10));
+  const [from,setFrom]=useState("");
+  const [to,setTo]=useState("");
 
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0,10));
-  const [desc, setDesc] = useState("");
-  const [monto, setMonto] = useState("0,00");
-
-  const [editId, setEditId] = useState(null);
-  const [rowEdit, setRowEdit] = useState({ fecha:"", descripcion:"", monto:"0,00", flight_id:"", courier:"" });
-
+  const add=()=>{
+    if(!(flightId && courier && desc && monto)) return;
+    setExtras([...extras,{ id:uuid(), flight_id:flightId, courier, descripcion:desc, monto, estado, fecha }]);
+    setDesc(""); setMonto("");
+  };
   const filtered = extras
-    .filter(x => !flightId || x.flight_id === flightId)
-    .filter(x => !courier || x.courier === courier)
-    .filter(x => (x.descripcion + (x.fecha||"") + (x.courier||"")).toLowerCase().includes(q.toLowerCase()))
-    .sort((a,b) => String(b.fecha||"").localeCompare(String(a.fecha||"")));
+    .filter(e=>!from || (e.fecha || (flights.find(f=>f.id===e.flight_id)?.fecha_salida)||"")>=from)
+    .filter(e=>!to || (e.fecha || (flights.find(f=>f.id===e.flight_id)?.fecha_salida)||"")<=to)
+    .filter(e=>!flightId || e.flight_id===flightId);
 
-  function add() {
-    if (!desc.trim() || !monto) { alert("Completá descripción e importe."); return; }
-    const nx = { id: uuid(), fecha, descripcion: desc.trim(), monto: parseComma(monto), flight_id: flightId || "", courier: courier || "" };
-    setExtras([nx, ...extras]);
-    setDesc(""); setMonto("0,00");
-  }
-  function startEdit(x) {
-    setEditId(x.id);
-    setRowEdit({
-      fecha: x.fecha || "",
-      descripcion: x.descripcion || "",
-      monto: fmtMoney(x.monto || 0),
-      flight_id: x.flight_id || "",
-      courier: x.courier || ""
-    });
-  }
-  function saveEdit() {
-    setExtras(extras.map(x => x.id === editId ? {
-      ...x,
-      ...rowEdit,
-      monto: parseComma(rowEdit.monto)
-    } : x));
-    setEditId(null);
-  }
-  function remove(x) {
-    const ok = window.confirm("¿Eliminar este extra?");
-    if (!ok) return;
-    setExtras(extras.filter(e => e.id !== x.id));
-  }
+  const upd=(id,patch)=> setExtras(extras.map(e=>e.id===id?{...e,...patch}:e));
+  const del=(id)=> setExtras(extras.filter(e=>e.id!==id));
 
   return (
-    <Section
-      title="Extras"
-      right={
-        <div className="grid md:grid-cols-3 gap-2 items-end">
-          <Field label="Filtrar por carga">
-            <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
-              <option value="">— Todas —</option>
-              {flights.map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
-            </select>
-          </Field>
-          <Field label="Filtrar por courier">
-            <select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}>
-              <option value="">— Todos —</option>
-              {couriers.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </Field>
-          <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)} />
-        </div>
-      }
-    >
-      <div className="bg-gray-50 rounded-xl p-3 mb-3">
-        <div className="font-medium mb-2">Agregar extra</div>
-        <div className="grid md:grid-cols-5 gap-2">
-          <Field label="Fecha"><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} /></Field>
-          <Field label="Descripción"><Input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Servicio adicional…" /></Field>
-          <Field label="Importe (€)"><Input value={monto} onChange={e=>setMonto(e.target.value)} placeholder="0,00" /></Field>
-          <Field label="Carga">
-            <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
-              <option value="">—</option>
-              {flights.map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
-            </select>
-          </Field>
-          <Field label="Courier">
-            <select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}>
-              <option value="">—</option>
-              {couriers.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </Field>
-        </div>
-        <div className="flex justify-end mt-2">
-          <button className={BTN_PRIMARY} onClick={add}>Agregar</button>
-        </div>
+    <Section title="Trabajos extras">
+      <div className="grid md:grid-cols-6 gap-2 mb-2">
+        <Field label="Carga">
+          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+            <option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
+          </select>
+        </Field>
+        <Field label="Courier">
+          <select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}>
+            <option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Descripción"><Input value={desc} onChange={e=>setDesc(e.target.value)}/></Field>
+        <Field label="Monto (USD)"><Input value={monto} onChange={e=>setMonto(e.target.value)} placeholder="10,00"/></Field>
+        <Field label="Estado">
+          <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
+            <option>Pendiente</option><option>Cobrado</option>
+          </select>
+        </Field>
+        <Field label="Fecha"><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>
+      </div>
+      <div className="flex justify-end mb-4">
+        <button onClick={add} className={BTN_PRIMARY}>Agregar</button>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-2 mb-3">
+        <Field label="Filtrar desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
+        <Field label="Filtrar hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+        <div />
       </div>
 
       <div className="overflow-auto">
         <table className="min-w-full text-sm">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="text-left px-3 py-2">Fecha</th>
-              <th className="text-left px-3 py-2">Descripción</th>
-              <th className="text-left px-3 py-2">Courier</th>
-              <th className="text-left px-3 py-2">Carga</th>
-              <th className="text-left px-3 py-2">Importe (€)</th>
-              <th className="text-left px-3 py-2">Acciones</th>
-            </tr>
-          </thead>
+          <thead><tr className="bg-gray-50">{["Fecha","Carga","Courier","Descripción","Monto (USD)","Estado","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
           <tbody>
-            {filtered.map(x => {
-              const isEdit = editId === x.id;
+            {filtered.map(e=>{
+              const carga = flights.find(f=>f.id===e.flight_id)?.codigo || "";
               return (
-                <tr key={x.id} className="border-b">
+                <tr key={e.id} className="border-b">
+                  <td className="px-3 py-2">{e.fecha || flights.find(f=>f.id===e.flight_id)?.fecha_salida || ""}</td>
+                  <td className="px-3 py-2">{carga}</td>
+                  <td className="px-3 py-2">{e.courier}</td>
+                  <td className="px-3 py-2"><Input value={e.descripcion} onChange={ev=>upd(e.id,{descripcion:ev.target.value})}/></td>
+                  <td className="px-3 py-2"><Input value={e.monto} onChange={ev=>upd(e.id,{monto:ev.target.value})}/></td>
                   <td className="px-3 py-2">
-                    {!isEdit ? (x.fecha || "") : <Input type="date" value={rowEdit.fecha} onChange={e=>setRowEdit({...rowEdit, fecha:e.target.value})}/>}
+                    <select className="border rounded px-2 py-1" value={e.estado} onChange={ev=>upd(e.id,{estado:ev.target.value})}>
+                      <option>Pendiente</option><option>Cobrado</option>
+                    </select>
                   </td>
                   <td className="px-3 py-2">
-                    {!isEdit ? (x.descripcion || "") : <Input value={rowEdit.descripcion} onChange={e=>setRowEdit({...rowEdit, descripcion:e.target.value})}/>}
-                  </td>
-                  <td className="px-3 py-2">
-                    {!isEdit ? (x.courier || "") : (
-                      <select className="w-full rounded-xl border px-3 py-2" value={rowEdit.courier||""} onChange={e=>setRowEdit({...rowEdit, courier:e.target.value})}>
-                        <option value="">—</option>
-                        {couriers.map(c => <option key={c}>{c}</option>)}
-                      </select>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {!isEdit ? (flights.find(f=>f.id===x.flight_id)?.codigo || "") : (
-                      <select className="w-full rounded-xl border px-3 py-2" value={rowEdit.flight_id||""} onChange={e=>setRowEdit({...rowEdit, flight_id:e.target.value})}>
-                        <option value="">—</option>
-                        {flights.map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}
-                      </select>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {!isEdit ? `€ ${fmtMoney(x.monto || 0)}` : <Input value={rowEdit.monto} onChange={e=>setRowEdit({...rowEdit, monto:e.target.value})}/>}
-                  </td>
-                  <td className="px-3 py-2">
-                    {!isEdit ? (
-                      <div className="flex gap-2">
-                        <button className="px-2 py-1 border rounded" onClick={()=>startEdit(x)}>Editar</button>
-                        <button className="px-2 py-1 border rounded text-red-600" onClick={()=>remove(x)}>Eliminar</button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={saveEdit}>Guardar</button>
-                        <button className="px-2 py-1 border rounded" onClick={()=>setEditId(null)}>Cancelar</button>
-                      </div>
-                    )}
+                    <button onClick={()=>del(e.id)} className="px-2 py-1 border rounded text-red-600">Eliminar</button>
                   </td>
                 </tr>
               );
             })}
-            {filtered.length===0 && <tr><td colSpan={6} className="text-center text-gray-500 py-6">Sin extras.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -2689,7 +2323,7 @@ function Extras({ flights, couriers, extras, setExtras }) {
   );
 }
 
-/* ========== App (tabs, estado global, integración Pendientes) ========== */
+/* ========== App (tabs por rol + Usuarios + Sin Casilla con permisos) ========== */
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
 
@@ -2697,7 +2331,7 @@ function App(){
   const [couriers,setCouriers]=useState(COURIERS_INICIALES);
   const [estados,setEstados]=useState(ESTADOS_INICIALES);
 
-  // Cargas / paquetes / extras
+  // Sin cargas por defecto
   const [flights,setFlights]=useState([]);
   const [packages,setPackages]=useState([]);
   const [extras,setExtras]=useState([]);
@@ -2705,49 +2339,35 @@ function App(){
   // Paquetes sin casilla (persistencia localStorage)
   const SINCASILLA_KEY = "ee_sincasilla_v1";
   const [sinCasillaItems, setSinCasillaItems] = useState([]);
-  useEffect(()=>{ try{ const raw=localStorage.getItem(SINCASILLA_KEY); if(raw){ const arr=JSON.parse(raw); if(Array.isArray(arr)) setSinCasillaItems(arr); } }catch{} },[]);
-  useEffect(()=>{ try{ localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems)); }catch{} },[sinCasillaItems]);
+  useEffect(()=>{
+    try{
+      const raw = localStorage.getItem(SINCASILLA_KEY);
+      if(raw){
+        const arr = JSON.parse(raw);
+        if(Array.isArray(arr)) setSinCasillaItems(arr);
+      }
+    }catch{}
+  },[]);
+  useEffect(()=>{
+    try{
+      localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems));
+    }catch{}
+  },[sinCasillaItems]);
 
-  // PENDIENTES (persistencia localStorage)
-  const PEND_KEY = "ee_pendientes_v1";
-  const [pending, setPending] = useState([]);
-  useEffect(()=>{ try{ const raw=localStorage.getItem(PEND_KEY); if(raw){ const arr=JSON.parse(raw); if(Array.isArray(arr)) setPending(arr); } }catch{} },[]);
-  useEffect(()=>{ try{ localStorage.setItem(PEND_KEY, JSON.stringify(pending)); }catch{} },[pending]);
-
-  // Tabs permitidos por rol (forzando que Pendientes exista)
-  useEffect(()=>{ if(currentUser){ const base=tabsForRole(currentUser.role); const allowed=Array.from(new Set([...base,"Pendientes"])); if(!allowed.includes(tab)) setTab(allowed[0]); } },[currentUser]); // eslint-disable-line
+  useEffect(()=>{
+    if(currentUser){
+      const allowed = tabsForRole(currentUser.role);
+      if(!allowed.includes(tab)) setTab(allowed[0]);
+    }
+  },[currentUser]); // eslint-disable-line
 
   if(!currentUser) return <Login onLogin={setCurrentUser} />;
 
-  const allowedTabs = Array.from(new Set([...tabsForRole(currentUser.role), "Pendientes"]));
-
-  // Integración con Pendientes
-  function handleAssignFromSinCasilla({ id, fecha, numero, nombre, tracking, casilla }) {
-    // quitar de sin casilla
-    setSinCasillaItems(prev => prev.filter(r => r.id !== id));
-    // crear pendiente
-    setPending(prev => [
-      {
-        id: uuid(),
-        tipo: "ASIGNAR_CASILLA",
-        creado_en: new Date().toISOString(),
-        fecha_original: fecha || new Date().toISOString().slice(0,10),
-        numero, nombre, tracking,
-        casilla_asignar: casilla
-      },
-      ...prev
-    ]);
-    setTab("Pendientes");
-  }
-  const onAssignCasilla = (payload) => handleAssignFromSinCasilla(payload);
-  const onAssignToPendings = (payload) => handleAssignFromSinCasilla(payload);
-
-  function onCreatePending(payload){
-    setPending(prev => [{ ...payload, creado_en: payload.creado_en || new Date().toISOString() }, ...prev]);
-  }
+  const allowedTabs = tabsForRole(currentUser.role);
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* header simple */}
       <div className="px-6 py-4 flex items-center justify-between">
         <div>
           <div className="text-lg font-semibold">Gestor de Paquetes</div>
@@ -2761,7 +2381,11 @@ function App(){
       <div className="px-6">
         <div className="flex gap-2 flex-wrap mb-4">
           {allowedTabs.map(t=>(
-            <button key={t} onClick={()=>setTab(t)} className={"px-3 py-2 rounded-xl text-sm " + (tab===t ? "bg-indigo-600 text-white" : "bg-white border")}>
+            <button
+              key={t}
+              onClick={()=>setTab(t)}
+              className={"px-3 py-2 rounded-xl text-sm " + (tab===t ? "bg-indigo-600 text-white" : "bg-white border")}
+            >
               {t}
             </button>
           ))}
@@ -2782,8 +2406,6 @@ function App(){
             currentUser={currentUser}
             items={sinCasillaItems}
             setItems={setSinCasillaItems}
-            onAssignCasilla={onAssignCasilla}
-            onAssignToPendings={onAssignToPendings}
           />
         )}
 
@@ -2794,7 +2416,6 @@ function App(){
             user={currentUser}
             onUpdate={(p)=>setPackages(packages.map(x=>x.id===p.id?p:x))}
             onDelete={(id)=>setPackages(packages.filter(p=>p.id!==id))}
-            onCreatePending={onCreatePending}
           />
         )}
 
@@ -2844,15 +2465,6 @@ function App(){
             couriers={couriers}
             extras={extras}
             setExtras={setExtras}
-          />
-        )}
-
-        {tab==="Pendientes" && (
-          <Pendientes
-            pending={pending}
-            setPending={setPending}
-            flights={flights}
-            packages={packages}
           />
         )}
       </div>

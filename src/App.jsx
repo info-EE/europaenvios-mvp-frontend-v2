@@ -1,6 +1,6 @@
-/* Europa Envíos – MVP v0.8.1 (Ajustes de Logo y Exportación de Cajas)
-    - Logo en la barra lateral ajustado a un tamaño más grande y centrado.
-    - Armado de Cajas: La exportación a XLSX se ha rediseñado para coincidir con el formato de la imagen proporcionada, agregando detalles de la caja (peso, medidas, courier) y organizando los paquetes en columnas por courier.
+/* Europa Envíos – MVP v0.8.2 (Reajuste de Exportación de Cajas)
+    - Armado de Cajas: La exportación a XLSX se ha rediseñado completamente para coincidir con el nuevo formato de lista solicitado (IMAGEN 2), mostrando los paquetes en filas individuales y agrupando la información de la caja en la parte superior.
+    - Se mantiene el logo de mayor tamaño.
     - Se ha verificado la funcionalidad de todas las pestañas para asegurar que no haya errores.
 */
 
@@ -1709,8 +1709,8 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
         return;
     }
     if (!flight.cajas || flight.cajas.length === 0) {
-      alert("No hay cajas en esta carga para exportar.");
-      return;
+        alert("No hay cajas en esta carga para exportar.");
+        return;
     }
 
     const wb = XLSX.utils.book_new();
@@ -1718,85 +1718,60 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     const thinBorder = { style: "thin", color: { rgb: "FF000000" } };
     const allBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
 
-    const headerStyle = {
-        font: { bold: true, color: { rgb: "FFFFFFFF" }, sz: 12 },
-        fill: { fgColor: { rgb: "FF4F4F4F" } }, // Dark gray
-        alignment: { horizontal: "center", vertical: "center" },
-        border: allBorders
-    };
-    const subHeaderStyle = {
-        font: { bold: true },
-        alignment: { vertical: "center", wrapText: true }
-    };
-     const courierStyle = {
-        fill: { fgColor: { rgb: "FFE6F2F7" } }, // Light Blue
-        border: allBorders,
-        alignment: { vertical: "center", horizontal: "center" }
-    };
-    const packageStyle = {
-        fill: { fgColor: { rgb: "FFFFEBE0" } }, // Light Orange/Pink
-        border: allBorders,
-        alignment: { vertical: "center" }
-    };
+    const titleStyle = { font: { bold: true }, alignment: { horizontal: "center", vertical: "center" } };
+    const boxInfoStyle = { alignment: { vertical: "top", wrapText: true } };
+    const quantityStyle = { font: { bold: true }, alignment: { vertical: "top" } };
+    
+    const courierHeaderStyle = { font: { bold: true }, fill: { fgColor: { rgb: "FFE6F2F7" } }, border: allBorders, alignment: { horizontal: "center" } };
+    const packageHeaderStyle = { font: { bold: true }, border: allBorders, alignment: { horizontal: "center" } };
+
+    const courierCellStyle = { fill: { fgColor: { rgb: "FFE6F2F7" } }, border: allBorders };
+    const packageCellStyle = { border: allBorders };
+    const emptyCellStyle = { border: allBorders };
 
     flight.cajas.forEach((caja, idx) => {
-        const pkgObjs = (caja.paquetes || []).map(pid => packages.find(p => p.id === pid)).filter(Boolean);
+        const pkgObjs = (caja.paquetes || [])
+            .map(pid => packages.find(p => p.id === pid))
+            .filter(Boolean)
+            .sort((a, b) => (a.courier || "").localeCompare(b.courier || "") || (a.codigo || "").localeCompare(b.codigo || ""));
+
         const cantPaquetes = pkgObjs.length;
-
-        const byCourier = {};
-        pkgObjs.forEach(p => {
-            if (!byCourier[p.courier]) byCourier[p.courier] = [];
-            byCourier[p.courier].push(p.codigo);
-        });
-
-        const couriers = Object.keys(byCourier).sort();
-        const maxPackagesInCourier = Math.max(0, ...couriers.map(c => byCourier[c].length));
-        const packageRowCount = Math.max(10, maxPackagesInCourier);
-
         const wsData = [];
         
         wsData.push([]);
-
-        const headerRow = new Array(11).fill(null);
-        headerRow[1] = { v: "CONTROL DE PAQUETES", s: headerStyle };
-        for(let i=2; i<=10; i++) headerRow[i] = {v: "", s: headerStyle};
-        wsData.push(headerRow);
+        wsData.push([null, {v: "CONTROL DE PAQUETES", s: titleStyle}]);
 
         const couriersInBox = new Set(pkgObjs.map(p => p.courier).filter(Boolean));
         const courierLabel = couriersInBox.size === 0 ? "Vacía" : (couriersInBox.size === 1 ? [...couriersInBox][0] : "MULTICOURIER");
+        const boxInfoText = `CAJA Nº ${idx + 1} (${courierLabel})\nPeso: ${caja.peso ? fmtPeso(parseComma(caja.peso)) : 'N/A'} kg\nMedidas: ${caja.L || 'N/A'}x${caja.A || 'N/A'}x${caja.H || 'N/A'} cm`;
         
-        const cajaInfo = `CAJA Nº ${idx + 1} (${courierLabel})\nPeso: ${caja.peso || 'N/A'} kg\nMedidas: ${caja.L || 'N/A'}x${caja.A || 'N/A'}x${caja.H || 'N/A'} cm`;
+        const infoRow = new Array(8).fill(null);
+        infoRow[1] = { v: boxInfoText, s: boxInfoStyle };
+        infoRow[6] = { v: `CANTIDAD DE PAQUETES: ${cantPaquetes}`, s: quantityStyle };
+        wsData.push(infoRow);
+        
+        wsData.push([]);
 
-        const subHeaderRow = new Array(11).fill(null);
-        subHeaderRow[1] = { v: cajaInfo, s: subHeaderStyle };
-        subHeaderRow[6] = { v: `CANTIDAD DE PAQUETES: ${cantPaquetes}`, s: { ...subHeaderStyle, alignment: { ...subHeaderStyle.alignment, wrapText: false } } };
-        wsData.push(subHeaderRow);
-        
-        const courierTitleRow = [null];
-        couriers.slice(0, 10).forEach(c => courierTitleRow.push({ v: c, s: courierStyle }));
-        while(courierTitleRow.length < 12) courierTitleRow.push({v:"", s: courierStyle});
-        wsData.push(courierTitleRow);
-        
-        for (let i = 0; i < packageRowCount; i++) {
-            const packageRow = [null];
-            couriers.slice(0, 10).forEach(c => {
-                const pkgCode = byCourier[c][i] || "";
-                packageRow.push({ v: pkgCode, s: packageStyle });
-            });
-            while(packageRow.length < 12) packageRow.push({v:"", s: packageStyle});
-            wsData.push(packageRow);
+        wsData.push([null, {v: "COURIER", s: courierHeaderStyle}, {v: "PAQUETE", s: packageHeaderStyle}]);
+
+        pkgObjs.forEach(p => {
+            wsData.push([null, {v: p.courier, s: courierCellStyle}, {v: p.codigo, s: packageCellStyle}]);
+        });
+
+        const minRows = 20;
+        for(let i = pkgObjs.length; i < minRows; i++) {
+            wsData.push([null, {v: "", s: emptyCellStyle}, {v: "", s: emptyCellStyle}]);
         }
 
         const ws = XLSX.utils.aoa_to_sheet(wsData);
 
         ws["!merges"] = [
-            { s: { r: 1, c: 1 }, e: { r: 1, c: 10 } }, // B2:K2
-            { s: { r: 2, c: 1 }, e: { r: 2, c: 5 } },  // B3:F3
-            { s: { r: 2, c: 6 }, e: { r: 2, c: 10 } }, // G3:K3
+            { s: { r: 1, c: 1 }, e: { r: 1, c: 7 } }, // B2:H2
+            { s: { r: 2, c: 1 }, e: { r: 2, c: 4 } }, // B3:E3
         ];
 
-        ws["!cols"] = [{wch: 2}, ...new Array(10).fill({wch: 18})];
-        ws["!rows"] = [ null, {hpt: 25}, {hpt: 50} ];
+        ws["!cols"] = [ {wch: 2}, {wch: 25}, {wch: 25} ];
+        ws["!rows"] = [ null, {hpt: 20}, {hpt: 50} ];
 
         XLSX.utils.book_append_sheet(wb, ws, `CAJA ${idx + 1}`);
     });

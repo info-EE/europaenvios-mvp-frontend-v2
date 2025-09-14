@@ -1,7 +1,9 @@
-/* Europa Envíos – MVP v0.2.8
-    - Armado de Cajas: Corregido el error de selección de caja, el problema de edición de campos y añadido formato al XLSX de respaldo.
-    - Cargas Enviadas: Solucionado el formato de números en el archivo Excel exportado.
-    - Proformas: Ajustado el tamaño del logo para tener un margen de 2mm.
+/* Europa Envíos – MVP v0.2.9 (Revisión Visual Completa)
+    - Nueva paleta de colores (slate) y tipografía (Inter).
+    - Iconos (Heroicons) en toda la aplicación para mejorar la usabilidad.
+    - Mejoras de estilo en Header, Tablas (zebra-striping), Formularios y Botones.
+    - Componente "EmptyState" para cuando no hay datos.
+    - Transiciones suaves para una experiencia más fluida.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +11,15 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recha
 import * as XLSX from "xlsx-js-style";
 import JsBarcode from "jsbarcode";
 import ExcelJS from "exceljs/dist/exceljs.min.js";
+
+/* ========== Iconos SVG (Heroicons) ========== */
+const Iconos = {
+  edit: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>,
+  delete: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>,
+  add: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>,
+  save: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>,
+  box: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>,
+};
 
 /* ========== utils básicos ========== */
 const uuid = () => {
@@ -383,27 +394,40 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
 }
 
 /* ========== UI base ========== */
-const BTN = "px-3 py-2 rounded-xl border bg-white hover:bg-gray-50";
-const BTN_PRIMARY = "px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white";
+const BTN = "px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm transition-colors duration-200";
+const BTN_PRIMARY = "px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition-colors duration-200 flex items-center justify-center gap-2";
+const BTN_ICON = "p-2 rounded-lg hover:bg-slate-100 transition-colors duration-200";
+const BTN_ICON_DANGER = "p-2 rounded-lg hover:bg-red-50 transition-colors duration-200";
 
 const Section = ({title,right,children})=>(
-  <div className="bg-white rounded-2xl shadow p-4 mb-6">
-    <div className="flex items-center justify-between mb-3">
-      <h2 className="text-xl font-semibold">{title}</h2>{right}
+  <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 mb-6">
+    <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+      <h2 className="text-xl font-bold text-slate-800">{title}</h2>
+      <div className="flex items-center gap-2">{right}</div>
     </div>{children}
   </div>
 );
 const Field = ({label,required,children})=>(
   <label className="block">
-    <div className="text-sm text-gray-700 mb-1">
+    <div className="text-sm font-medium text-slate-700 mb-1">
       {label}{required && <span className="text-red-500"> *</span>}
     </div>
     {children}
   </label>
 );
 const Input = (p)=>(
-  <input {...p} className={"w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 ring-indigo-500 "+(p.className||"")} />
+  <input {...p} className={"w-full text-sm rounded-lg border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all " +(p.className||"")} />
 );
+
+function EmptyState({ icon, title, message }) {
+  return (
+    <div className="text-center py-10 px-4 border-2 border-dashed border-slate-200 rounded-lg">
+      <div className="mx-auto w-12 h-12 text-slate-400">{icon}</div>
+      <h3 className="mt-2 text-lg font-medium text-slate-800">{title}</h3>
+      <p className="mt-1 text-sm text-slate-500">{message}</p>
+    </div>
+  );
+}
 
 function PasswordInput({value,onChange,placeholder}) {
   const [show,setShow] = useState(false);
@@ -418,7 +442,7 @@ function PasswordInput({value,onChange,placeholder}) {
       />
       <button
         type="button"
-        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-600"
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-600 font-semibold"
         onClick={()=>setShow(s=>!s)}
       >
         {show ? "Ocultar" : "Ver"}
@@ -430,13 +454,13 @@ function PasswordInput({value,onChange,placeholder}) {
 function Modal({open,onClose,title,children}){
   if(!open) return null;
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow w-full max-w-4xl max-h-[92vh] overflow-auto">
-        <div className="flex items-center justify-between p-4 border-b">
-          <div className="text-lg font-semibold">{title}</div>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[92vh] overflow-auto flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
           <button onClick={onClose} className={BTN}>Cerrar</button>
         </div>
-        <div className="p-4">{children}</div>
+        <div className="p-4 sm:p-6 flex-grow">{children}</div>
       </div>
     </div>
   );
@@ -533,47 +557,50 @@ function Login({onLogin}){
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white rounded-2xl shadow p-6 w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-slate-100">
+      <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8 w-full max-w-md">
         {mode==="login" ? (
           <>
-            <h1 className="text-2xl font-semibold mb-4">Acceso al sistema</h1>
+            <h1 className="text-2xl font-bold text-slate-800 mb-4">Acceso al sistema</h1>
             <Field label="Email" required>
               <Input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@empresa.com"/>
             </Field>
+            <div className="h-4" />
             <Field label="Contraseña" required>
               <PasswordInput value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••"/>
             </Field>
-            {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
-            <button onClick={handleLogin} className={BTN_PRIMARY+" w-full mt-2"}>Entrar</button>
+            {err && <div className="text-red-600 text-sm my-2">{err}</div>}
+            <button onClick={handleLogin} className={BTN_PRIMARY+" w-full mt-4"}>Entrar</button>
 
             {users.length===0 && (
-              <div className="text-xs text-gray-500 mt-3">
+              <div className="text-xs text-slate-500 mt-4 text-center">
                 No hay usuarios creados.{" "}
-                <button className="underline" onClick={()=>setMode("setup-admin")}>Crear primer ADMIN</button>
+                <button className="underline font-semibold" onClick={()=>setMode("setup-admin")}>Crear primer ADMIN</button>
               </div>
             )}
           </>
         ) : (
           <>
-            <h1 className="text-2xl font-semibold mb-1">Configurar primer ADMIN</h1>
-            <p className="text-sm text-gray-600 mb-4">No se encontraron usuarios. Creá la cuenta de administrador.</p>
+            <h1 className="text-2xl font-bold text-slate-800 mb-1">Configurar primer ADMIN</h1>
+            <p className="text-sm text-slate-600 mb-4">No se encontraron usuarios. Creá la cuenta de administrador.</p>
             <Field label="Email del ADMIN" required>
               <Input type="email" value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} placeholder="admin@empresa.com"/>
             </Field>
+             <div className="h-4" />
             <Field label="Contraseña" required>
               <PasswordInput value={adminPass1} onChange={e=>setAdminPass1(e.target.value)} placeholder="••••••••"/>
             </Field>
+             <div className="h-4" />
             <Field label="Repetir contraseña" required>
               <PasswordInput value={adminPass2} onChange={e=>setAdminPass2(e.target.value)} placeholder="••••••••"/>
             </Field>
-            {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
-            <button onClick={createFirstAdmin} disabled={creating} className={BTN_PRIMARY+" w-full mt-2 disabled:opacity-50"}>
+            {err && <div className="text-red-600 text-sm my-2">{err}</div>}
+            <button onClick={createFirstAdmin} disabled={creating} className={BTN_PRIMARY+" w-full mt-4 disabled:opacity-50"}>
               {creating ? "Creando..." : "Crear ADMIN y entrar"}
             </button>
-            <div className="text-xs text-gray-500 mt-3">
+            <div className="text-xs text-slate-500 mt-4 text-center">
               ¿Ya tenías usuarios?{" "}
-              <button className="underline" onClick={()=>setMode("login")}>Volver al login</button>
+              <button className="underline font-semibold" onClick={()=>setMode("login")}>Volver al login</button>
             </div>
           </>
         )}
@@ -666,16 +693,15 @@ function Usuarios({ currentUser, onCurrentUserChange }){
       title="Usuarios"
       right={<div className="flex gap-2 items-end">
         <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
-        <button className={BTN} onClick={refresh}>Recargar</button>
       </div>}
     >
       {/* Alta */}
-      <div className="bg-gray-50 rounded-xl p-3 mb-4">
-        <div className="font-medium mb-2">Crear usuario</div>
-        <div className="grid md:grid-cols-5 gap-2">
+      <div className="bg-slate-50 rounded-xl p-4 mb-4">
+        <div className="font-semibold text-slate-800 mb-3">Crear nuevo usuario</div>
+        <div className="grid md:grid-cols-5 gap-4">
           <Field label="Email" required><Input value={emailNew} onChange={e=>setEmailNew(e.target.value)} placeholder="usuario@empresa.com"/></Field>
           <Field label="Rol" required>
-            <select className="w-full rounded-xl border px-3 py-2" value={roleNew} onChange={e=>setRoleNew(e.target.value)}>
+            <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={roleNew} onChange={e=>setRoleNew(e.target.value)}>
               <option>COURIER</option>
               <option>ADMIN</option>
             </select>
@@ -694,35 +720,35 @@ function Usuarios({ currentUser, onCurrentUserChange }){
           </Field>
         </div>
         {err && <div className="text-red-600 text-sm mt-2">{err}</div>}
-        <div className="flex justify-end mt-3">
-          <button className={BTN_PRIMARY} onClick={addUser}>Crear</button>
+        <div className="flex justify-end mt-4">
+          <button className={BTN_PRIMARY} onClick={addUser}>{Iconos.add} Crear</button>
         </div>
       </div>
 
       {/* Listado */}
-      <div className="overflow-auto">
+      <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="bg-gray-50">
-              {["Email","Rol","Courier","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}
+            <tr className="bg-slate-50">
+              {["Email","Rol","Courier","Acciones"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-200">
             {filtered.map(u=>(
-              <tr key={u.id} className="border-b">
-                <td className="px-3 py-2">{u.email}</td>
-                <td className="px-3 py-2">{u.role}</td>
+              <tr key={u.id} className="hover:bg-slate-50">
+                <td className="px-3 py-2 whitespace-nowrap">{u.email}</td>
+                <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${u.role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>{u.role}</span></td>
                 <td className="px-3 py-2">{u.role==="COURIER" ? (u.courier||"—") : "—"}</td>
                 <td className="px-3 py-2">
                   <div className="flex gap-2">
-                    <button className="px-2 py-1 border rounded" onClick={()=>{ setEdit({...u}); setPw1e(""); setPw2e(""); }}>Editar</button>
-                    <button className="px-2 py-1 border rounded text-red-600" onClick={()=>deleteUser(u)}>Eliminar</button>
+                    <button className={BTN_ICON} onClick={()=>{ setEdit({...u}); setPw1e(""); setPw2e(""); }}>{Iconos.edit}</button>
+                    <button className={BTN_ICON_DANGER} onClick={()=>deleteUser(u)}>{Iconos.delete}</button>
                   </div>
                 </td>
               </tr>
             ))}
             {filtered.length===0 && (
-              <tr><td colSpan={4} className="text-center text-gray-500 py-6">Sin usuarios.</td></tr>
+              <tr><td colSpan={4}><EmptyState icon={Iconos.box} title="Sin usuarios" message="Crea el primer usuario para empezar a gestionar."/></td></tr>
             )}
           </tbody>
         </table>
@@ -731,12 +757,12 @@ function Usuarios({ currentUser, onCurrentUserChange }){
       {/* Modal Edición */}
       <Modal open={!!edit} onClose={()=>setEdit(null)} title="Editar usuario">
         {edit && (
-          <div className="grid md:grid-cols-3 gap-3">
+          <div className="grid md:grid-cols-3 gap-4">
             <Field label="Email" required>
               <Input value={edit.email} onChange={e=>setEdit({...edit, email:e.target.value})}/>
             </Field>
             <Field label="Rol" required>
-              <select className="w-full rounded-xl border px-3 py-2" value={edit.role} onChange={e=>setEdit({...edit, role:e.target.value})}>
+              <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={edit.role} onChange={e=>setEdit({...edit, role:e.target.value})}>
                 <option>COURIER</option>
                 <option>ADMIN</option>
               </select>
@@ -744,7 +770,7 @@ function Usuarios({ currentUser, onCurrentUserChange }){
             <Field label="Courier (si corresponde)">
               <Input list="courierList" value={edit.courier||""} onChange={e=>setEdit({...edit, courier:e.target.value})}/>
             </Field>
-
+            <div className="md:col-span-3 h-px bg-slate-200 my-2" />
             <Field label="Nueva contraseña (opcional)">
               <PasswordInput value={pw1e} onChange={e=>setPw1e(e.target.value)} placeholder="Dejar vacío para no cambiar"/>
             </Field>
@@ -752,9 +778,9 @@ function Usuarios({ currentUser, onCurrentUserChange }){
               <PasswordInput value={pw2e} onChange={e=>setPw2e(e.target.value)} placeholder="Dejar vacío para no cambiar"/>
             </Field>
 
-            <div className="md:col-span-3 flex justify-end gap-2 mt-2">
+            <div className="md:col-span-3 flex justify-end gap-2 mt-4">
               <button className={BTN} onClick={()=>setEdit(null)}>Cancelar</button>
-              <button className={BTN_PRIMARY} onClick={updateUser}>Guardar cambios</button>
+              <button className={BTN_PRIMARY} onClick={updateUser}>{Iconos.save} Guardar cambios</button>
             </div>
           </div>
         )}
@@ -766,17 +792,17 @@ function Usuarios({ currentUser, onCurrentUserChange }){
 function ManageList({label,items,setItems}){
   const [txt,setTxt]=useState("");
   return (
-    <div className="bg-gray-50 rounded-xl p-3">
-      <div className="font-medium mb-2">{label}</div>
+    <div className="bg-slate-50 rounded-xl p-3">
+      <div className="font-medium mb-2 text-slate-800">{label}</div>
       <div className="flex gap-2">
         <Input value={txt} onChange={e=>setTxt(e.target.value)} placeholder={`Agregar a ${label}`}/>
         <button className={BTN} onClick={()=>{ if(!txt.trim()) return; setItems([...items, txt.trim()]); setTxt(""); }}>Añadir</button>
       </div>
       <ul className="mt-2 text-sm">
         {items.map((x,i)=>(
-          <li key={i} className="flex items-center justify-between py-1">
-            <span>{x}</span>
-            <button className="text-red-600 text-xs" onClick={()=>setItems(items.filter((_,j)=>j!==i))}>Quitar</button>
+          <li key={i} className="flex items-center justify-between py-1.5 border-b border-slate-200">
+            <span className="text-slate-700">{x}</span>
+            <button className="text-red-600 text-xs font-semibold" onClick={()=>setItems(items.filter((_,j)=>j!==i))}>Quitar</button>
           </li>
         ))}
       </ul>
@@ -931,12 +957,11 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       right={
         <div className="flex items-center gap-2">
           <button className={BTN} onClick={()=>setShowMgr(s=>!s)}>Gestionar listas</button>
-          <span className="text-sm text-gray-500">Todos los campos obligatorios (salvo foto)</span>
         </div>
       }
     >
       {showMgr && (
-        <div className="grid md:grid-cols-2 gap-3 mb-4">
+        <div className="grid md:grid-cols-2 gap-4 my-4 p-4 bg-slate-50 rounded-lg">
           <ManageList label="Couriers" items={couriers} setItems={setCouriers}/>
           <ManageList label="Estados" items={estados} setItems={setEstados}/>
         </div>
@@ -944,7 +969,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
       <div className="grid md:grid-cols-3 gap-4">
         <Field label="Carga" required>
-          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Seleccionar…</option>
             {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
@@ -954,7 +979,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         </Field>
         <Field label="Courier" required>
           <select
-            className="w-full rounded-xl border px-3 py-2"
+            className="w-full text-sm rounded-lg border-slate-300 px-3 py-2"
             value={form.courier}
             onChange={e=>setForm({...form,courier:e.target.value})}
           >
@@ -966,7 +991,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
           )}
         </Field>
         <Field label="Estado" required>
-          <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
+          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
             <option value="">Seleccionar…</option>
             {estadosPermitidos.map(s=><option key={s}>{s}</option>)}
           </select>
@@ -994,16 +1019,16 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
             <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
             <button type="button" onClick={()=>fileRef.current?.click()} className={BTN}>Seleccionar archivo</button>
             <button type="button" onClick={()=>setCamOpen(true)} className={BTN}>Tomar foto</button>
-            {form.foto ? <span className="text-green-600 text-sm">✓ foto cargada</span> : <span className="text-gray-500 text-sm">Opcional</span>}
+            {form.foto ? <span className="text-green-600 text-sm font-semibold">✓ foto cargada</span> : <span className="text-slate-500 text-sm">Opcional</span>}
           </div>
         </Field>
       </div>
-      <div className="grid md:grid-cols-3 gap-4 mt-4">
+      <div className="grid md:grid-cols-3 gap-4 mt-6">
         <InfoBox title="Peso facturable (mín 0,200 kg)" value={`${fmtPeso(fact)} kg`}/>
         <InfoBox title="Peso volumétrico (A×H×L / 5000)" value={`${fmtPeso(vol)} kg`}/>
         <InfoBox title="Exceso de volumen" value={`${fmtPeso(exc)} kg`}/>
       </div>
-      <div className="flex justify-end mt-4">
+      <div className="flex justify-end mt-6">
         <button onClick={submit} className={BTN_PRIMARY}>Guardar paquete</button>
       </div>
       <Modal open={camOpen} onClose={()=>setCamOpen(false)} title="Tomar foto">
@@ -1019,9 +1044,9 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 }
 
 const InfoBox=({title,value})=>(
-  <div className="bg-gray-50 rounded-xl p-3">
-    <div className="text-sm text-gray-600">{title}</div>
-    <div className="text-2xl font-semibold">{value}</div>
+  <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+    <div className="text-sm text-slate-600">{title}</div>
+    <div className="text-2xl font-semibold text-slate-800">{value}</div>
   </div>
 );
 /* ========== Paquetes sin casilla (con tracking + edición/borrado ADMIN, visibilidad por rol) ========== */
@@ -1126,10 +1151,10 @@ function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
   return (
     <Section
       title="Paquetes sin casilla"
-      right={ isAdmin ? <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button> : null }
+      right={ isAdmin ? <button onClick={exportXLSX} className={BTN}>Exportar XLSX</button> : null }
     >
       {isAdmin && (
-        <div className="grid md:grid-cols-6 gap-3 mb-3">
+        <div className="grid md:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg">
           <Field label="Fecha recepción" required>
             <Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/>
           </Field>
@@ -1140,7 +1165,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
             <Input value={tracking} onChange={e=>setTracking(e.target.value)} placeholder="1Z999..." />
           </Field>
           <div className="flex items-end">
-            <button onClick={add} className={BTN_PRIMARY}>Agregar</button>
+            <button onClick={add} className={BTN_PRIMARY}>{Iconos.add}</button>
           </div>
           <Field label="Filtrar desde">
             <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
@@ -1151,7 +1176,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
         </div>
       )}
       {!isAdmin && (
-        <div className="grid md:grid-cols-2 gap-3 mb-3">
+        <div className="grid md:grid-cols-2 gap-4 mb-4">
           <Field label="Filtrar desde">
             <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
           </Field>
@@ -1160,34 +1185,36 @@ function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
           </Field>
         </div>
       )}
-      <div className="flex items-center gap-2 mb-3">
+      <div className="mb-4">
         <Input placeholder={isAdmin ? "Buscar por Nº, Nombre o Tracking…" : "Buscar por Nº o Nombre…"} value={q} onChange={e=>setQ(e.target.value)} />
       </div>
-      <div className="overflow-auto">
+      <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="bg-gray-50">
-              <th className="text-left px-3 py-2">Fecha recepción</th>
-              <th className="text-left px-3 py-2">Nº paquete</th>
-              <th className="text-left px-3 py-2">Nombre y apellido</th>
-              {isAdmin && <th className="text-left px-3 py-2">Tracking</th>}
-              {isAdmin && <th className="text-left px-3 py-2">Acciones</th>}
+            <tr className="bg-slate-50">
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Fecha recepción</th>
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Nº paquete</th>
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Nombre y apellido</th>
+              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600">Tracking</th>}
+              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-200">
             {filtered.map(r=>(
-              <tr key={r.id} className="border-b">
+              <tr key={r.id} className="hover:bg-slate-50">
                 {editId===r.id ? (
                   <>
-                    <td className="px-3 py-2"><Input type="date" value={editRow.fecha} onChange={e=>setEditRow({...editRow,fecha:e.target.value})}/></td>
-                    <td className="px-3 py-2">{r.numero}</td>
-                    <td className="px-3 py-2"><Input value={editRow.nombre} onChange={e=>setEditRow({...editRow,nombre:e.target.value})}/></td>
-                    {isAdmin && <td className="px-3 py-2"><Input value={editRow.tracking} onChange={e=>setEditRow({...editRow,tracking:e.target.value})}/></td>}
+                    <td className="px-3 py-1"><Input type="date" value={editRow.fecha} onChange={e=>setEditRow({...editRow,fecha:e.target.value})}/></td>
+                    <td className="px-3 py-1">{r.numero}</td>
+                    <td className="px-3 py-1"><Input value={editRow.nombre} onChange={e=>setEditRow({...editRow,nombre:e.target.value})}/></td>
+                    {isAdmin && <td className="px-3 py-1"><Input value={editRow.tracking} onChange={e=>setEditRow({...editRow,tracking:e.target.value})}/></td>}
                     {isAdmin && (
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-1">
                         <div className="flex gap-2">
-                          <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={saveEdit}>Guardar</button>
-                          <button className="px-2 py-1 border rounded" onClick={cancelEdit}>Cancelar</button>
+                          <button className={BTN_ICON + " bg-green-100 text-green-700"} onClick={saveEdit}>{Iconos.save}</button>
+                          <button className={BTN_ICON} onClick={cancelEdit}>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
                         </div>
                       </td>
                     )}
@@ -1201,9 +1228,9 @@ function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
                     {isAdmin && (
                       <td className="px-3 py-2">
                         <div className="flex gap-2">
-                          <button className="px-2 py-1 border rounded bg-green-600 text-white" onClick={()=>handleAsignarCasilla(r)}>Asignar casilla</button>
-                          <button className="px-2 py-1 border rounded" onClick={()=>startEdit(r)}>Editar</button>
-                          <button className="px-2 py-1 border rounded text-red-600" onClick={()=>removeRow(r)}>Eliminar</button>
+                          <button className="px-3 py-1 text-xs rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors" onClick={()=>handleAsignarCasilla(r)}>Asignar casilla</button>
+                          <button className={BTN_ICON} onClick={()=>startEdit(r)}>{Iconos.edit}</button>
+                          <button className={BTN_ICON_DANGER} onClick={()=>removeRow(r)}>{Iconos.delete}</button>
                         </div>
                       </td>
                     )}
@@ -1211,7 +1238,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
                 )}
               </tr>
             ))}
-            {filtered.length===0 && <tr><td colSpan={isAdmin?5:3} className="text-center text-gray-500 py-6">Sin datos.</td></tr>}
+            {filtered.length===0 && <tr><td colSpan={isAdmin?5:3}><EmptyState icon={Iconos.box} title="No hay paquetes sin casilla"/></td></tr>}
           </tbody>
         </table>
       </div>
@@ -1273,8 +1300,8 @@ function Pendientes({ items, setItems }) {
   const renderTaskDetails = (item) => {
     const { type, data } = item;
     switch (type) {
-      case 'ASIGNAR_CASILLA': return `Mover paquete Nº ${data.numero} (${data.nombre}) a la casilla ${data.casilla}.`;
-      case 'CAMBIO_CARGA': return `Cambiar paquete ${data.codigo} de la carga ${data.oldFlight} a la carga ${data.newFlight}.`;
+      case 'ASIGNAR_CASILLA': return <span>Mover paquete <b>Nº {data.numero}</b> ({data.nombre}) a la casilla <b>{data.casilla}</b>.</span>;
+      case 'CAMBIO_CARGA': return <span>Cambiar paquete <b>{data.codigo}</b> de la carga <s>{data.oldFlight}</s> a la carga <b>{data.newFlight}</b>.</span>;
       case 'MANUAL': return data.details;
       default: return JSON.stringify(data);
     }
@@ -1286,7 +1313,7 @@ function Pendientes({ items, setItems }) {
         <Field label="Desde"><Input type="date" value={from} onChange={e => setFrom(e.target.value)} /></Field>
         <Field label="Hasta"><Input type="date" value={to} onChange={e => setTo(e.target.value)} /></Field>
         <Field label="Estado">
-          <select className="rounded-xl border px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="No realizada">No realizada</option>
             <option value="Realizada">Realizada</option>
             <option value="Todas">Todas</option>
@@ -1296,35 +1323,35 @@ function Pendientes({ items, setItems }) {
         <button onClick={() => setModalOpen(true)} className={BTN_PRIMARY}>Agregar Tarea</button>
       </div>
     }>
-      <div className="overflow-auto">
+      <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="bg-gray-50">
-              <th className="text-left px-3 py-2">Fecha</th>
-              <th className="text-left px-3 py-2">Tipo</th>
-              <th className="text-left px-3 py-2">Detalles</th>
-              <th className="text-left px-3 py-2">Acciones</th>
+            <tr className="bg-slate-50">
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Fecha</th>
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Tipo</th>
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Detalles</th>
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-200">
             {filteredItems.map(item => (
-              <tr key={item.id} className="border-b">
+              <tr key={item.id} className="hover:bg-slate-50">
                 <td className="px-3 py-2">{item.fecha}</td>
                 <td className="px-3 py-2">{ item.type === 'ASIGNAR_CASILLA' ? 'Asignar Casilla' : item.type === 'CAMBIO_CARGA' ? 'Cambio Carga' : 'Manual' }</td>
                 <td className="px-3 py-2">{renderTaskDetails(item)}</td>
                 <td className="px-3 py-2">
                   <div className="flex gap-2 flex-wrap">
-                    <button className={`px-2 py-1 border rounded text-white ${item.status === 'No realizada' ? 'bg-green-600' : 'bg-yellow-500'}`} onClick={() => toggleStatus(item.id)}>
+                    <button className={`px-3 py-1 text-xs rounded-lg text-white font-semibold transition-colors ${item.status === 'No realizada' ? 'bg-green-600 hover:bg-green-700' : 'bg-yellow-500 hover:bg-yellow-600'}`} onClick={() => toggleStatus(item.id)}>
                       {item.status === 'No realizada' ? 'Realizada' : 'Pendiente'}
                     </button>
-                    <button className="px-2 py-1 border rounded" onClick={() => startEdit(item)}>Editar</button>
-                    <button className="px-2 py-1 border rounded text-red-600" onClick={() => deleteTask(item.id)}>Eliminar</button>
+                    <button className={BTN_ICON} onClick={() => startEdit(item)}>{Iconos.edit}</button>
+                    <button className={BTN_ICON_DANGER} onClick={() => deleteTask(item.id)}>{Iconos.delete}</button>
                   </div>
                 </td>
               </tr>
             ))}
             {filteredItems.length === 0 && (
-              <tr><td colSpan="4" className="text-center text-gray-500 py-6">No hay tareas para el filtro seleccionado.</td></tr>
+              <tr><td colSpan="4"><EmptyState icon={Iconos.box} title="No hay tareas pendientes" message="El filtro no arrojó resultados o todo está al día."/></td></tr>
             )}
           </tbody>
         </table>
@@ -1334,7 +1361,7 @@ function Pendientes({ items, setItems }) {
         <div className="space-y-4">
           <Field label="Fecha" required><Input type="date" value={newTask.fecha} onChange={e => setNewTask({...newTask, fecha: e.target.value})} /></Field>
           <Field label="Detalles de la Tarea" required>
-            <textarea className="w-full rounded-xl border px-3 py-2" rows="4" value={newTask.details} onChange={e => setNewTask({...newTask, details: e.target.value})} placeholder="Ej: Revisar paquete GLOBALBOX123 por posible daño."/>
+            <textarea className="w-full text-sm rounded-lg border-slate-300 p-3" rows="4" value={newTask.details} onChange={e => setNewTask({...newTask, details: e.target.value})} placeholder="Ej: Revisar paquete GLOBALBOX123 por posible daño."/>
           </Field>
           <div className="flex justify-end gap-2"><button className={BTN} onClick={() => setModalOpen(false)}>Cancelar</button><button className={BTN_PRIMARY} onClick={handleCreateTask}>Guardar Tarea</button></div>
         </div>
@@ -1345,7 +1372,7 @@ function Pendientes({ items, setItems }) {
           <div className="space-y-4">
             <Field label="Fecha" required><Input type="date" value={editItem.fecha} onChange={e => setEditItem({...editItem, fecha: e.target.value})} /></Field>
             <Field label="Detalles de la Tarea" required>
-              <textarea className="w-full rounded-xl border px-3 py-2" rows="4"
+              <textarea className="w-full text-sm rounded-lg border-slate-300 p-3" rows="4"
                 defaultValue={renderTaskDetails(editItem)}
                 onChange={e => {
                   const newData = { details: e.target.value };
@@ -1373,7 +1400,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
     setSort(s => s.key===key ? {key, dir: (s.dir==="asc"?"desc":"asc")} : {key, dir:"asc"});
   };
   const Arrow = ({col})=>{
-    if(sort.key!==col) return <span className="ml-1 text-gray-400">↕</span>;
+    if(sort.key!==col) return <span className="ml-1 text-slate-400">↕</span>;
     return <span className="ml-1">{sort.dir==="asc"?"▲":"▼"}</span>;
   };
 
@@ -1512,7 +1539,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
       <ul className="space-y-1">
         {payload.map((entry, index) => (
           <li key={`item-${index}`} className="flex items-center">
-            <div className="w-3 h-3 mr-2" style={{ backgroundColor: entry.color }} />
+            <div className="w-3 h-3 mr-2 rounded-sm" style={{ backgroundColor: entry.color }} />
             <span>{entry.value}: <span className="font-semibold">{fmtPeso(entry.payload.value)} kg</span></span>
           </li>
         ))}
@@ -1524,64 +1551,56 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
     <Section title="Paquetes en bodega"
       right={
         <div className="flex gap-2 flex-wrap items-end">
-          <select className="rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+          <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Todas las cargas (En bodega)</option>
             {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
           </select>
           <Field label="Desde"> <Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /> </Field>
           <Field label="Hasta"> <Input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /> </Field>
           <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
-          <button onClick={exportXLSX} className="px-3 py-2 bg-gray-800 text-white rounded-xl">Exportar XLSX</button>
+          <button onClick={exportXLSX} className={BTN}>Exportar XLSX</button>
         </div>
       }
     >
-      <div className="overflow-auto">
+      <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="bg-gray-50">
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("carga")}>Carga<Arrow col="carga"/></th>
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("codigo")}>Código<Arrow col="codigo"/></th>
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("casilla")}>Casilla<Arrow col="casilla"/></th>
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("fecha")}>Fecha<Arrow col="fecha"/></th>
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("nombre")}>Nombre<Arrow col="nombre"/></th>
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("tracking")}>Tracking<Arrow col="tracking"/></th>
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("peso_real")}>Peso real<Arrow col="peso_real"/></th>
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("medidas")}>Medidas<Arrow col="medidas"/></th>
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("exceso")}>Exceso<Arrow col="exceso"/></th>
-              <th className="text-left px-3 py-2 cursor-pointer select-none" onClick={()=>toggleSort("descripcion")}>Descripción<Arrow col="descripcion"/></th>
-              <th className="text-left px-3 py-2">Foto</th>
-              <th className="text-left px-3 py-2">Editar</th>
+            <tr className="bg-slate-50">
+              {["Carga", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción"].map(h => (
+                 <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 cursor-pointer select-none" onClick={()=>toggleSort(h.toLowerCase().replace(" ", "_"))}>{h}<Arrow col={h.toLowerCase().replace(" ", "_")}/></th>
+              ))}
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Foto</th>
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-200">
             {rows.map(p=>{
               const carga = flights.find(f=>f.id===p.flight_id)?.codigo || "";
               return (
-                <tr key={p.id} className="border-b">
-                  <td className="px-3 py-2">{carga}</td>
-                  <td className="px-3 py-2 font-mono">{p.codigo}</td>
-                  <td className="px-3 py-2">{p.casilla}</td>
-                  <td className="px-3 py-2">{p.fecha}</td>
+                <tr key={p.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2 whitespace-nowrap">{carga}</td>
+                  <td className="px-3 py-2 font-mono whitespace-nowrap">{p.codigo}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{p.casilla}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{p.fecha}</td>
                   <td className="px-3 py-2">{p.nombre_apellido}</td>
                   <td className="px-3 py-2 font-mono">{p.tracking}</td>
-                  <td className="px-3 py-2">{fmtPeso(p.peso_real)} kg</td>
-                  <td className="px-3 py-2">{p.largo}x{p.ancho}x{p.alto} cm</td>
-                  <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)} kg</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_real)} kg</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{p.largo}x{p.ancho}x{p.alto} cm</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.exceso_volumen)} kg</td>
                   <td className="px-3 py-2">{p.descripcion}</td>
                   <td className="px-3 py-2">
-                    {p.foto ? <img alt="foto" src={p.foto} className="w-14 h-14 object-cover rounded cursor-pointer" onClick={()=>setViewer(p.foto)} /> : "—"}
+                    {p.foto ? <img alt="foto" src={p.foto} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={()=>setViewer(p.foto)} /> : "—"}
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex gap-2">
-                      <button className="px-2 py-1 border rounded" onClick={()=>start(p)} disabled={user.role==="COURIER"}>Editar</button>
-                      <button className="px-2 py-1 border rounded" onClick={()=>printPkgLabel(p)}>Etiqueta</button>
-                      <button className="px-2 py-1 border rounded text-red-600" onClick={()=>requestDelete(p)} disabled={user.role==="COURIER"}>Eliminar</button>
+                      <button className={BTN_ICON} onClick={()=>start(p)} disabled={user.role==="COURIER"}>{Iconos.edit}</button>
+                      <button className={BTN_ICON_DANGER} onClick={()=>requestDelete(p)} disabled={user.role==="COURIER"}>{Iconos.delete}</button>
                     </div>
                   </td>
                 </tr>
               );
             })}
-            {rows.length===0 && <tr><td colSpan={12} className="text-center text-gray-500 py-6">No hay paquetes.</td></tr>}
+            {rows.length===0 && <tr><td colSpan={12}><EmptyState icon={Iconos.box} title="No hay paquetes en bodega" message="Utiliza el filtro para buscar en otras cargas o agrega paquetes en la pestaña de Recepción."/></td></tr>}
           </tbody>
         </table>
       </div>
@@ -1598,8 +1617,8 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
             <>
               {[{data:dataReal,key:"kg_real",title:`Kg reales por courier. Total: `,total:totalReal},
                 {data:dataExc,key:"kg_exceso",title:`Exceso volumétrico por courier. Total: `,total:totalExc}].map((g,ix)=>(
-                <div key={g.key} className="bg-gray-50 rounded-xl p-3">
-                  <div className="text-sm text-gray-700 mb-2">{g.title}<b>{fmtPeso(g.total)} kg</b></div>
+                <div key={g.key} className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                  <div className="text-sm font-semibold text-slate-700 mb-2">{g.title}<b>{fmtPeso(g.total)} kg</b></div>
                   <div className="h-64 flex">
                     <ResponsiveContainer width="66%" height="100%">
                       <PieChart>
@@ -1624,9 +1643,9 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
 
       <Modal open={open} onClose={()=>setOpen(false)} title="Editar paquete">
         {form && (
-          <div className="grid md:grid-cols-3 gap-3">
+          <div className="grid md:grid-cols-3 gap-4">
             <Field label="Carga">
-              <select className="w-full rounded-xl border px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}>
+              <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}>
                 {flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
               </select>
             </Field>
@@ -1636,7 +1655,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
                 const codigo = flights.find(f=>f.id===form.flight_id)?.codigo || "";
                 const opts = estadosPermitidosPorCarga(codigo, ESTADOS_INICIALES);
                 return (
-                  <select className="w-full rounded-xl border px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} disabled={user.role==="COURIER"}>
+                  <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} disabled={user.role==="COURIER"}>
                     {opts.map(s=><option key={s}>{s}</option>)}
                   </select>
                 );
@@ -1655,7 +1674,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
             <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <div className="md:col-span-3 flex items-center justify-between mt-2">
+            <div className="md:col-span-3 flex items-center justify-between mt-4">
               <button onClick={()=>printPkgLabel(form)} className={BTN}>Reimprimir etiqueta</button>
               <div className="flex gap-2">
                 <button onClick={save} className={BTN_PRIMARY} disabled={user.role==="COURIER"}>Guardar</button>
@@ -1685,7 +1704,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     if (flightId) {
         const currentFlight = flights.find(f => f.id === flightId);
         if (currentFlight?.cajas?.length > 0) {
-            // Only set the first box as active if no box is currently active, or if the active one is gone
             if (!activeBoxId || !currentFlight.cajas.some(c => c.id === activeBoxId)) {
                 setActiveBoxId(currentFlight.cajas[0].id);
             }
@@ -1695,7 +1713,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
         setEditingBoxId(null);
         setEditingBoxData(null);
     }
-  },[flightId, flights]);
+  },[flightId]);
 
   const startEditing = (box) => {
     setEditingBoxId(box.id);
@@ -1708,6 +1726,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   };
   
   const saveBoxChanges = () => {
+    if(!editingBoxData) return;
     setFlights(flights.map(f =>
       f.id !== flightId ? f : {
         ...f,
@@ -1844,7 +1863,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     <Section title="Armado de cajas">
       <div className="grid md:grid-cols-3 gap-4">
         <Field label="Seleccionar carga" required>
-          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>{setFlightId(e.target.value);}}>
+          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>{setFlightId(e.target.value);}}>
             <option value="">—</option>
             {flights.filter(f=>f.estado==="En bodega").map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
@@ -1853,11 +1872,11 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
           <Input value={scan} onChange={e=>setScan(limpiar(e.target.value))} onKeyDown={e=>e.key==="Enter"&&assign()} placeholder="BOSSBOX1"/>
         </Field>
         <div className="flex items-end gap-2">
-          <button onClick={addBox} disabled={!flightId} className={"px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50"}>Agregar caja</button>
-          <button onClick={exportCajasXLSX} disabled={!flight} className={"px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50"}>Exportar XLSX</button>
+          <button onClick={addBox} disabled={!flightId} className={BTN_PRIMARY}>Agregar caja</button>
+          <button onClick={exportCajasXLSX} disabled={!flight} className={BTN}>Exportar XLSX</button>
         </div>
         <div className="md:col-span-3">
-          {!flight && <div className="text-gray-500">Seleccioná una carga.</div>}
+          {!flight && <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para empezar a armar las cajas."/>}
           {flight && flight.cajas.map((c)=>{
             const couriers = new Set(c.paquetes.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
             const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
@@ -1868,55 +1887,56 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
             const est = pesoEstimado(c);
 
             return (
-              <div key={c.id} className={`border rounded-2xl p-3 mb-3 ${isActive?"ring-2 ring-indigo-400":"hover:ring-1 hover:ring-indigo-200"}`} onClick={() => setActiveBoxId(c.id)}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="font-medium">
-                    {c.codigo} — {etiqueta} — <span className="font-semibold">{fmtPeso(peso)} kg</span> — {L}x{A}x{H} cm
-                    {isActive && <span className="ml-2 text-indigo-600 text-sm">(activa)</span>}
+              <div key={c.id} className={`border rounded-xl p-4 mb-3 transition-shadow ${isActive?"ring-2 ring-indigo-500 shadow-lg":"hover:shadow-md"}`} onClick={() => setActiveBoxId(c.id)}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-semibold text-slate-800">
+                    {c.codigo} — {etiqueta} — <span>{fmtPeso(peso)} kg</span> — {L}x{A}x{H} cm
+                    {isActive && <span className="ml-2 text-indigo-600 text-xs font-bold">(ACTIVA)</span>}
                   </div>
                   <div className="flex gap-2">
                     {!isEditing
-                      ? <button className="px-2 py-1 border rounded" onClick={(e)=>{e.stopPropagation(); startEditing(c);}}>Editar</button>
-                      : <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={(e)=>{e.stopPropagation(); saveBoxChanges();}}>Guardar</button>
+                      ? <button className={BTN_ICON} onClick={(e)=>{e.stopPropagation(); startEditing(c);}}>{Iconos.edit}</button>
+                      : <button className={BTN_ICON + " bg-green-100 text-green-700"} onClick={(e)=>{e.stopPropagation(); saveBoxChanges();}}>{Iconos.save}</button>
                     }
-                    <button className="px-2 py-1 border rounded" onClick={(e)=>{e.stopPropagation(); reorderBox(c.id,"up")}}>↑</button>
-                    <button className="px-2 py-1 border rounded" onClick={(e)=>{e.stopPropagation(); reorderBox(c.id,"down")}}>↓</button>
-                    <button className="px-2 py-1 border rounded text-red-600" onClick={(e)=>{e.stopPropagation(); removeBox(c.id)}}>Eliminar</button>
+                    <button className={BTN_ICON} onClick={(e)=>{e.stopPropagation(); reorderBox(c.id,"up")}}>↑</button>
+                    <button className={BTN_ICON} onClick={(e)=>{e.stopPropagation(); reorderBox(c.id,"down")}}>↓</button>
+                    <button className={BTN_ICON_DANGER} onClick={(e)=>{e.stopPropagation(); removeBox(c.id)}}>{Iconos.delete}</button>
                   </div>
                 </div>
-                <div className="text-xs text-gray-600 mb-2">
-                  <b>Peso estimado:</b> {fmtPeso(est)} kg (cartón {fmtPeso(parseComma(c.peso_carton||"0"))} kg + paquetes reales)
+                <div className="text-xs text-slate-600 mb-3">
+                  <b>Peso estimado:</b> {fmtPeso(est)} kg (cartón {fmtPeso(parseComma(c.peso_carton||"0"))} kg + paquetes)
                 </div>
                 {isEditing && editingBoxData && (
-                  <div className="grid md:grid-cols-5 gap-2 mb-2" onClick={e=>e.stopPropagation()}>
-                    <Field label="Nombre de caja"><Input value={editingBoxData.codigo} onChange={e=>setEditingBoxData({...editingBoxData, codigo: e.target.value})}/></Field>
-                    <Field label="Peso caja (kg)"><Input value={editingBoxData.peso||""} onChange={e=>setEditingBoxData({...editingBoxData, peso: e.target.value})} placeholder="3,128"/></Field>
+                  <div className="grid md:grid-cols-5 gap-4 mb-3 p-3 bg-slate-50 rounded-lg" onClick={e=>e.stopPropagation()}>
+                    <Field label="Nombre"><Input value={editingBoxData.codigo} onChange={e=>setEditingBoxData({...editingBoxData, codigo: e.target.value})}/></Field>
+                    <Field label="Peso (kg)"><Input value={editingBoxData.peso||""} onChange={e=>setEditingBoxData({...editingBoxData, peso: e.target.value})} placeholder="3,128"/></Field>
                     <Field label="Largo (cm)"><Input value={editingBoxData.L||""} onChange={e=>setEditingBoxData({...editingBoxData, L: e.target.value})}/></Field>
                     <Field label="Ancho (cm)"><Input value={editingBoxData.A||""} onChange={e=>setEditingBoxData({...editingBoxData, A: e.target.value})}/></Field>
                     <Field label="Alto (cm)"><Input value={editingBoxData.H||""} onChange={e=>setEditingBoxData({...editingBoxData, H: e.target.value})}/></Field>
                   </div>
                 )}
-                <ul className="text-sm max-h-48 overflow-auto">
+                <ul className="text-sm space-y-2">
                   {c.paquetes.map(pid=>{
                     const p=packages.find(x=>x.id===pid); if(!p) return null;
                     return (
-                      <li key={pid} className="flex items-center gap-2 py-1 border-b">
-                        <span className="font-mono">{p.codigo}</span><span className="text-gray-600">{p.courier}</span>
-                        <button className="text-red-600 text-xs" onClick={(e)=>{e.stopPropagation(); 
-                          const updatedPaquetes = c.paquetes.filter(z => z !== pid);
-                          const updatedCaja = {...c, paquetes: updatedPaquetes};
-                          setFlights(flights.map(f => f.id === flightId ? {...f, cajas: f.cajas.map(cj => cj.id === c.id ? updatedCaja : cj)} : f));
-                        }}>Quitar</button>
+                      <li key={pid} className="flex items-center gap-3 p-2 bg-slate-50 rounded-md">
+                        <span className="font-mono text-slate-800">{p.codigo}</span><span className="text-slate-500">{p.courier}</span>
+                        <div className="flex-grow" />
                         {flight.cajas.length>1 && (
-                          <select className="text-xs border rounded px-1 py-0.5 ml-auto" defaultValue="" onChange={e=>{e.stopPropagation(); move(pid,c.id,e.target.value)}}>
+                          <select className="text-xs border-slate-300 rounded px-1 py-0.5" defaultValue="" onChange={e=>{e.stopPropagation(); move(pid,c.id,e.target.value)}}>
                             <option value="" disabled>Mover a…</option>
                             {flight.cajas.filter(x=>x.id!==c.id).map(x=><option key={x.id} value={x.id}>{x.codigo}</option>)}
                           </select>
                         )}
+                        <button className={BTN_ICON_DANGER} onClick={(e)=>{e.stopPropagation(); 
+                          const updatedPaquetes = c.paquetes.filter(z => z !== pid);
+                          const updatedCaja = {...c, paquetes: updatedPaquetes};
+                          setFlights(flights.map(f => f.id === flightId ? {...f, cajas: f.cajas.map(cj => cj.id === c.id ? updatedCaja : cj)} : f));
+                        }}>{Iconos.delete}</button>
                       </li>
                     );
                   })}
-                  {c.paquetes.length===0 && <li className="text-gray-500">—</li>}
+                  {c.paquetes.length===0 && <li className="text-slate-500 text-center py-2 text-xs">Arrastra paquetes aquí o escanea su código</li>}
                 </ul>
               </div>
             );
@@ -1996,37 +2016,37 @@ function CargasEnviadas({packages, flights, user}){
 
   return (
     <Section title="Cargas enviadas">
-      <div className="grid md:grid-cols-6 gap-3 items-end">
+      <div className="grid md:grid-cols-6 gap-4 items-end">
         <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
         <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
         <Field label="Estado">
-          <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
+          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
             <option value="">Todos</option>
             {ESTADOS_CARGA.filter(s => s !== 'En bodega').map(s => <option key={s}>{s}</option>)}
           </select>
         </Field>
         <Field label="Carga">
-          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Seleccionar…</option>
             {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
           </select>
         </Field>
         <div className="md:col-span-2 flex items-end justify-end">
-          <button onClick={exportFlightXLSX} disabled={!flight} className={"px-3 py-2 bg-gray-800 text-white rounded-xl disabled:opacity-50"}>
+          <button onClick={exportFlightXLSX} disabled={!flight} className={BTN}>
             Exportar XLSX
           </button>
         </div>
       </div>
 
-      {!flight ? <div className="text-gray-500 mt-4">Elegí una carga para ver contenido.</div> : (
+      {!flight ? <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para ver sus paquetes y cajas." /> : (
         <>
-          <div className="mt-4 text-sm text-gray-600">Paquetes del vuelo <b>{flight.codigo}</b></div>
-          <div className="overflow-auto mb-6">
+          <h3 className="text-lg font-semibold text-slate-800 mt-6 mb-2">Paquetes del vuelo: {flight.codigo}</h3>
+          <div className="overflow-x-auto mb-6">
             <table className="min-w-full text-sm">
-              <thead><tr className="bg-gray-50">{["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Medidas","Exceso","Descripción"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
-              <tbody>
+              <thead><tr className="bg-slate-50">{["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Medidas","Exceso","Descripción"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-200">
                 {paquetesDeVuelo.map(p=>(
-                  <tr key={p.id} className="border-b">
+                  <tr key={p.id} className="hover:bg-slate-50">
                     <td className="px-3 py-2">{p.courier}</td>
                     <td className="px-3 py-2 font-mono">{p.codigo}</td>
                     <td className="px-3 py-2">{p.casilla}</td>
@@ -2039,16 +2059,17 @@ function CargasEnviadas({packages, flights, user}){
                     <td className="px-3 py-2">{p.descripcion}</td>
                   </tr>
                 ))}
-                {paquetesDeVuelo.length===0 && <tr><td colSpan={10} className="text-center text-gray-500 py-6">No hay paquetes para tu usuario.</td></tr>}
+                {paquetesDeVuelo.length===0 && <tr><td colSpan={10}><EmptyState icon={Iconos.box} title="Sin paquetes" message="No hay paquetes para mostrar para tu usuario en esta carga." /></td></tr>}
               </tbody>
             </table>
           </div>
-          <div className="overflow-auto">
+          <h3 className="text-lg font-semibold text-slate-800 mt-6 mb-2">Resumen de Cajas</h3>
+          <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead><tr className="bg-gray-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
-              <tbody>
+              <thead><tr className="bg-slate-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-200">
                 {resumenCajas.map(r=>(
-                  <tr key={r.n} className="border-b">
+                  <tr key={r.n} className="hover:bg-slate-50">
                     <td className="px-3 py-2">{r.codigo}</td>
                     <td className="px-3 py-2">{r.courier}</td>
                     <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
@@ -2058,7 +2079,7 @@ function CargasEnviadas({packages, flights, user}){
                     <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
                   </tr>
                 ))}
-                <tr><td></td><td className="px-3 py-2 font-semibold">Totales</td><td className="px-3 py-2 font-semibold">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2 font-semibold">{fmtPeso(totVol)}</td></tr>
+                <tr className="bg-slate-100 font-bold"><td className="px-3 py-2"></td><td className="px-3 py-2">Totales</td><td className="px-3 py-2">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2">{fmtPeso(totVol)}</td></tr>
               </tbody>
             </table>
           </div>
@@ -2126,36 +2147,37 @@ function CargasAdmin({flights,setFlights, packages}){
         <div className="flex gap-2 items-end">
           <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
           <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
-          <div className="w-px h-10 bg-gray-200 mx-1"/>
-          <Input placeholder="Código de carga" value={code} onChange={e=>setCode(e.target.value)}/>
-          <Input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
-          <Input placeholder="AWB (opcional)" value={awb} onChange={e=>setAwb(e.target.value)}/>
-          <Input placeholder="Factura Cacesa (opcional)" value={fac} onChange={e=>setFac(e.target.value)}/>
-          <button onClick={create} className={BTN_PRIMARY}>Crear</button>
         </div>
       }>
-      <div className="overflow-auto">
+      <div className="bg-slate-50 rounded-xl p-4 mb-4 grid md:grid-cols-5 gap-4 items-end">
+        <Field label="Código de carga" required><Input placeholder="AIR-..." value={code} onChange={e=>setCode(e.target.value)}/></Field>
+        <Field label="Fecha de salida" required><Input type="date" value={date} onChange={e=>setDate(e.target.value)}/></Field>
+        <Field label="AWB (opcional)"><Input value={awb} onChange={e=>setAwb(e.target.value)}/></Field>
+        <Field label="Factura Cacesa (opcional)"><Input value={fac} onChange={e=>setFac(e.target.value)}/></Field>
+        <button onClick={create} className={BTN_PRIMARY}>Crear Carga</button>
+      </div>
+      <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead><tr className="bg-gray-50">{["Código","Fecha salida","Estado","AWB","Factura Cacesa","Cajas","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
-          <tbody>
+          <thead><tr className="bg-slate-50">{["Código","Fecha salida","Estado","AWB","Factura Cacesa","Cajas","Acciones"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+          <tbody className="divide-y divide-slate-200">
             {list.map(f=>(
-              <tr key={f.id} className="border-b">
-                <td className="px-3 py-2"><Input value={f.codigo} onChange={e=>upd(f.id,"codigo",e.target.value)}/></td>
-                <td className="px-3 py-2"><Input type="date" value={f.fecha_salida} onChange={e=>upd(f.id,"fecha_salida",e.target.value)}/></td>
-                <td className="px-3 py-2">
-                  <select className="border rounded px-2 py-1" value={f.estado} onChange={e=>upd(f.id,"estado",e.target.value)}>
+              <tr key={f.id} className="hover:bg-slate-50">
+                <td className="px-3 py-1"><Input value={f.codigo} onChange={e=>upd(f.id,"codigo",e.target.value)}/></td>
+                <td className="px-3 py-1"><Input type="date" value={f.fecha_salida} onChange={e=>upd(f.id,"fecha_salida",e.target.value)}/></td>
+                <td className="px-3 py-1">
+                  <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={f.estado} onChange={e=>upd(f.id,"estado",e.target.value)}>
                     {ESTADOS_CARGA.map(s=><option key={s}>{s}</option>)}
                   </select>
                 </td>
-                <td className="px-3 py-2"><Input value={f.awb||""} onChange={e=>upd(f.id,"awb",e.target.value)}/></td>
-                <td className="px-3 py-2"><Input value={f.factura_cacesa||""} onChange={e=>upd(f.id,"factura_cacesa",e.target.value)}/></td>
-                <td className="px-3 py-2">{f.cajas.length}</td>
-                <td className="px-3 py-2">
-                  <button className="px-2 py-1 border rounded text-red-600" onClick={()=>del(f.id)}>Eliminar</button>
+                <td className="px-3 py-1"><Input value={f.awb||""} onChange={e=>upd(f.id,"awb",e.target.value)}/></td>
+                <td className="px-3 py-1"><Input value={f.factura_cacesa||""} onChange={e=>upd(f.id,"factura_cacesa",e.target.value)}/></td>
+                <td className="px-3 py-1">{f.cajas.length}</td>
+                <td className="px-3 py-1">
+                  <button className={BTN_ICON_DANGER} onClick={()=>del(f.id)}>{Iconos.delete}</button>
                 </td>
               </tr>
             ))}
-            {list.length===0 && <tr><td colSpan={7} className="text-center text-gray-500 py-6">Sin resultados.</td></tr>}
+            {list.length===0 && <tr><td colSpan={7}><EmptyState icon={Iconos.box} title="No hay cargas" message="Crea una nueva carga para empezar a asociar paquetes." /></td></tr>}
           </tbody>
         </table>
       </div>
@@ -2239,29 +2261,29 @@ function Proformas({packages, flights, extras}){
         <div className="flex gap-2 items-end">
           <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
           <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
-          <select className="rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+          <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Seleccionar carga…</option>
             {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
         </div>
       }
     >
-      {!flight ? <div className="text-gray-500">Seleccioná una carga.</div> : (
-        <div className="overflow-auto">
+      {!flight ? <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para ver las proformas por courier." /> : (
+        <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead><tr className="bg-gray-50">{["Courier","Kg facturable","Kg exceso","TOTAL USD","XLSX"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
-            <tbody>
+            <thead><tr className="bg-slate-50">{["Courier","Kg facturable","Kg exceso","TOTAL USD","XLSX"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+            <tbody className="divide-y divide-slate-200">
               {porCourier.map(r=>{
                 const proc=r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
                 const canje=canjeGuiaUSD(r.kg_fact), extrasMonto=extrasDeCourier(r.courier).reduce((s,e)=>s+parseComma(e.monto),0);
                 const com=0.04*(proc+fr+fe+extrasMonto); const tot = proc+fr+fe+desp+canje+extrasMonto+com;
                 return (
-                  <tr key={r.courier} className="border-b">
+                  <tr key={r.courier} className="hover:bg-slate-50">
                     <td className="px-3 py-2">{r.courier}</td>
                     <td className="px-3 py-2">{fmtPeso(r.kg_fact)} kg</td>
                     <td className="px-3 py-2">{fmtPeso(r.kg_exc)} kg</td>
-                    <td className="px-3 py-2 font-semibold">{fmtMoney(tot)}</td>
-                    <td className="px-3 py-2"><button className="px-2 py-1 border rounded" onClick={()=>exportX(r)}>Descargar</button></td>
+                    <td className="px-3 py-2 font-semibold text-slate-800">{fmtMoney(tot)}</td>
+                    <td className="px-3 py-2"><button className={BTN} onClick={()=>exportX(r)}>Descargar</button></td>
                   </tr>
                 );
               })}
@@ -2301,21 +2323,21 @@ function Extras({flights, couriers, extras, setExtras}){
 
   return (
     <Section title="Trabajos extras">
-      <div className="grid md:grid-cols-6 gap-2 mb-2">
-        <Field label="Carga"><select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}><option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}</select></Field>
-        <Field label="Courier"><select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}><option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}</select></Field>
+      <div className="grid md:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg items-end">
+        <Field label="Carga"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}><option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}</select></Field>
+        <Field label="Courier"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}><option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}</select></Field>
         <Field label="Descripción"><Input value={desc} onChange={e=>setDesc(e.target.value)}/></Field>
         <Field label="Monto (USD)"><Input value={monto} onChange={e=>setMonto(e.target.value)} placeholder="10,00"/></Field>
-        <Field label="Estado"><select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}><option>Pendiente</option><option>Cobrado</option></select></Field>
+        <Field label="Estado"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}><option>Pendiente</option><option>Cobrado</option></select></Field>
         <Field label="Fecha"><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>
+        <div className="md:col-span-6 flex justify-end"><button onClick={add} className={BTN_PRIMARY}>Agregar</button></div>
       </div>
-      <div className="flex justify-end mb-4"><button onClick={add} className={BTN_PRIMARY}>Agregar</button></div>
 
-      <div className="grid md:grid-cols-3 gap-2 mb-3">
+      <div className="grid md:grid-cols-3 gap-4 mb-4">
         <Field label="Filtrar desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
         <Field label="Filtrar hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
         <Field label="Filtrar por estado">
-            <select className="w-full rounded-xl border px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
                 <option value="Pendiente">Pendiente</option>
                 <option value="Cobrado">Cobrado</option>
                 <option value="Todos">Todos</option>
@@ -2323,25 +2345,25 @@ function Extras({flights, couriers, extras, setExtras}){
         </Field>
       </div>
 
-      <div className="overflow-auto">
+      <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead><tr className="bg-gray-50">{["Fecha","Carga","Courier","Descripción","Monto (USD)","Estado","Acciones"].map(h=><th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
-          <tbody>
+          <thead><tr className="bg-slate-50">{["Fecha","Carga","Courier","Descripción","Monto (USD)","Estado","Acciones"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+          <tbody className="divide-y divide-slate-200">
             {filtered.map(e=>{
               const carga = flights.find(f=>f.id===e.flight_id)?.codigo || "";
               return (
-                <tr key={e.id} className="border-b">
-                  <td className="px-3 py-2">{e.fecha || flights.find(f=>f.id===e.flight_id)?.fecha_salida || ""}</td>
-                  <td className="px-3 py-2">{carga}</td>
-                  <td className="px-3 py-2">{e.courier}</td>
-                  <td className="px-3 py-2"><Input value={e.descripcion} onChange={ev=>upd(e.id,{descripcion:ev.target.value})}/></td>
-                  <td className="px-3 py-2"><Input value={e.monto} onChange={ev=>upd(e.id,{monto:ev.target.value})}/></td>
-                  <td className="px-3 py-2">
-                    <select className="border rounded px-2 py-1" value={e.estado} onChange={ev=>upd(e.id,{estado:ev.target.value})}>
+                <tr key={e.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-1">{e.fecha || flights.find(f=>f.id===e.flight_id)?.fecha_salida || ""}</td>
+                  <td className="px-3 py-1">{carga}</td>
+                  <td className="px-3 py-1">{e.courier}</td>
+                  <td className="px-3 py-1"><Input value={e.descripcion} onChange={ev=>upd(e.id,{descripcion:ev.target.value})}/></td>
+                  <td className="px-3 py-1"><Input value={e.monto} onChange={ev=>upd(e.id,{monto:ev.target.value})}/></td>
+                  <td className="px-3 py-1">
+                    <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={e.estado} onChange={ev=>upd(e.id,{estado:ev.target.value})}>
                       <option>Pendiente</option><option>Cobrado</option>
                     </select>
                   </td>
-                  <td className="px-3 py-2"><button onClick={()=>del(e.id)} className="px-2 py-1 border rounded text-red-600">Eliminar</button></td>
+                  <td className="px-3 py-1"><button onClick={()=>del(e.id)} className={BTN_ICON_DANGER}>{Iconos.delete}</button></td>
                 </tr>
               );
             })}
@@ -2398,23 +2420,25 @@ function App(){
   const allowedTabs = tabsForRole(currentUser.role);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="px-6 py-4 flex items-center justify-between">
-        <div>
-          <div className="text-lg font-semibold">Gestor de Paquetes</div>
-          <div className="text-xs text-gray-500">LaMaquinaLogistica / Europa Envíos</div>
+    <>
+      <header className="bg-white shadow-sm sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-semibold text-slate-800">Gestor de Paquetes</h1>
+            <p className="text-xs text-slate-500">LaMaquinaLogistica / Europa Envíos</p>
+          </div>
+          <div className="text-sm text-slate-600 font-medium bg-slate-100 px-3 py-1 rounded-full">
+            {currentUser.email}
+          </div>
         </div>
-        <div className="text-sm text-gray-600">
-          {currentUser.role} — {currentUser.email}
-        </div>
-      </div>
-      <div className="px-6">
-        <div className="flex gap-2 flex-wrap mb-4">
+      </header>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="flex gap-2 flex-wrap mb-6">
           {allowedTabs.map(t=>(
             <button
               key={t}
               onClick={()=>setTab(t)}
-              className={"px-3 py-2 rounded-xl text-sm " + (tab===t ? "bg-indigo-600 text-white" : "bg-white border")}
+              className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors duration-200 ${tab===t ? "bg-indigo-600 text-white" : "bg-white hover:bg-slate-50 text-slate-700"}`}
             >
               {t}
             </button>
@@ -2431,8 +2455,8 @@ function App(){
         {tab==="Proformas" && <Proformas packages={packages} flights={flights} extras={extras}/>}
         {tab==="Usuarios" && <Usuarios currentUser={currentUser} onCurrentUserChange={(u)=>setCurrentUser(u)}/>}
         {tab==="Extras" && <Extras flights={flights} couriers={couriers} extras={extras} setExtras={setExtras}/>}
-      </div>
-    </div>
+      </main>
+    </>
   );
 }
 

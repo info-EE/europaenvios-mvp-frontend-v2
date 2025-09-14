@@ -1,6 +1,10 @@
-/* Europa Envíos – MVP v0.4.1 (Logo Mejorado)
-    - Se aumenta el tamaño del logo en la barra lateral para una mejor visibilidad.
-    - Se ajusta el espacio del contenedor del logo para que encaje perfectamente.
+/* Europa Envíos – MVP v0.5.0 (Funcionalidades y Mejoras Clave)
+    - El logo en la barra lateral ahora es significativamente más grande y visible.
+    - Dashboard: El gráfico de torta ahora muestra la distribución de KG reales por courier en bodega.
+    - Paquetes en Bodega: Los paquetes no asignados a una caja permanecen visibles incluso si el estado de la carga cambia.
+    - Gestión de Cargas: Se corrigió el error que impedía editar el AWB y el estado. Ahora los cambios se guardan correctamente.
+    - Gestión de Cargas: Se añadió la funcionalidad para subir y guardar documentos en cada carga, con opción de eliminarlos.
+    - Se ha mantenido la estabilidad y funcionalidad del resto de las pestañas.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -11,6 +15,8 @@ import ExcelJS from "exceljs/dist/exceljs.min.js";
 
 /* ========== Iconos SVG (Heroicons) ========== */
 const Iconos = {
+  upload: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>,
+  file: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>,
   dashboard: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>,
   edit: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>,
   delete: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>,
@@ -647,6 +653,17 @@ function Dashboard({ packages, flights, pendientes, onTabChange }) {
     });
     return Object.entries(data).map(([name, value]) => ({ name, paquetes: value }));
   }, [packages]);
+  
+  const kgPorCourier = useMemo(() => {
+    const agg = {};
+    paquetesEnBodega.forEach(p => {
+        agg[p.courier] = (agg[p.courier] || 0) + p.peso_real;
+    });
+    return Object.entries(agg)
+        .filter(([, kg]) => kg > 0)
+        .map(([name, value]) => ({ name, value }));
+  }, [paquetesEnBodega]);
+
 
   return (
     <div>
@@ -685,21 +702,16 @@ function Dashboard({ packages, flights, pendientes, onTabChange }) {
         </div>
         
         <div className="bg-white p-6 rounded-xl shadow-md">
-           <h3 className="font-semibold text-slate-700 mb-4">Distribución por Courier (en bodega)</h3>
+           <h3 className="font-semibold text-slate-700 mb-4">Kg Reales por Courier (en bodega)</h3>
             <ResponsiveContainer width="100%" height={300}>
-            {paquetesEnBodega.length > 0 ? (
+            {kgPorCourier.length > 0 ? (
                 <PieChart>
-                    <Pie data={
-                        Object.entries(paquetesEnBodega.reduce((acc, p) => {
-                            acc[p.courier] = (acc[p.courier] || 0) + 1;
-                            return acc;
-                        }, {})).map(([name, value]) => ({ name, value }))
-                    } dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100}>
-                    {Object.keys(paquetesEnBodega.reduce((acc, p) => ({...acc, [p.courier]: 1}), {})).map((_, i) => (
+                    <Pie data={kgPorCourier} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100}>
+                    {kgPorCourier.map((_, i) => (
                         <Cell key={`cell-${i}`} fill={COLORS[i % COLORS.length]} />
                     ))}
                     </Pie>
-                    <Tooltip formatter={(value) => `${value} paquete(s)`} />
+                    <Tooltip formatter={(value) => `${fmtPeso(value)} kg`} />
                     <Legend />
                 </PieChart>
             ) : <div className="flex items-center justify-center h-full text-slate-500">No hay paquetes en bodega</div> }
@@ -709,6 +721,7 @@ function Dashboard({ packages, flights, pendientes, onTabChange }) {
     </div>
   );
 }
+
 
 /* ========== Gestión de Usuarios (solo ADMIN) ========== */
 function Usuarios({ currentUser, onCurrentUserChange }){
@@ -1505,16 +1518,25 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
     return <span className="ml-1">{sort.dir==="asc"?"▲":"▼"}</span>;
   };
 
-  const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const pref = user.role==="COURIER" ? courierPrefix(user.courier) : null;
 
-  const baseRows = packages
-    .filter(p => flights.find(f=>f.id===p.flight_id)?.estado==="En bodega")
-    .filter(p => !flightId || p.flight_id===flightId)
-    .filter(p => !dateFrom || (p.fecha||"") >= dateFrom)
-    .filter(p => !dateTo   || (p.fecha||"") <= dateTo)
-    .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()))
-    .filter(p => user.role!=="COURIER" || (p.courier===user.courier && String(p.codigo||"").toUpperCase().startsWith(pref)));
+  const baseRows = useMemo(() => {
+    const paquetesEnCajaIds = new Set(flights.flatMap(f => f.cajas || []).flatMap(c => c.paquetes || []));
+    
+    return packages
+      .filter(p => {
+        const flight = flights.find(f => f.id === p.flight_id);
+        if (!flight) return false;
+        // Mostrar si la carga está "En bodega" O si el paquete no está en ninguna caja.
+        return flight.estado === "En bodega" || !paquetesEnCajaIds.has(p.id);
+      })
+      .filter(p => !flightId || p.flight_id === flightId)
+      .filter(p => !dateFrom || (p.fecha || "") >= dateFrom)
+      .filter(p => !dateTo || (p.fecha || "") <= dateTo)
+      .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()))
+      .filter(p => user.role !== "COURIER" || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref)));
+  }, [packages, flights, flightId, dateFrom, dateTo, q, user, pref]);
+
 
   const getSortVal = (p, key)=>{
     switch(key){
@@ -1653,8 +1675,8 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
       right={
         <div className="flex gap-2 flex-wrap items-end">
           <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
-            <option value="">Todas las cargas (En bodega)</option>
-            {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
+            <option value="">Todas las cargas</option>
+            {flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
           </select>
           <Field label="Desde"> <Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /> </Field>
           <Field label="Hasta"> <Input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /> </Field>
@@ -2201,7 +2223,7 @@ function CargasAdmin({flights,setFlights, packages}){
 
   function create(){
     if(!code) return;
-    setFlights([{id:uuid(),codigo:code,fecha_salida:date,estado:"En bodega",awb,factura_cacesa:fac,cajas:[]},...flights]);
+    setFlights([{id:uuid(),codigo:code,fecha_salida:date,estado:"En bodega",awb,factura_cacesa:fac,cajas:[], docs: []},...flights]);
     setCode(""); setAwb(""); setFac("");
   }
   
@@ -2238,6 +2260,31 @@ function CargasAdmin({flights,setFlights, packages}){
     if(!ok) return;
     setFlights(flights.filter(x=>x.id!==id));
   }
+  
+  const handleFileUpload = (e, flightId) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const newDoc = {
+        id: uuid(),
+        name: file.name,
+        data: event.target.result,
+      };
+      setFlights(flights.map(f =>
+        f.id === flightId ? { ...f, docs: [...(f.docs || []), newDoc] } : f
+      ));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const deleteDocument = (flightId, docId) => {
+    setFlights(flights.map(f =>
+      f.id === flightId ? { ...f, docs: f.docs.filter(d => d.id !== docId) } : f
+    ));
+  };
+
 
   const list = flights
     .filter(f=>!from || f.fecha_salida>=from)
@@ -2260,77 +2307,57 @@ function CargasAdmin({flights,setFlights, packages}){
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {list.length > 0 ? list.map(f => {
-          const isEditing = edit?.id === f.id;
-          return (
+        {list.length > 0 ? list.map(f => (
             <div key={f.id} className="bg-white rounded-xl shadow-md border border-slate-200 flex flex-col">
-              <div className="p-4 border-b border-slate-200">
-                {isEditing ? (
-                  <Input value={edit.codigo} onChange={e => setEdit({...edit, codigo: e.target.value})} />
-                ) : (
-                  <h3 className="font-bold text-lg text-slate-800">{f.codigo}</h3>
-                )}
+              <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                <Input className="text-lg font-bold !border-0 !p-0 !ring-0" value={f.codigo} onChange={e => upd(f.id, "codigo", e.target.value)} />
+                <div className="flex gap-2">
+                    <button className={BTN_ICON} onClick={() => document.getElementById(`file-input-${f.id}`).click()}>{Iconos.upload}</button>
+                    <input type="file" id={`file-input-${f.id}`} className="hidden" onChange={(e) => handleFileUpload(e, f.id)} />
+                    <button className={BTN_ICON_DANGER} onClick={()=>del(f.id)}>{Iconos.delete}</button>
+                </div>
               </div>
               <div className="p-4 space-y-3 flex-grow">
-                <div className="flex justify-between items-center">
+                 <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">Estado</span>
-                  {isEditing ? (
-                     <select className="text-sm rounded-lg border-slate-300 px-2 py-1" value={edit.estado} onChange={e => setEdit({...edit, estado: e.target.value})}>
-                       {ESTADOS_CARGA.map(s=><option key={s}>{s}</option>)}
-                     </select>
-                  ) : (
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${f.estado === 'En bodega' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>{f.estado}</span>
-                  )}
+                  <select className="text-sm rounded-lg border-slate-300 px-2 py-1" value={f.estado} onChange={e => upd(f.id, "estado", e.target.value)}>
+                    {ESTADOS_CARGA.map(s=><option key={s}>{s}</option>)}
+                  </select>
                 </div>
                  <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">Fecha Salida</span>
-                  {isEditing ? (
-                    <Input type="date" value={edit.fecha_salida} onChange={e => setEdit({...edit, fecha_salida: e.target.value})} />
-                  ) : (
-                    <span className="text-sm text-slate-700">{f.fecha_salida}</span>
-                  )}
+                  <Input type="date" value={f.fecha_salida} onChange={e => upd(f.id, "fecha_salida", e.target.value)} />
                 </div>
                  <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">AWB</span>
-                   {isEditing ? (
-                    <Input value={edit.awb} onChange={e => setEdit({...edit, awb: e.target.value})} />
-                  ) : (
-                    <span className="text-sm text-slate-700">{f.awb || 'N/A'}</span>
-                  )}
+                  <Input value={f.awb || ""} onChange={e => upd(f.id, "awb", e.target.value)} />
                 </div>
                  <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">Factura</span>
-                   {isEditing ? (
-                    <Input value={edit.factura_cacesa} onChange={e => setEdit({...edit, factura_cacesa: e.target.value})} />
-                  ) : (
-                    <span className="text-sm text-slate-700">{f.factura_cacesa || 'N/A'}</span>
-                  )}
+                  <Input value={f.factura_cacesa || ""} onChange={e => upd(f.id, "factura_cacesa", e.target.value)} />
                 </div>
                  <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">Cajas</span>
                   <span className="text-sm font-bold text-slate-800">{f.cajas?.length || 0}</span>
                 </div>
               </div>
-              <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
-                {isEditing ? (
-                  <>
-                    <button className={BTN_ICON} onClick={() => setEdit(null)}>
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                    <button className={BTN_ICON + " bg-green-100 text-green-700"} onClick={() => { upd(edit.id, 'codigo', edit.codigo); upd(edit.id, 'estado', edit.estado); upd(edit.id, 'fecha_salida', edit.fecha_salida); upd(edit.id, 'awb', edit.awb); upd(edit.id, 'factura_cacesa', edit.factura_cacesa); setEdit(null); }}>
-                      {Iconos.save}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button className={BTN_ICON} onClick={() => setEdit({...f})}>{Iconos.edit}</button>
-                    <button className={BTN_ICON_DANGER} onClick={()=>del(f.id)}>{Iconos.delete}</button>
-                  </>
-                )}
-              </div>
+               {(f.docs && f.docs.length > 0) && (
+                <div className="p-4 border-t border-slate-200">
+                    <h4 className="text-sm font-semibold text-slate-600 mb-2">Documentos Adjuntos</h4>
+                    <ul className="space-y-2">
+                        {f.docs.map(doc => (
+                            <li key={doc.id} className="flex items-center justify-between text-sm bg-slate-50 p-2 rounded-md">
+                                <a href={doc.data} download={doc.name} className="text-francia-600 hover:underline flex items-center gap-2">
+                                    {Iconos.file} {doc.name}
+                                </a>
+                                <button onClick={() => deleteDocument(f.id, doc.id)} className={BTN_ICON_DANGER}>{Iconos.delete}</button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+               )}
             </div>
-          )
-        }) : (
+          )) : (
           <div className="lg:col-span-3">
              <EmptyState icon={Iconos.box} title="No hay cargas" message="Crea una nueva carga para empezar a asociar paquetes." />
           </div>
@@ -2536,14 +2563,14 @@ function App(){
   const [tab,setTab]=useState("Dashboard");
   const [couriers,setCouriers]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_couriers_v1")) || COURIERS_INICIALES; } catch { return COURIERS_INICIALES; } });
   const [estados,setEstados]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_estados_v1")) || ESTADOS_INICIALES; } catch { return ESTADOS_INICIALES; } });
-  const [flights,setFlights]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_flights_v1")) || []; } catch { return []; } });
+  const [flights,setFlights]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_flights_v2")) || []; } catch { return []; } });
   const [packages,setPackages]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_packages_v1")) || []; } catch { return []; } });
   const [extras,setExtras]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_extras_v1")) || []; } catch { return []; } });
 
   // --- Persistencia en localStorage ---
   useEffect(() => { localStorage.setItem("ee_couriers_v1", JSON.stringify(couriers)); }, [couriers]);
   useEffect(() => { localStorage.setItem("ee_estados_v1", JSON.stringify(estados)); }, [estados]);
-  useEffect(() => { localStorage.setItem("ee_flights_v1", JSON.stringify(flights)); }, [flights]);
+  useEffect(() => { localStorage.setItem("ee_flights_v2", JSON.stringify(flights)); }, [flights]);
   useEffect(() => { localStorage.setItem("ee_packages_v1", JSON.stringify(packages)); }, [packages]);
   useEffect(() => { localStorage.setItem("ee_extras_v1", JSON.stringify(extras)); }, [extras]);
 
@@ -2580,11 +2607,11 @@ function App(){
   ];
 
   return (
-    <div className="h-screen w-screen grid grid-cols-[256px_1fr] grid-rows-[64px_1fr] bg-slate-100">
+    <div className="h-screen w-screen grid grid-cols-[256px_1fr] grid-rows-[auto_1fr] bg-slate-100">
       {/* Barra de Navegación Lateral */}
       <aside className="row-span-2 bg-white border-r border-slate-200 flex flex-col">
-        <div className="p-4 h-20 border-b border-slate-200 flex items-center justify-center">
-            <img src="/logo.png" alt="Logo Europa Envíos" className="h-14" />
+        <div className="p-4 h-24 border-b border-slate-200 flex items-center justify-center">
+            <img src="/logo.png" alt="Logo Europa Envíos" className="h-20" />
         </div>
         <nav className="flex-grow p-4 space-y-6 overflow-y-auto">
           {navStructure.map(group => {
@@ -2619,7 +2646,7 @@ function App(){
       </aside>
       
       {/* Barra Superior */}
-      <header className="bg-white border-b border-slate-200 flex items-center justify-end px-6">
+      <header className="bg-white border-b border-slate-200 flex items-center justify-end px-6 h-16">
         <div className="flex items-center gap-4">
           <div className="text-right">
             <p className="text-sm font-semibold text-slate-700">{currentUser.email}</p>

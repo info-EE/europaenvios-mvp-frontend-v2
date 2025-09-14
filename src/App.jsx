@@ -1,10 +1,11 @@
-/* Europa Envíos – MVP v0.5.0 (Funcionalidades y Mejoras Clave)
-    - El logo en la barra lateral ahora es significativamente más grande y visible.
-    - Dashboard: El gráfico de torta ahora muestra la distribución de KG reales por courier en bodega.
-    - Paquetes en Bodega: Los paquetes no asignados a una caja permanecen visibles incluso si el estado de la carga cambia.
-    - Gestión de Cargas: Se corrigió el error que impedía editar el AWB y el estado. Ahora los cambios se guardan correctamente.
-    - Gestión de Cargas: Se añadió la funcionalidad para subir y guardar documentos en cada carga, con opción de eliminarlos.
-    - Se ha mantenido la estabilidad y funcionalidad del resto de las pestañas.
+/* Europa Envíos – MVP v0.6.0 (Mejoras de UX y Funcionalidad)
+    - Logo en la barra lateral redimensionado para una presencia visual óptima.
+    - Dashboard: Se añade un listado detallado de KG por courier junto al gráfico, con un total general.
+    - Paquetes en Bodega: Se asegura que los paquetes no asignados a cajas permanezcan visibles, independientemente del estado de la carga.
+    - Gestión de Cargas: Se ha añadido un filtro por estado para una mejor organización.
+    - Gestión de Cargas: El filtro de fecha ahora se inicializa por defecto en los últimos 30 días para una vista más relevante.
+    - Gestión de Cargas: Corregida la funcionalidad de edición en las tarjetas para que los cambios se guarden correctamente.
+    - Mantenimiento general de la estabilidad y rendimiento en todas las pestañas.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -663,6 +664,8 @@ function Dashboard({ packages, flights, pendientes, onTabChange }) {
         .filter(([, kg]) => kg > 0)
         .map(([name, value]) => ({ name, value }));
   }, [paquetesEnBodega]);
+  
+  const totalKgBodega = useMemo(() => sum(kgPorCourier.map(c => c.value)), [kgPorCourier]);
 
 
   return (
@@ -701,21 +704,38 @@ function Dashboard({ packages, flights, pendientes, onTabChange }) {
           </ResponsiveContainer>
         </div>
         
-        <div className="bg-white p-6 rounded-xl shadow-md">
+        <div className="bg-white p-6 rounded-xl shadow-md flex flex-col">
            <h3 className="font-semibold text-slate-700 mb-4">Kg Reales por Courier (en bodega)</h3>
-            <ResponsiveContainer width="100%" height={300}>
+           <div className="flex-grow flex items-center">
             {kgPorCourier.length > 0 ? (
-                <PieChart>
-                    <Pie data={kgPorCourier} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100}>
-                    {kgPorCourier.map((_, i) => (
-                        <Cell key={`cell-${i}`} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => `${fmtPeso(value)} kg`} />
-                    <Legend />
-                </PieChart>
-            ) : <div className="flex items-center justify-center h-full text-slate-500">No hay paquetes en bodega</div> }
-            </ResponsiveContainer>
+                <>
+                <ResponsiveContainer width="50%" height="100%">
+                    <PieChart>
+                        <Pie data={kgPorCourier} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={80}>
+                        {kgPorCourier.map((_, i) => (
+                            <Cell key={`cell-${i}`} fill={COLORS[i % COLORS.length]} />
+                        ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => `${fmtPeso(value)} kg`} />
+                    </PieChart>
+                </ResponsiveContainer>
+                <div className="w-1/2 text-sm pl-4">
+                    <ul>
+                        {kgPorCourier.map((entry, index) => (
+                            <li key={`item-${index}`} className="flex justify-between items-center py-1 border-b border-slate-100">
+                                <span className="flex items-center"><div className="w-3 h-3 mr-2 rounded-sm" style={{ backgroundColor: COLORS[index % COLORS.length] }} />{entry.name}</span>
+                                <span className="font-semibold">{fmtPeso(entry.value)} kg</span>
+                            </li>
+                        ))}
+                         <li className="flex justify-between items-center py-2 font-bold mt-2 border-t-2 border-slate-300">
+                            <span>TOTAL</span>
+                            <span>{fmtPeso(totalKgBodega)} kg</span>
+                        </li>
+                    </ul>
+                </div>
+                </>
+            ) : <div className="flex items-center justify-center h-full w-full text-slate-500">No hay paquetes en bodega</div> }
+            </div>
         </div>
       </div>
     </div>
@@ -2217,9 +2237,12 @@ function CargasAdmin({flights,setFlights, packages}){
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [awb,setAwb]=useState("");
   const [fac,setFac]=useState("");
-  const [from,setFrom]=useState("");
+  const [statusFilter, setStatusFilter] = useState("Todos");
+
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today.setDate(today.getDate() - 30)).toISOString().slice(0, 10);
+  const [from, setFrom] = useState(thirtyDaysAgo);
   const [to,setTo]=useState("");
-  const [edit,setEdit]=useState(null);
 
   function create(){
     if(!code) return;
@@ -2288,7 +2311,8 @@ function CargasAdmin({flights,setFlights, packages}){
 
   const list = flights
     .filter(f=>!from || f.fecha_salida>=from)
-    .filter(f=>!to || f.fecha_salida<=to);
+    .filter(f=>!to || f.fecha_salida<=to)
+    .filter(f=> statusFilter === 'Todos' || f.estado === statusFilter);
 
   return (
     <Section title="Gestión de cargas"
@@ -2296,6 +2320,12 @@ function CargasAdmin({flights,setFlights, packages}){
         <div className="flex gap-2 items-end">
           <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
           <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
+           <Field label="Estado">
+            <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <option value="Todos">Todos</option>
+              {ESTADOS_CARGA.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
         </div>
       }>
       <div className="bg-slate-50 rounded-xl p-4 mb-6 grid md:grid-cols-5 gap-4 items-end">
@@ -2610,8 +2640,8 @@ function App(){
     <div className="h-screen w-screen grid grid-cols-[256px_1fr] grid-rows-[auto_1fr] bg-slate-100">
       {/* Barra de Navegación Lateral */}
       <aside className="row-span-2 bg-white border-r border-slate-200 flex flex-col">
-        <div className="p-4 h-24 border-b border-slate-200 flex items-center justify-center">
-            <img src="/logo.png" alt="Logo Europa Envíos" className="h-20" />
+        <div className="p-4 h-28 border-b border-slate-200 flex items-center justify-center">
+            <img src="/logo.png" alt="Logo Europa Envíos" className="h-24" />
         </div>
         <nav className="flex-grow p-4 space-y-6 overflow-y-auto">
           {navStructure.map(group => {

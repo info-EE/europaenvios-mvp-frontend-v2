@@ -2239,7 +2239,84 @@ function Proformas({packages, flights, extras}){
     ];
 
     const wb = new ExcelJS.Workbook();
-    // ... (Esta función de Proforma no se modifica)
+    const ws = wb.addWorksheet("Factura");
+
+    // Estilos
+    const boldStyle = { font: { bold: true } };
+    const headerStyle = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern:'solid', fgColor:{argb:'FF1F2937'} }, alignment: { horizontal: 'center' } };
+    const totalStyle = { font: { bold: true }, alignment: { horizontal: 'right' } };
+
+    // Cabecera de la empresa
+    ws.getCell('A1').value = "Europa Envíos";
+    ws.getCell('A1').font = { bold: true, size: 14 };
+    ws.mergeCells('A1:D1');
+    ws.getCell('A2').value = "LAMAQUINALOGISTICA, SOCIEDAD LIMITADA";
+    ws.getCell('A3').value = "N.I.F.: B56340656";
+    ws.getCell('A4').value = "CALLE ESTEBAN SALAZAR CHAPELA, NUM 20, PUERTA 87, NAVE 87";
+    ws.getCell('A5').value = "29004 MÁLAGA (ESPAÑA)";
+    ws.getCell('A6').value = "(34) 633 74 08 31";
+
+    // Título y fecha
+    ws.getCell('A8').value = "Factura Proforma";
+    ws.getCell('A8').font = { bold: true, size: 16 };
+    ws.mergeCells('A8:D8');
+    ws.getCell('A9').value = new Date().toLocaleDateString('es-ES');
+    ws.mergeCells('A9:D9');
+
+    // Datos del cliente
+    ws.getCell('A11').value = "Cliente";
+    ws.getCell('A11').style = boldStyle;
+    ws.getCell('B11').value = "Nº factura";
+    ws.getCell('B11').style = boldStyle;
+    ws.getCell('A12').value = r.courier;
+    ws.getCell('B12').value = "-";
+
+    // Cabecera de la tabla de detalles
+    ws.getCell('A15').value = "Descripción";
+    ws.getCell('A15').style = headerStyle;
+    ws.getCell('B15').value = "Cantidad";
+    ws.getCell('B15').style = headerStyle;
+    ws.getCell('C15').value = "Precio unitario";
+    ws.getCell('C15').style = headerStyle;
+    ws.getCell('D15').value = "Precio total";
+    ws.getCell('D15').style = headerStyle;
+
+    // Filas con detalles
+    let currentRow = 16;
+    detalle.forEach(item => {
+        ws.getCell(`A${currentRow}`).value = item[0];
+        ws.getCell(`B${currentRow}`).value = item[1];
+        ws.getCell(`B${currentRow}`).numFmt = '#,##0.000';
+        ws.getCell(`C${currentRow}`).value = item[2];
+        ws.getCell(`C${currentRow}`).numFmt = '#,##0.00';
+        ws.getCell(`D${currentRow}`).value = item[3];
+        ws.getCell(`D${currentRow}`).numFmt = '#,##0.00';
+        currentRow++;
+    });
+
+    // Total
+    const totalRow = currentRow + 2;
+    ws.getCell(`C${totalRow}`).value = "Total";
+    ws.getCell(`C${totalRow}`).style = totalStyle;
+    ws.getCell(`D${totalRow}`).value = Number(total.toFixed(2));
+    ws.getCell(`D${totalRow}`).style = { font: { bold: true } };
+    ws.getCell(`D${totalRow}`).numFmt = '#,##0.00';
+
+    // Ancho de columnas
+    ws.columns = [
+        { width: 30 }, { width: 15 }, { width: 15 }, { width: 15 }
+    ];
+
+    // Descargar el archivo
+    wb.xlsx.writeBuffer().then(buffer => {
+        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `Proforma_${r.courier}_${flight.codigo}.xlsx`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+    });
   }
 
   return (

@@ -1,10 +1,6 @@
-/* Europa Envíos – MVP v0.4.0 (Dashboard y Rediseño Visual)
-    - Paleta de colores actualizada a "azul francia" (francia-*) para consistencia de marca.
-    - Introducción de un Dashboard como pantalla principal con métricas y gráficos.
-    - Se añade una barra de navegación superior (Topbar) para el perfil de usuario y cierre de sesión.
-    - La sección "Gestión de Cargas" se rediseña para usar tarjetas en lugar de una tabla.
-    - Mejoras en la interfaz: botones con sombras en hover y filas de tabla interactivas.
-    - La navegación lateral se actualiza para incluir el Dashboard y se mantiene la estructura.
+/* Europa Envíos – MVP v0.4.1 (Logo Mejorado)
+    - Se aumenta el tamaño del logo en la barra lateral para una mejor visibilidad.
+    - Se ajusta el espacio del contenedor del logo para que encaje perfectamente.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -2587,8 +2583,8 @@ function App(){
     <div className="h-screen w-screen grid grid-cols-[256px_1fr] grid-rows-[64px_1fr] bg-slate-100">
       {/* Barra de Navegación Lateral */}
       <aside className="row-span-2 bg-white border-r border-slate-200 flex flex-col">
-        <div className="p-4 h-16 border-b border-slate-200 flex items-center justify-center">
-            <img src="/logo.png" alt="Logo Europa Envíos" className="h-10" />
+        <div className="p-4 h-20 border-b border-slate-200 flex items-center justify-center">
+            <img src="/logo.png" alt="Logo Europa Envíos" className="h-14" />
         </div>
         <nav className="flex-grow p-4 space-y-6 overflow-y-auto">
           {navStructure.map(group => {

@@ -1721,10 +1721,12 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
         font: { bold: true, color: { rgb: "FFFFFFFF" }, sz: 12 },
         fill: { fgColor: { rgb: "FF4F4F4F" } },
         alignment: { horizontal: "center", vertical: "center" },
+        border: allBorders
     };
-     const subHeaderStyle = { font: { bold: true } };
+     const subHeaderStyle = { font: { bold: true }, border: allBorders };
      const courierHeaderStyle = { fill: { fgColor: { rgb: "FFE6F2F7" } }, border: allBorders, alignment: { vertical: "center", horizontal: "center" } };
     const packageCellStyle = { fill: { fgColor: { rgb: "FFFFEBE0" } }, border: allBorders, alignment: { vertical: "center" } };
+    const emptyCellStyle = { border: allBorders }; // Estilo para celdas vacías con bordes
 
     (flight.cajas || []).forEach((caja, idx) => {
         const pkgObjs = (caja.paquetes || []).map(pid => packages.find(p => p.id === pid)).filter(Boolean);
@@ -1738,46 +1740,52 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
 
         const couriers = Object.keys(byCourier).sort();
         const maxPackagesInCourier = Math.max(0, ...couriers.map(c => byCourier[c].length));
-        const packageRowCount = Math.max(25, maxPackagesInCourier); 
+        const packageRowCount = Math.max(28, maxPackagesInCourier); 
 
         const wsData = [];
         
         wsData.push([]); 
 
-        const headerRow = new Array(11).fill(null);
+        // Fila 2: Encabezado principal
+        const headerRow = new Array(12).fill(null);
         headerRow[1] = { v: "CONTROL DE PAQUETES", s: headerStyle };
-        for(let i=2; i<=10; i++) headerRow[i] = {v: "", s: headerStyle};
+        for(let i=2; i<=11; i++) headerRow[i] = {v: "", s: headerStyle};
         wsData.push(headerRow);
 
-        const subHeaderRow = new Array(11).fill(null);
+        // Fila 3: Sub-encabezados
+        const subHeaderRow = new Array(12).fill({ v: "", s: emptyCellStyle });
         subHeaderRow[1] = { v: `CAJA Nº ${idx + 1}`, s: subHeaderStyle };
+        for (let i = 2; i <= 5; i++) subHeaderRow[i] = { v: "", s: subHeaderStyle };
         subHeaderRow[6] = { v: `CANTIDAD DE PAQUETES: ${cantPaquetes}`, s: subHeaderStyle };
+        for (let i = 7; i <= 11; i++) subHeaderRow[i] = { v: "", s: subHeaderStyle };
         wsData.push(subHeaderRow);
 
+        // Fila 4: Couriers
         const courierRow = [null];
-        couriers.slice(0, 10).forEach(c => courierRow.push({ v: c, s: courierHeaderStyle }));
-        while(courierRow.length < 12) courierRow.push({ s: courierHeaderStyle }); 
+        couriers.slice(0, 11).forEach(c => courierRow.push({ v: c, s: courierHeaderStyle }));
+        while(courierRow.length < 13) courierRow.push({ v: "", s: courierHeaderStyle });
         wsData.push(courierRow);
 
+        // Filas de paquetes
         for (let i = 0; i < packageRowCount; i++) {
             const packageRow = [null];
-            couriers.slice(0, 10).forEach(c => {
+            couriers.slice(0, 11).forEach(c => {
                 const pkgCode = byCourier[c][i] || "";
                 packageRow.push({ v: pkgCode, s: packageCellStyle });
             });
-            while(packageRow.length < 12) packageRow.push({v: "", s: packageCellStyle});
+            while(packageRow.length < 13) packageRow.push({v: "", s: packageCellStyle});
             wsData.push(packageRow);
         }
 
         const ws = XLSX.utils.aoa_to_sheet(wsData);
 
         ws["!merges"] = [
-            XLSX.utils.decode_range("B2:K2"),
-            XLSX.utils.decode_range("B3:F3"),
-            XLSX.utils.decode_range("G3:K3"),
+            XLSX.utils.decode_range("B2:L2"), // Control de paquetes
+            XLSX.utils.decode_range("B3:F3"), // Caja N
+            XLSX.utils.decode_range("G3:L3"), // Cantidad
         ];
 
-        ws["!cols"] = [{wch: 2}, ...new Array(10).fill({wch: 18})];
+        ws["!cols"] = [{wch: 2}, ...new Array(11).fill({wch: 18})];
         ws["!rows"] = [ null, {hpt: 20}, {hpt: 15} ];
 
         XLSX.utils.book_append_sheet(wb, ws, `CAJA ${idx + 1}`);

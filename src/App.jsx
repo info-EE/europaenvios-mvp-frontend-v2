@@ -19,7 +19,11 @@ const Iconos = {
   save: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>,
   box: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>,
   userCircle: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>,
+  paquetes: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>,
+  envios: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>,
+  gestion: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.663c.11-.256.217-.512.324-.768a3.375 3.375 0 016.082-2.348c.384.473.727.986 1.03 1.536a3.007 3.007 0 01-2.33 4.293c-.453.138-.927.234-1.4.301M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
 };
+
 
 /* ========== utils básicos ========== */
 const uuid = () => {
@@ -126,7 +130,6 @@ function fillCourierColumn(ws, headerCell, codes){
       ws[addr] = { ...(cell||{t:"s"}), v: val, t:"s" };
     }
 }
-
 /* ========== helpers de autenticación/usuarios (localStorage) ========== */
 const USERS_KEY = "ee_users_v1";
 
@@ -395,7 +398,7 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
 
 /* ========== UI base ========== */
 const BTN = "px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm transition-colors duration-200";
-const BTN_PRIMARY = "px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition-colors duration-200 flex items-center justify-center gap-2";
+const BTN_PRIMARY = "px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors duration-200 flex items-center justify-center gap-2";
 const BTN_ICON = "p-2 rounded-lg hover:bg-slate-100 transition-colors duration-200 text-slate-600";
 const BTN_ICON_DANGER = "p-2 rounded-lg hover:bg-red-50 transition-colors duration-200 text-red-600";
 
@@ -416,7 +419,7 @@ const Field = ({label,required,children})=>(
   </label>
 );
 const Input = (p)=>(
-  <input {...p} className={"w-full text-sm rounded-lg border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all " +(p.className||"")} />
+  <input {...p} className={"w-full text-sm rounded-lg border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all " +(p.className||"")} />
 );
 
 function EmptyState({ icon, title, message }) {
@@ -428,7 +431,6 @@ function EmptyState({ icon, title, message }) {
     </div>
   );
 }
-
 function PasswordInput({value,onChange,placeholder}) {
   const [show,setShow] = useState(false);
   return (
@@ -608,7 +610,6 @@ function Login({onLogin}){
     </div>
   );
 }
-
 /* ========== Gestión de Usuarios (solo ADMIN) ========== */
 function Usuarios({ currentUser, onCurrentUserChange }){
   const [users,setUsers] = useState(loadUsers());
@@ -737,7 +738,7 @@ function Usuarios({ currentUser, onCurrentUserChange }){
             {filtered.map(u=>(
               <tr key={u.id} className="hover:bg-slate-50">
                 <td className="px-3 py-2 whitespace-nowrap">{u.email}</td>
-                <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${u.role === 'ADMIN' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>{u.role}</span></td>
+                <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${u.role === 'ADMIN' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}`}>{u.role}</span></td>
                 <td className="px-3 py-2">{u.role==="COURIER" ? (u.courier||"—") : "—"}</td>
                 <td className="px-3 py-2">
                   <div className="flex gap-2">
@@ -987,7 +988,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
             {courierOptions.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
           {codigoCargaSel.startsWith("AIR-PYBOX") && (
-            <div className="text-xs text-indigo-600 mt-1">Esta carga solo admite courier ParaguayBox.</div>
+            <div className="text-xs text-blue-600 mt-1">Esta carga solo admite courier ParaguayBox.</div>
           )}
         </Field>
         <Field label="Estado" required>
@@ -1887,11 +1888,11 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
             const est = pesoEstimado(c);
 
             return (
-              <div key={c.id} className={`border rounded-xl p-4 mb-3 transition-shadow ${isActive?"ring-2 ring-indigo-500 shadow-lg":"hover:shadow-md"}`} onClick={() => setActiveBoxId(c.id)}>
+              <div key={c.id} className={`border rounded-xl p-4 mb-3 transition-shadow ${isActive?"ring-2 ring-blue-500 shadow-lg":"hover:shadow-md"}`} onClick={() => setActiveBoxId(c.id)}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="font-semibold text-slate-800">
                     {c.codigo} — {etiqueta} — <span>{fmtPeso(peso)} kg</span> — {L}x{A}x{H} cm
-                    {isActive && <span className="ml-2 text-indigo-600 text-xs font-bold">(ACTIVA)</span>}
+                    {isActive && <span className="ml-2 text-blue-600 text-xs font-bold">(ACTIVA)</span>}
                   </div>
                   <div className="flex gap-2">
                     {!isEditing
@@ -2411,9 +2412,9 @@ function App(){
   const allowedTabs = tabsForRole(currentUser.role);
   
   const navStructure = [
-    { category: "Paquetes", tabs: ["Recepción", "Paquetes en bodega", "Paquetes sin casilla", "Pendientes"] },
-    { category: "Envíos", tabs: ["Armado de cajas", "Cargas enviadas", "Gestión de cargas", "Proformas", "Extras"] },
-    { category: "Gestión de Usuarios", tabs: ["Usuarios"] },
+    { category: "Paquetes", icon: Iconos.paquetes, tabs: ["Recepción", "Paquetes en bodega", "Paquetes sin casilla", "Pendientes"] },
+    { category: "Envíos", icon: Iconos.envios, tabs: ["Armado de cajas", "Cargas enviadas", "Gestión de cargas", "Proformas", "Extras"] },
+    { category: "Gestión de Usuarios", icon: Iconos.gestion, tabs: ["Usuarios"] },
   ];
 
   return (
@@ -2434,7 +2435,10 @@ function App(){
 
             return (
               <div key={group.category}>
-                <h3 className="px-2 mb-2 text-xs font-bold uppercase text-slate-400 tracking-wider">{group.category}</h3>
+                <h3 className="px-2 mb-2 text-xs font-bold uppercase text-slate-400 tracking-wider flex items-center gap-2">
+                  {group.icon}
+                  {group.category}
+                </h3>
                 <ul className="space-y-1">
                   {visibleTabs.map(t => (
                     <li key={t}>
@@ -2442,7 +2446,7 @@ function App(){
                         onClick={() => setTab(t)}
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-colors duration-200 flex items-center gap-3 ${
                           tab === t
-                            ? "bg-indigo-100 text-indigo-700"
+                            ? "bg-blue-100 text-blue-700"
                             : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
                         }`}
                       >

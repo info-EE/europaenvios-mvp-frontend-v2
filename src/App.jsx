@@ -419,7 +419,7 @@ const Field = ({label,required,children})=>(
   </label>
 );
 const Input = (p)=>(
-  <input {...p} className={"w-full text-sm rounded-lg border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all " +(p.className||"")} />
+  <input {...p} className={"w-full text-sm rounded-lg border-blue-500 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all " +(p.className||"")} />
 );
 
 function EmptyState({ icon, title, message }) {
@@ -702,7 +702,7 @@ function Usuarios({ currentUser, onCurrentUserChange }){
         <div className="grid md:grid-cols-5 gap-4">
           <Field label="Email" required><Input value={emailNew} onChange={e=>setEmailNew(e.target.value)} placeholder="usuario@empresa.com"/></Field>
           <Field label="Rol" required>
-            <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={roleNew} onChange={e=>setRoleNew(e.target.value)}>
+            <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={roleNew} onChange={e=>setRoleNew(e.target.value)}>
               <option>COURIER</option>
               <option>ADMIN</option>
             </select>
@@ -763,7 +763,7 @@ function Usuarios({ currentUser, onCurrentUserChange }){
               <Input value={edit.email} onChange={e=>setEdit({...edit, email:e.target.value})}/>
             </Field>
             <Field label="Rol" required>
-              <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={edit.role} onChange={e=>setEdit({...edit, role:e.target.value})}>
+              <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={edit.role} onChange={e=>setEdit({...edit, role:e.target.value})}>
                 <option>COURIER</option>
                 <option>ADMIN</option>
               </select>
@@ -970,7 +970,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
       <div className="grid md:grid-cols-3 gap-4">
         <Field label="Carga" required>
-          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+          <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Seleccionar…</option>
             {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
@@ -980,7 +980,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         </Field>
         <Field label="Courier" required>
           <select
-            className="w-full text-sm rounded-lg border-slate-300 px-3 py-2"
+            className="w-full text-sm rounded-lg border-blue-500 px-3 py-2"
             value={form.courier}
             onChange={e=>setForm({...form,courier:e.target.value})}
           >
@@ -992,7 +992,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
           )}
         </Field>
         <Field label="Estado" required>
-          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
+          <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
             <option value="">Seleccionar…</option>
             {estadosPermitidos.map(s=><option key={s}>{s}</option>)}
           </select>
@@ -1314,7 +1314,7 @@ function Pendientes({ items, setItems }) {
         <Field label="Desde"><Input type="date" value={from} onChange={e => setFrom(e.target.value)} /></Field>
         <Field label="Hasta"><Input type="date" value={to} onChange={e => setTo(e.target.value)} /></Field>
         <Field label="Estado">
-          <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="text-sm rounded-lg border-blue-500 px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="No realizada">No realizada</option>
             <option value="Realizada">Realizada</option>
             <option value="Todas">Todas</option>
@@ -1362,7 +1362,7 @@ function Pendientes({ items, setItems }) {
         <div className="space-y-4">
           <Field label="Fecha" required><Input type="date" value={newTask.fecha} onChange={e => setNewTask({...newTask, fecha: e.target.value})} /></Field>
           <Field label="Detalles de la Tarea" required>
-            <textarea className="w-full text-sm rounded-lg border-slate-300 p-3" rows="4" value={newTask.details} onChange={e => setNewTask({...newTask, details: e.target.value})} placeholder="Ej: Revisar paquete GLOBALBOX123 por posible daño."/>
+            <textarea className="w-full text-sm rounded-lg border-blue-500 p-3" rows="4" value={newTask.details} onChange={e => setNewTask({...newTask, details: e.target.value})} placeholder="Ej: Revisar paquete GLOBALBOX123 por posible daño."/>
           </Field>
           <div className="flex justify-end gap-2"><button className={BTN} onClick={() => setModalOpen(false)}>Cancelar</button><button className={BTN_PRIMARY} onClick={handleCreateTask}>Guardar Tarea</button></div>
         </div>
@@ -1373,7 +1373,7 @@ function Pendientes({ items, setItems }) {
           <div className="space-y-4">
             <Field label="Fecha" required><Input type="date" value={editItem.fecha} onChange={e => setEditItem({...editItem, fecha: e.target.value})} /></Field>
             <Field label="Detalles de la Tarea" required>
-              <textarea className="w-full text-sm rounded-lg border-slate-300 p-3" rows="4"
+              <textarea className="w-full text-sm rounded-lg border-blue-500 p-3" rows="4"
                 defaultValue={renderTaskDetails(editItem)}
                 onChange={e => {
                   const newData = { details: e.target.value };
@@ -1552,7 +1552,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
     <Section title="Paquetes en bodega"
       right={
         <div className="flex gap-2 flex-wrap items-end">
-          <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+          <select className="text-sm rounded-lg border-blue-500 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Todas las cargas (En bodega)</option>
             {vuelosBodega.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
           </select>
@@ -1646,7 +1646,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
         {form && (
           <div className="grid md:grid-cols-3 gap-4">
             <Field label="Carga">
-              <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}>
+              <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}>
                 {flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
               </select>
             </Field>
@@ -1656,7 +1656,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
                 const codigo = flights.find(f=>f.id===form.flight_id)?.codigo || "";
                 const opts = estadosPermitidosPorCarga(codigo, ESTADOS_INICIALES);
                 return (
-                  <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} disabled={user.role==="COURIER"}>
+                  <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} disabled={user.role==="COURIER"}>
                     {opts.map(s=><option key={s}>{s}</option>)}
                   </select>
                 );
@@ -1864,7 +1864,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     <Section title="Armado de cajas">
       <div className="grid md:grid-cols-3 gap-4">
         <Field label="Seleccionar carga" required>
-          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>{setFlightId(e.target.value);}}>
+          <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={flightId} onChange={e=>{setFlightId(e.target.value);}}>
             <option value="">—</option>
             {flights.filter(f=>f.estado==="En bodega").map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
@@ -1924,7 +1924,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                         <span className="font-mono text-slate-800">{p.codigo}</span><span className="text-slate-500">{p.courier}</span>
                         <div className="flex-grow" />
                         {flight.cajas.length>1 && (
-                          <select className="text-xs border-slate-300 rounded px-1 py-0.5" defaultValue="" onChange={e=>{e.stopPropagation(); move(pid,c.id,e.target.value)}}>
+                          <select className="text-xs border-blue-500 rounded px-1 py-0.5" defaultValue="" onChange={e=>{e.stopPropagation(); move(pid,c.id,e.target.value)}}>
                             <option value="" disabled>Mover a…</option>
                             {flight.cajas.filter(x=>x.id!==c.id).map(x=><option key={x.id} value={x.id}>{x.codigo}</option>)}
                           </select>
@@ -2021,13 +2021,13 @@ function CargasEnviadas({packages, flights, user}){
         <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
         <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
         <Field label="Estado">
-          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
+          <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
             <option value="">Todos</option>
             {ESTADOS_CARGA.filter(s => s !== 'En bodega').map(s => <option key={s}>{s}</option>)}
           </select>
         </Field>
         <Field label="Carga">
-          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+          <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Seleccionar…</option>
             {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
           </select>
@@ -2166,7 +2166,7 @@ function CargasAdmin({flights,setFlights, packages}){
                 <td className="px-3 py-1"><Input value={f.codigo} onChange={e=>upd(f.id,"codigo",e.target.value)}/></td>
                 <td className="px-3 py-1"><Input type="date" value={f.fecha_salida} onChange={e=>upd(f.id,"fecha_salida",e.target.value)}/></td>
                 <td className="px-3 py-1">
-                  <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={f.estado} onChange={e=>upd(f.id,"estado",e.target.value)}>
+                  <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={f.estado} onChange={e=>upd(f.id,"estado",e.target.value)}>
                     {ESTADOS_CARGA.map(s=><option key={s}>{s}</option>)}
                   </select>
                 </td>
@@ -2262,7 +2262,7 @@ function Proformas({packages, flights, extras}){
         <div className="flex gap-2 items-end">
           <Field label="Desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
           <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
-          <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+          <select className="text-sm rounded-lg border-blue-500 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Seleccionar carga…</option>
             {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
@@ -2325,11 +2325,11 @@ function Extras({flights, couriers, extras, setExtras}){
   return (
     <Section title="Trabajos extras">
       <div className="grid md:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg items-end">
-        <Field label="Carga"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}><option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}</select></Field>
-        <Field label="Courier"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}><option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}</select></Field>
+        <Field label="Carga"><select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}><option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}</select></Field>
+        <Field label="Courier"><select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}><option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}</select></Field>
         <Field label="Descripción"><Input value={desc} onChange={e=>setDesc(e.target.value)}/></Field>
         <Field label="Monto (USD)"><Input value={monto} onChange={e=>setMonto(e.target.value)} placeholder="10,00"/></Field>
-        <Field label="Estado"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}><option>Pendiente</option><option>Cobrado</option></select></Field>
+        <Field label="Estado"><select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}><option>Pendiente</option><option>Cobrado</option></select></Field>
         <Field label="Fecha"><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>
         <div className="md:col-span-6 flex justify-end"><button onClick={add} className={BTN_PRIMARY}>Agregar</button></div>
       </div>
@@ -2338,7 +2338,7 @@ function Extras({flights, couriers, extras, setExtras}){
         <Field label="Filtrar desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
         <Field label="Filtrar hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
         <Field label="Filtrar por estado">
-            <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
                 <option value="Pendiente">Pendiente</option>
                 <option value="Cobrado">Cobrado</option>
                 <option value="Todos">Todos</option>
@@ -2360,7 +2360,7 @@ function Extras({flights, couriers, extras, setExtras}){
                   <td className="px-3 py-1"><Input value={e.descripcion} onChange={ev=>upd(e.id,{descripcion:ev.target.value})}/></td>
                   <td className="px-3 py-1"><Input value={e.monto} onChange={ev=>upd(e.id,{monto:ev.target.value})}/></td>
                   <td className="px-3 py-1">
-                    <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={e.estado} onChange={ev=>upd(e.id,{estado:ev.target.value})}>
+                    <select className="w-full text-sm rounded-lg border-blue-500 px-3 py-2" value={e.estado} onChange={ev=>upd(e.id,{estado:ev.target.value})}>
                       <option>Pendiente</option><option>Cobrado</option>
                     </select>
                   </td>

@@ -1,9 +1,7 @@
-/* Europa Envíos – MVP v0.2.9 (Revisión Visual Completa)
-    - Nueva paleta de colores (slate) y tipografía (Inter).
-    - Iconos (Heroicons) en toda la aplicación para mejorar la usabilidad.
-    - Mejoras de estilo en Header, Tablas (zebra-striping), Formularios y Botones.
-    - Componente "EmptyState" para cuando no hay datos.
-    - Transiciones suaves para una experiencia más fluida.
+/* Europa Envíos – MVP v0.3.0 (Layout con Barra Lateral)
+    - Reorganización visual con una barra de navegación lateral a la izquierda.
+    - Agrupación de las pestañas en tres categorías: Paquetes, Envíos y Gestión de Usuarios.
+    - Mantenimiento de toda la funcionalidad existente en cada pestaña.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +17,7 @@ const Iconos = {
   add: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>,
   save: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>,
   box: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>,
+  userCircle: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>,
 };
 
 /* ========== utils básicos ========== */
@@ -396,8 +395,8 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
 /* ========== UI base ========== */
 const BTN = "px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm transition-colors duration-200";
 const BTN_PRIMARY = "px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition-colors duration-200 flex items-center justify-center gap-2";
-const BTN_ICON = "p-2 rounded-lg hover:bg-slate-100 transition-colors duration-200";
-const BTN_ICON_DANGER = "p-2 rounded-lg hover:bg-red-50 transition-colors duration-200";
+const BTN_ICON = "p-2 rounded-lg hover:bg-slate-100 transition-colors duration-200 text-slate-600";
+const BTN_ICON_DANGER = "p-2 rounded-lg hover:bg-red-50 transition-colors duration-200 text-red-600";
 
 const Section = ({title,right,children})=>(
   <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 mb-6">
@@ -2374,7 +2373,7 @@ function Extras({flights, couriers, extras, setExtras}){
   );
 }
 
-/* ========== App (tabs por rol + Usuarios + Sin Casilla con permisos) ========== */
+/* ========== Componente Principal de la Aplicación ========== */
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
   const [tab,setTab]=useState("Recepción");
@@ -2384,29 +2383,20 @@ function App(){
   const [packages,setPackages]=useState([]);
   const [extras,setExtras]=useState([]);
 
+  // --- Persistencia en localStorage ---
   const SINCASILLA_KEY = "ee_sincasilla_v1";
   const [sinCasillaItems, setSinCasillaItems] = useState([]);
   useEffect(()=>{
-    try{
-      const raw = localStorage.getItem(SINCASILLA_KEY);
-      if(raw) setSinCasillaItems(JSON.parse(raw));
-    }catch{}
+    try{ const raw = localStorage.getItem(SINCASILLA_KEY); if(raw) setSinCasillaItems(JSON.parse(raw)); } catch {}
   },[]);
-  useEffect(()=>{
-    localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems));
-  },[sinCasillaItems]);
+  useEffect(()=>{ localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems)); },[sinCasillaItems]);
 
   const PENDIENTES_KEY = "ee_pendientes_v2";
   const [pendientes, setPendientes] = useState([]);
   useEffect(()=>{
-    try{
-      const raw = localStorage.getItem(PENDIENTES_KEY);
-      if(raw) setPendientes(JSON.parse(raw));
-    }catch{}
+    try{ const raw = localStorage.getItem(PENDIENTES_KEY); if(raw) setPendientes(JSON.parse(raw)); } catch {}
   },[]);
-  useEffect(()=>{
-    localStorage.setItem(PENDIENTES_KEY, JSON.stringify(pendientes));
-  },[pendientes]);
+  useEffect(()=>{ localStorage.setItem(PENDIENTES_KEY, JSON.stringify(pendientes)); },[pendientes]);
 
   useEffect(()=>{
     if(currentUser){
@@ -2418,33 +2408,62 @@ function App(){
   if(!currentUser) return <Login onLogin={setCurrentUser} />;
 
   const allowedTabs = tabsForRole(currentUser.role);
+  
+  const navStructure = [
+    { category: "Paquetes", tabs: ["Recepción", "Paquetes en bodega", "Paquetes sin casilla", "Pendientes"] },
+    { category: "Envíos", tabs: ["Armado de cajas", "Cargas enviadas", "Gestión de cargas", "Proformas", "Extras"] },
+    { category: "Gestión de Usuarios", tabs: ["Usuarios"] },
+  ];
 
   return (
-    <>
-      <header className="bg-white shadow-sm sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold text-slate-800">Gestor de Paquetes</h1>
-            <p className="text-xs text-slate-500">LaMaquinaLogistica / Europa Envíos</p>
-          </div>
-          <div className="text-sm text-slate-600 font-medium bg-slate-100 px-3 py-1 rounded-full">
-            {currentUser.email}
-          </div>
+    <div className="flex min-h-screen bg-slate-100">
+      {/* Barra de Navegación Lateral */}
+      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
+        <div className="p-4 border-b border-slate-200">
+          <h1 className="text-xl font-bold text-slate-800">Gestor de Envíos</h1>
+          <p className="text-xs text-slate-500">Europa Envíos</p>
         </div>
-      </header>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="flex gap-2 flex-wrap mb-6">
-          {allowedTabs.map(t=>(
-            <button
-              key={t}
-              onClick={()=>setTab(t)}
-              className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors duration-200 ${tab===t ? "bg-indigo-600 text-white" : "bg-white hover:bg-slate-50 text-slate-700"}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+        <nav className="flex-grow p-4 space-y-6">
+          {navStructure.map(group => {
+            const visibleTabs = group.tabs.filter(t => allowedTabs.includes(t));
+            if (visibleTabs.length === 0) return null;
 
+            return (
+              <div key={group.category}>
+                <h3 className="px-2 mb-2 text-xs font-bold uppercase text-slate-400 tracking-wider">{group.category}</h3>
+                <ul className="space-y-1">
+                  {visibleTabs.map(t => (
+                    <li key={t}>
+                      <button
+                        onClick={() => setTab(t)}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-colors duration-200 flex items-center gap-3 ${
+                          tab === t
+                            ? "bg-indigo-100 text-indigo-700"
+                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </nav>
+        <div className="p-4 border-t border-slate-200">
+            <div className="flex items-center gap-3">
+                <span className="text-slate-400">{Iconos.userCircle}</span>
+                <div>
+                    <p className="text-sm font-semibold text-slate-700">{currentUser.email}</p>
+                    <p className="text-xs text-slate-500">{currentUser.role}</p>
+                </div>
+            </div>
+        </div>
+      </aside>
+
+      {/* Contenido Principal */}
+      <main className="flex-grow p-4 sm:p-6 lg:p-8">
         {tab==="Recepción" && <Reception currentUser={currentUser} couriers={couriers} setCouriers={setCouriers} estados={estados} setEstados={setEstados} flights={flights} onAdd={(p)=>setPackages([p,...packages])}/>}
         {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} setItems={setSinCasillaItems} setPendientes={setPendientes}/>}
         {tab==="Pendientes" && <Pendientes items={pendientes} setItems={setPendientes}/>}
@@ -2456,7 +2475,7 @@ function App(){
         {tab==="Usuarios" && <Usuarios currentUser={currentUser} onCurrentUserChange={(u)=>setCurrentUser(u)}/>}
         {tab==="Extras" && <Extras flights={flights} couriers={couriers} extras={extras} setExtras={setExtras}/>}
       </main>
-    </>
+    </div>
   );
 }
 

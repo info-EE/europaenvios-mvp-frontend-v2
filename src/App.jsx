@@ -1,9 +1,9 @@
-/* Europa Envíos – MVP v0.2.6
-    - Recepción: Auto-selección de estado y bloqueo de ParaguayBox en cargas AIR-MULTI.
-    - Pendientes: Sistema completo de gestión de tareas con filtros, buscador, estados y creación manual.
-    - Paquetes en bodega: Leyenda personalizada en gráficos sin líneas.
-    - Cargas enviadas: Nuevos estados, columnas de tabla y exportación XLSX a 2 pestañas (Packing list, Cajas).
-    - Gestión de cargas: Nuevos estados y detalle de paquetes faltantes en alerta.
+/* Europa Envíos – MVP v0.2.7
+    - Pendientes: Corregido el error que impedía editar tareas.
+    - Armado de Cajas: Solucionado el problema que no permitía exportar el archivo XLSX.
+    - Cargas Enviadas: Valores numéricos en XLSX ahora tienen formato de número con decimales correctos.
+    - Proformas: Ajustado el centrado del logo en el área B1:D10.
+    - Extras: Añadido filtro de estado por defecto en "Pendiente".
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -38,27 +38,101 @@ const sum = (a) => a.reduce((s, x) => s + Number(x || 0), 0);
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#14B8A6","#84CC16","#F97316"];
 const MIN_FACTURABLE = 0.2;
 
+/* ========== XLSX helpers ========== */
+const bd = () => ({ top:{style:"thin",color:{rgb:"FFCBD5E1"}}, bottom:{style:"thin",color:{rgb:"FFCBD5E1"}},
+  left:{style:"thin",color:{rgb:"FFCBD5E1"}}, right:{style:"thin",color:{rgb:"FFCBD5E1"}} });
+const th = (txt) => ({ v:txt, t:"s", s:{font:{bold:true,color:{rgb:"FFFFFFFF"}},fill:{fgColor:{rgb:"FF1F2937"}},
+  alignment:{horizontal:"center",vertical:"center"}, border:bd()} });
+const td = (v) => ({ v, t:"s", s:{alignment:{vertical:"center"}, border:bd()} });
+const tdNum = (v, fmt = "0.00") => ({ v: parseComma(v), t: "n", s: { alignment: { vertical: "center" }, border: bd(), numFmt: fmt } });
+const tdInt = (v) => ({ v: parseIntEU(v), t: "n", s: { alignment: { vertical: "center" }, border: bd(), numFmt: "0" } });
+
+function sheetFromAOAStyled(name, rows, opts={}){
+  const ws = XLSX.utils.aoa_to_sheet(rows.map(r=>r.map(c => (typeof c==="object"&&c.v!==undefined)?c:td(String(c??"")) )));
+  if (opts.cols) ws["!cols"]=opts.cols;
+  if (opts.rows) ws["!rows"]=opts.rows;
+  if (opts.merges) ws["!merges"]=opts.merges;
+  return { name, ws };
+}
+function downloadXLSX(filename, sheets){
+  const wb = XLSX.utils.book_new();
+  sheets.forEach(({name,ws})=>XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31)));
+  XLSX.writeFile(wb, filename);
+}
+async function tryLoadTemplate(path){
+  try{
+    const res = await fetch(path, {cache:"no-store"});
+    if(!res.ok) return null;
+    const ab = await res.arrayBuffer();
+    const wb = XLSX.read(ab, {cellStyles:true});
+    return wb;
+  }catch{ return null; }
+}
+function cloneSheetObject(ws){
+  return JSON.parse(JSON.stringify(ws));
+}
+function findCells(ws, predicate){
+  const out=[];
+  const ref = ws["!ref"] || "A1";
+  const rg = XLSX.utils.decode_range(ref);
+  for(let r=rg.s.r; r<=rg.e.r; r++){
+    for(let c=rg.s.c; c<=rg.e.c; c++){
+      const addr = XLSX.utils.encode_cell({r,c});
+      const cell = ws[addr];
+      if(!cell) continue;
+      const v = typeof cell.v === "string" ? cell.v : null;
+      if(v && predicate(v)) out.push({r,c,addr,cell});
+    }
+  }
+  return out;
+}
+function writeCell(ws, r, c, value){
+  const addr = XLSX.utils.encode_cell({r,c});
+  const prev = ws[addr] || { t:"s" };
+  ws[addr] = { ...prev, v: String(value ?? ""), t: "s" };
+}
+function replacePlaceholdersInSheet(ws, map){
+    const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
+    for(let R=range.s.r; R<=range.e.r; R++){
+      for(let C=range.s.c; C<=range.e.c; C++){
+        const addr = XLSX.utils.encode_cell({r:R,c:C});
+        const cell = ws[addr];
+        if(cell && typeof cell.v==="string"){
+          let txt = cell.v;
+          Object.entries(map).forEach(([k,v])=>{ txt = txt.replaceAll(`{{${k}}}`, (v??"").toString()); });
+          if(txt!==cell.v) ws[addr] = {...cell, v: txt, t:"s"};
+        }
+      }
+    }
+}
+function fillCourierColumn(ws, headerCell, codes){
+    let idx = 0;
+    const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
+    for(let R=headerCell.r+1; R<=range.e.r; R++){
+      const addr = XLSX.utils.encode_cell({r:R, c:headerCell.c});
+      const cell = ws[addr];
+      const isPlaceholder = cell && typeof cell.v==="string" && cell.v.includes("{{PAQUETE}}");
+      if(!isPlaceholder) continue;
+      const val = (idx < codes.length) ? codes[idx++] : "";
+      ws[addr] = { ...(cell||{t:"s"}), v: val, t:"s" };
+    }
+}
+
 /* ========== helpers de autenticación/usuarios (localStorage) ========== */
 const USERS_KEY = "ee_users_v1";
 
-/** sha256 en hex */
 async function sha256Hex(str){
   const enc = new TextEncoder().encode(str);
   const buf = await crypto.subtle.digest("SHA-256", enc);
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
-
 function loadUsers(){
   try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch { return []; }
 }
 function saveUsers(users){
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }
-
-/** prefijo permitido para códigos de un courier (ej.: "GLOBAL BOX" -> "GLOBALBOX") */
 function courierPrefix(name){ return limpiar(name || ""); }
-
-/** tabs por rol (incluye Paquetes sin casilla para COURIER con permisos de solo lectura) */
 function tabsForRole(role){
   if(role==="COURIER") return ["Paquetes sin casilla","Paquetes en bodega","Cargas enviadas"];
   return ["Recepción","Paquetes sin casilla","Pendientes","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
@@ -117,118 +191,9 @@ function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt
     </body></html>`;
 }
 
-/* ========== XLSX helpers breves (para listados y plantillas) ========== */
-const bd = () => ({ top:{style:"thin",color:{rgb:"FFCBD5E1"}}, bottom:{style:"thin",color:{rgb:"FFCBD5E1"}},
-  left:{style:"thin",color:{rgb:"FFCBD5E1"}}, right:{style:"thin",color:{rgb:"FFCBD5E1"}} });
-const th = (txt) => ({ v:txt, t:"s", s:{font:{bold:true,color:{rgb:"FFFFFFFF"}},fill:{fgColor:{rgb:"FF1F2937"}},
-  alignment:{horizontal:"center",vertical:"center"}, border:bd()} });
-const td = (v) => ({ v, t:"s", s:{alignment:{vertical:"center"}, border:bd()} });
-function sheetFromAOAStyled(name, rows, opts={}){
-  const ws = XLSX.utils.aoa_to_sheet(rows.map(r=>r.map(c => (typeof c==="object"&&c.v!==undefined)?c:td(String(c??"")) )));
-  if (opts.cols) ws["!cols"]=opts.cols;
-  if (opts.rows) ws["!rows"]=opts.rows;
-  if (opts.merges) ws["!merges"]=opts.merges;
-  return { name, ws };
-}
-function downloadXLSX(filename, sheets){
-  const wb = XLSX.utils.book_new();
-  sheets.forEach(({name,ws})=>XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31)));
-  XLSX.writeFile(wb, filename);
-}
-async function tryLoadTemplate(path){
-  try{
-    const res = await fetch(path, {cache:"no-store"});
-    if(!res.ok) return null;
-    const ab = await res.arrayBuffer();
-    const wb = XLSX.read(ab, {cellStyles:true});
-    return wb;
-  }catch{ return null; }
-}
-function replacePlaceholdersInWB(wb, map){
-  wb.SheetNames.forEach(name=>{
-    const ws = wb.Sheets[name];
-    const range = XLSX.utils.decode_range(ws["!ref"]||"A1");
-    for(let R=range.s.r; R<=range.e.r; R++){
-      for(let C=range.s.c; C<=range.e.c; C++){
-        const addr = XLSX.utils.encode_cell({r:R,c:C});
-        const cell = ws[addr];
-        if(cell && typeof cell.v==="string"){
-          let txt = cell.v;
-          Object.entries(map).forEach(([k,v])=>{ txt = txt.replaceAll(`{{${k}}}`, v ?? ""); });
-          if(txt!==cell.v) ws[addr] = {...cell, v: txt, t:"s"};
-        }
-      }
-    }
-  });
-}
-function appendSheet(wb, name, rows, opts={}){
-  const { ws } = sheetFromAOAStyled(name, rows, opts);
-  XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
-}
-
-/* ========= Helpers para plantilla de CAJAS (xlsx-js-style) ========= */
-// El código de esta sección ya es compatible con la preservación de estilos.
-// La clave es usar `XLSX.read(ab, {cellStyles:true})` al cargar la plantilla.
-// Siempre que el archivo /public/templates/cajas.xlsx tenga el formato deseado,
-// la exportación lo mantendrá.
-function cloneSheetObject(ws){
-  return JSON.parse(JSON.stringify(ws));
-}
-function findCells(ws, predicate){
-  const out=[];
-  const ref = ws["!ref"] || "A1";
-  const rg = XLSX.utils.decode_range(ref);
-  for(let r=rg.s.r; r<=rg.e.r; r++){
-    for(let c=rg.s.c; c<=rg.e.c; c++){
-      const addr = XLSX.utils.encode_cell({r,c});
-      const cell = ws[addr];
-      if(!cell) continue;
-      const v = typeof cell.v === "string" ? cell.v : null;
-      if(v && predicate(v)) out.push({r,c,addr,cell});
-    }
-  }
-  return out;
-}
-function writeCell(ws, r, c, value){
-  const addr = XLSX.utils.encode_cell({r,c});
-  const prev = ws[addr] || { t:"s" };
-  ws[addr] = { ...prev, v: String(value ?? ""), t: "s" };
-}
-function fillCajaTemplateSheet(ws, { numeroCaja, cantidadPaquetes, columns }){
-  findCells(ws, v => v.includes("{{NUMERO DE CAJA}}"))
-    .forEach(({r,c}) => writeCell(ws, r, c, String(numeroCaja)));
-  findCells(ws, v => v.includes("{{CANTIDAD DE PAQUETES}}"))
-    .forEach(({r,c}) => writeCell(ws, r, c, String(cantidadPaquetes)));
-
-  const headerCells = findCells(ws, v => v.includes("{{COURIER}}"));
-  headerCells.forEach((cellInfo, idx) => {
-    const name = columns[idx]?.courier || "";
-    writeCell(ws, cellInfo.r, cellInfo.c, name);
-  });
-
-  headerCells.forEach((cellInfo, idx) => {
-    const pkgs = columns[idx]?.paquetes || [];
-    const ref = ws["!ref"] || "A1";
-    const rg = XLSX.utils.decode_range(ref);
-    let k = 0;
-    for(let r=cellInfo.r+1; r<=rg.e.r; r++){
-      const addr = XLSX.utils.encode_cell({r, c: cellInfo.c});
-      const cell = ws[addr];
-      const isPlaceholder = cell && typeof cell.v==="string" && cell.v.includes("{{PAQUETE}}");
-      if(isPlaceholder){
-        writeCell(ws, r, cellInfo.c, pkgs[k] || "");
-        k++;
-      }
-    }
-  });
-
-  findCells(ws, v => v.includes("{{COURIER}}") || v.includes("{{PAQUETE}}"))
-    .forEach(({r,c}) => writeCell(ws, r, c, ""));
-}
-
 /* ========== ExcelJS específicos (Proforma con logo centrado en B1:D8) ========== */
-const LOGO_TL = { col: 2, row: 1 };   // B1
-const LOGO_BR = { col: 4, row: 8 };   // D8
+const LOGO_TL_PROFORMA = { col: 2, row: 1 };   // B1
+const LOGO_BR_PROFORMA = { col: 4, row: 10 };  // D10
 const PX_PER_CHAR = 7.2;
 const PX_PER_POINT = 96/72;
 function colWidthPx(ws, col){ const c = ws.getColumn(col); const w = c.width ?? 8.43; return Math.round(w * PX_PER_CHAR); }
@@ -329,18 +294,18 @@ async function exportProformaExcelJS_usingTemplate({ plantillaUrl, logoUrl, nomb
     const { base64, width: imgW, height: imgH } = await loadLogoInfo(logoUrl);
     const imageId = wb.addImage({ base64, extension: "png" });
 
-    const { w: boxW, h: boxH } = boxSizePx(wsFactura, LOGO_TL, LOGO_BR);
+    const { w: boxW, h: boxH } = boxSizePx(wsFactura, LOGO_TL_PROFORMA, LOGO_BR_PROFORMA);
     const scale = Math.min(boxW / imgW, boxH / imgH);
     const extW = Math.round(imgW * scale);
     const extH = Math.round(imgH * scale);
     const offX = Math.max(0, (boxW - extW) / 2);
     const offY = Math.max(0, (boxH - extH) / 2);
 
-    const tlColWidth = colWidthPx(wsFactura, LOGO_TL.col);
-    const tlRowHeight = rowHeightPx(wsFactura, LOGO_TL.row);
+    const tlColWidth = colWidthPx(wsFactura, LOGO_TL_PROFORMA.col);
+    const tlRowHeight = rowHeightPx(wsFactura, LOGO_TL_PROFORMA.row);
 
-    const tlColFloat = (LOGO_TL.col - 1) + (offX / tlColWidth);
-    const tlRowFloat = (LOGO_TL.row - 1) + (offY / tlRowHeight);
+    const tlColFloat = (LOGO_TL_PROFORMA.col - 1) + (offX / tlColWidth);
+    const tlRowFloat = (LOGO_TL_PROFORMA.row - 1) + (offY / tlRowHeight);
 
     wsFactura.addImage(imageId, {
       tl: { col: tlColFloat, row: tlRowFloat },
@@ -437,7 +402,6 @@ const Input = (p)=>(
   <input {...p} className={"w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 ring-indigo-500 "+(p.className||"")} />
 );
 
-/* === FIX de foco: PasswordInput global para evitar remounts en cada render === */
 function PasswordInput({value,onChange,placeholder}) {
   const [show,setShow] = useState(false);
   return (
@@ -478,8 +442,7 @@ function Modal({open,onClose,title,children}){
 /* ========== datos iniciales (listas) ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
-  "Aero Box", // agregado
-  "Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos",
+  "Aero Box", "Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos",
   "FastBox","Fixo Cargo","Fox Box","Global Box","Home Box","Inflight Box","Inter Couriers",
   "MC Group","Miami Express","One Box","ParaguayBox","Royal Box"
 ];
@@ -487,24 +450,12 @@ const ESTADOS_CARGA = ["En bodega","En tránsito","Arribada", "Entregada", "Cobr
 
 /* ---- Restricciones por prefijo de CASILLA y por CARGA ---- */
 const CASILLA_PREFIX_MAP = {
-  "Aero Box": ["ABH","ABC","AB","ABL","ABK","ACD"],
-  "Aladín": ["ALD"],
-  "Boss Box": ["BBC"],
-  "Buzón": ["BP","BA","BS","BE","BC","BJ","BK"],
-  "Caba Box": ["CABA","CB","PB"],
-  "Click Box": ["CLI","FM","CDE","MR","MRA","CBL","CDELB","CPO"],
-  "Easy Box": ["EF","EZ","EB","EBS","EBC"],
-  "Europa Envíos": ["EE"],
-  "FastBox": ["FPY"],
-  "Fixo Cargo": ["FCPY"],
-  "Fox Box": ["FAS"],
-  "Global Box": ["GB"],
-  "Home Box": ["HB","UNITED","UB","MYB"],
-  "Inflight Box": ["IN","IA","IE","IV"],
-  "Inter Couriers": ["IC"],
-  "MC Group": ["MC"],
-  "Miami Express": ["ME","ML"],
-  "One Box": ["OB","PGT"],
+  "Aero Box": ["ABH","ABC","AB","ABL","ABK","ACD"], "Aladín": ["ALD"], "Boss Box": ["BBC"],
+  "Buzón": ["BP","BA","BS","BE","BC","BJ","BK"], "Caba Box": ["CABA","CB","PB"],
+  "Click Box": ["CLI","FM","CDE","MR","MRA","CBL","CDELB","CPO"], "Easy Box": ["EF","EZ","EB","EBS","EBC"],
+  "Europa Envíos": ["EE"], "FastBox": ["FPY"], "Fixo Cargo": ["FCPY"], "Fox Box": ["FAS"],
+  "Global Box": ["GB"], "Home Box": ["HB","UNITED","UB","MYB"], "Inflight Box": ["IN","IA","IE","IV"],
+  "Inter Couriers": ["IC"], "MC Group": ["MC"], "Miami Express": ["ME","ML"], "One Box": ["OB","PGT"],
   "ParaguayBox": ["AB","AS","AY","BE","CB","CC","CE","CH","CN","CZ","ER","FA","FI","GA","KA","LB","LQ","ML","NB","NW","PI","PJ","SG","SI","SL","SR","SV","TS","VM","TT"],
   "Royal Box": ["1A","1B","1E","1G","1M","1P","1Z","2A","2B","2E","2M","2P","2Z","3E","3P","3Z","4C","4E","1C","1CB","2C","3C","5C","NB","PI"]
 };
@@ -1266,12 +1217,10 @@ function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
 }
 /* ========== Pestaña de Pendientes (con filtros, estados y creación manual) ========== */
 function Pendientes({ items, setItems }) {
-  const [editId, setEditId] = useState(null);
-  const [editData, setEditData] = useState(null);
+  const [editItem, setEditItem] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [newTask, setNewTask] = useState({ type: 'MANUAL', fecha: new Date().toISOString().slice(0,10), details: '' });
   
-  // Filtros
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -1279,7 +1228,7 @@ function Pendientes({ items, setItems }) {
 
   const filteredItems = useMemo(() => {
     return items
-      .filter(item => item.status === statusFilter)
+      .filter(item => statusFilter === 'Todas' || item.status === statusFilter)
       .filter(item => !from || (item.fecha || "") >= from)
       .filter(item => !to || (item.fecha || "") <= to)
       .filter(item => {
@@ -1290,53 +1239,28 @@ function Pendientes({ items, setItems }) {
       });
   }, [items, statusFilter, from, to, q]);
   
-  const startEdit = (item) => {
-    setEditId(item.id);
-    setEditData(item.data);
-  };
+  const startEdit = (item) => setEditItem({ ...item });
+  const cancelEdit = () => setEditItem(null);
 
   const saveEdit = () => {
-    setItems(prev => prev.map(item =>
-      item.id === editId ? { ...item, data: editData } : item
-    ));
-    setEditId(null);
-    setEditData(null);
+    setItems(prev => prev.map(item => item.id === editItem.id ? editItem : item ));
+    setEditItem(null);
   };
   
-  const cancelEdit = () => {
-    setEditId(null);
-    setEditData(null);
-  };
-
   const toggleStatus = (id) => {
-    setItems(prev => prev.map(item => {
-      if (item.id === id) {
-        return { ...item, status: item.status === 'Realizada' ? 'No realizada' : 'Realizada' };
-      }
-      return item;
-    }));
+    setItems(prev => prev.map(item => item.id === id ? { ...item, status: item.status === 'Realizada' ? 'No realizada' : 'Realizada' } : item ));
   };
 
   const deleteTask = (id) => {
     const ok = window.confirm("¿Seguro que quieres eliminar esta tarea pendiente? Esta acción no se puede deshacer.");
-    if (ok) {
-      setItems(prev => prev.filter(item => item.id !== id));
-    }
+    if (ok) setItems(prev => prev.filter(item => item.id !== id));
   };
 
   const handleCreateTask = () => {
-    if (!newTask.details.trim()) {
-      alert("Por favor, ingresá los detalles de la tarea.");
-      return;
-    }
+    if (!newTask.details.trim()) { alert("Por favor, ingresá los detalles de la tarea."); return; }
     const taskToAdd = {
-      id: uuid(),
-      type: newTask.type,
-      status: "No realizada",
-      fecha: newTask.fecha,
-      data: {
-        details: newTask.details
-      }
+      id: uuid(), type: newTask.type, status: "No realizada", fecha: newTask.fecha,
+      data: { details: newTask.details }
     };
     setItems(prev => [taskToAdd, ...prev]);
     setModalOpen(false);
@@ -1345,27 +1269,11 @@ function Pendientes({ items, setItems }) {
 
   const renderTaskDetails = (item) => {
     const { type, data } = item;
-
-    if (editId === item.id) {
-       return (
-          <td colSpan="3" className="px-3 py-2">
-            <Input 
-              value={data.details || JSON.stringify(data)} 
-              onChange={e => setEditData({ details: e.target.value })}
-            />
-          </td>
-        );
-    }
-
     switch (type) {
-      case 'ASIGNAR_CASILLA':
-        return <td colSpan="3" className="px-3 py-2">Mover paquete <b>Nº {data.numero}</b> ({data.nombre}) a la casilla <b>{data.casilla}</b>.</td>;
-      case 'CAMBIO_CARGA':
-        return <td colSpan="3" className="px-3 py-2">Cambiar paquete <b>{data.codigo}</b> de la carga <s>{data.oldFlight}</s> a la carga <b>{data.newFlight}</b>.</td>;
-      case 'MANUAL':
-        return <td colSpan="3" className="px-3 py-2">{data.details}</td>;
-      default:
-        return <td colSpan="3" className="px-3 py-2">Tarea desconocida.</td>;
+      case 'ASIGNAR_CASILLA': return `Mover paquete Nº ${data.numero} (${data.nombre}) a la casilla ${data.casilla}.`;
+      case 'CAMBIO_CARGA': return `Cambiar paquete ${data.codigo} de la carga ${data.oldFlight} a la carga ${data.newFlight}.`;
+      case 'MANUAL': return data.details;
+      default: return JSON.stringify(data);
     }
   };
 
@@ -1378,6 +1286,7 @@ function Pendientes({ items, setItems }) {
           <select className="rounded-xl border px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="No realizada">No realizada</option>
             <option value="Realizada">Realizada</option>
+            <option value="Todas">Todas</option>
           </select>
         </Field>
         <Input placeholder="Buscar..." value={q} onChange={e => setQ(e.target.value)} />
@@ -1388,64 +1297,64 @@ function Pendientes({ items, setItems }) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="bg-gray-50">
-              <th className="text-left px-3 py-2 w-1/5">Fecha</th>
-              <th className="text-left px-3 py-2 w-1/5">Tipo de Tarea</th>
-              <th className="text-left px-3 py-2" colSpan="3">Detalles</th>
-              <th className="text-left px-3 py-2 w-1/4">Acciones</th>
+              <th className="text-left px-3 py-2">Fecha</th>
+              <th className="text-left px-3 py-2">Tipo</th>
+              <th className="text-left px-3 py-2">Detalles</th>
+              <th className="text-left px-3 py-2">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {filteredItems.map(item => (
               <tr key={item.id} className="border-b">
                 <td className="px-3 py-2">{item.fecha}</td>
-                <td className="px-3 py-2">{
-                  item.type === 'ASIGNAR_CASILLA' ? 'Asignar Casilla' :
-                  item.type === 'CAMBIO_CARGA' ? 'Cambio de Carga' : 'Manual'
-                }</td>
-                {renderTaskDetails(item)}
+                <td className="px-3 py-2">{ item.type === 'ASIGNAR_CASILLA' ? 'Asignar Casilla' : item.type === 'CAMBIO_CARGA' ? 'Cambio Carga' : 'Manual' }</td>
+                <td className="px-3 py-2">{renderTaskDetails(item)}</td>
                 <td className="px-3 py-2">
-                  {editId === item.id ? (
-                    <div className="flex gap-2">
-                      <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={saveEdit}>Guardar</button>
-                      <button className="px-2 py-1 border rounded" onClick={cancelEdit}>Cancelar</button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2 flex-wrap">
-                      <button className={`px-2 py-1 border rounded text-white ${item.status === 'No realizada' ? 'bg-green-600' : 'bg-yellow-500'}`} onClick={() => toggleStatus(item.id)}>
-                        {item.status === 'No realizada' ? 'Realizada' : 'Pendiente'}
-                      </button>
-                      <button className="px-2 py-1 border rounded" onClick={() => startEdit(item)}>Editar</button>
-                      <button className="px-2 py-1 border rounded text-red-600" onClick={() => deleteTask(item.id)}>Eliminar</button>
-                    </div>
-                  )}
+                  <div className="flex gap-2 flex-wrap">
+                    <button className={`px-2 py-1 border rounded text-white ${item.status === 'No realizada' ? 'bg-green-600' : 'bg-yellow-500'}`} onClick={() => toggleStatus(item.id)}>
+                      {item.status === 'No realizada' ? 'Realizada' : 'Pendiente'}
+                    </button>
+                    <button className="px-2 py-1 border rounded" onClick={() => startEdit(item)}>Editar</button>
+                    <button className="px-2 py-1 border rounded text-red-600" onClick={() => deleteTask(item.id)}>Eliminar</button>
+                  </div>
                 </td>
               </tr>
             ))}
             {filteredItems.length === 0 && (
-              <tr><td colSpan="6" className="text-center text-gray-500 py-6">No hay tareas para el filtro seleccionado.</td></tr>
+              <tr><td colSpan="4" className="text-center text-gray-500 py-6">No hay tareas para el filtro seleccionado.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+      
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Crear Nueva Tarea Manual">
         <div className="space-y-4">
-          <Field label="Fecha" required>
-            <Input type="date" value={newTask.fecha} onChange={e => setNewTask({...newTask, fecha: e.target.value})} />
-          </Field>
+          <Field label="Fecha" required><Input type="date" value={newTask.fecha} onChange={e => setNewTask({...newTask, fecha: e.target.value})} /></Field>
           <Field label="Detalles de la Tarea" required>
-            <textarea
-              className="w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 ring-indigo-500"
-              rows="4"
-              value={newTask.details}
-              onChange={e => setNewTask({...newTask, details: e.target.value})}
-              placeholder="Ej: Revisar paquete GLOBALBOX123 por posible daño."
-            ></textarea>
+            <textarea className="w-full rounded-xl border px-3 py-2" rows="4" value={newTask.details} onChange={e => setNewTask({...newTask, details: e.target.value})} placeholder="Ej: Revisar paquete GLOBALBOX123 por posible daño."/>
           </Field>
-          <div className="flex justify-end gap-2">
-            <button className={BTN} onClick={() => setModalOpen(false)}>Cancelar</button>
-            <button className={BTN_PRIMARY} onClick={handleCreateTask}>Guardar Tarea</button>
-          </div>
+          <div className="flex justify-end gap-2"><button className={BTN} onClick={() => setModalOpen(false)}>Cancelar</button><button className={BTN_PRIMARY} onClick={handleCreateTask}>Guardar Tarea</button></div>
         </div>
+      </Modal>
+
+      <Modal open={!!editItem} onClose={cancelEdit} title="Editar Tarea">
+        {editItem && (
+          <div className="space-y-4">
+            <Field label="Fecha" required><Input type="date" value={editItem.fecha} onChange={e => setEditItem({...editItem, fecha: e.target.value})} /></Field>
+            <Field label="Detalles de la Tarea" required>
+              <textarea className="w-full rounded-xl border px-3 py-2" rows="4" value={renderTaskDetails(editItem)}
+                onChange={e => {
+                  const newData = { ...editItem.data };
+                  if (editItem.type === 'MANUAL') newData.details = e.target.value;
+                  // For simplicity, converting other types to manual on edit.
+                  else newData.details = e.target.value; 
+                  setEditItem({...editItem, data: newData, type: 'MANUAL'});
+                }}
+              />
+            </Field>
+            <div className="flex justify-end gap-2"><button className={BTN} onClick={cancelEdit}>Cancelar</button><button className={BTN_PRIMARY} onClick={saveEdit}>Guardar Cambios</button></div>
+          </div>
+        )}
       </Modal>
     </Section>
   );
@@ -1584,13 +1493,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
       ];
     });
 
-    const tpl = await tryLoadTemplate("/templates/bodega.xlsx");
-    if(tpl){
-      replacePlaceholdersInWB(tpl, { CARGA: flights.find(f=>f.id===flightId)?.codigo || "", FECHA: new Date().toISOString().slice(0,10) });
-      appendSheet(tpl, "DATA", [header, ...body], {cols:[{wch:12},{wch:14},{wch:12},{wch:10},{wch:16},{wch:12},{wch:22},{wch:22},{wch:16},{wch:18},{wch:18},{wch:18},{wch:14},{wch:28},{wch:12}]});
-      XLSX.writeFile(tpl, "Paquetes_en_bodega.xlsx");
-      return;
-    }
     const { ws } = sheetFromAOAStyled("Bodega", [header, ...body], {
       cols: [{wch:12},{wch:14},{wch:12},{wch:10},{wch:16},{wch:12},{wch:22},{wch:22},{wch:16},{wch:18},{wch:18},{wch:18},{wch:14},{wch:28},{wch:12}],
       rows: [{hpt:24}]
@@ -1739,7 +1641,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
                 );
               })()}
             </Field>
-
             <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})} disabled={user.role==="COURIER"}/></Field>
@@ -1753,7 +1654,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
             <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-
             <div className="md:col-span-3 flex items-center justify-between mt-2">
               <button onClick={()=>printPkgLabel(form)} className={BTN}>Reimprimir etiqueta</button>
               <div className="flex gap-2">
@@ -1786,7 +1686,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
       setActiveBoxId(null);
       setEditingBoxId(null);
     }
-  },[flightId]);
+  },[flightId, flight]);
 
   function addBox(){
     if(!flightId) return;
@@ -1794,14 +1694,12 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     if(inTxt===null) return;
     const peso_carton = fmtPeso(parseComma(inTxt));
     const n = (flight?.cajas?.length||0)+1;
-    setFlights(flights.map(f=>f.id!==flightId?f:{
-      ...f,
-      cajas:[...f.cajas,{id:uuid(),codigo:`Caja ${n}`,paquetes:[],peso:"",L:"",A:"",H:"", peso_carton}]
-    }));
-    setTimeout(()=>{
-      const nf = flights.find(f=>f.id===flightId);
-      if(nf?.cajas?.length) setActiveBoxId(nf.cajas[nf.cajas.length-1]?.id);
-    },0);
+    const newBox = {id:uuid(),codigo:`Caja ${n}`,paquetes:[],peso:"",L:"",A:"",H:"", peso_carton};
+    const updatedFlights = flights.map(f =>
+      f.id !== flightId ? f : { ...f, cajas: [...f.cajas, newBox] }
+    );
+    setFlights(updatedFlights);
+    setActiveBoxId(newBox.id);
   }
   function updBox(id,field,val){
     if(!flightId||!id) return;
@@ -1820,13 +1718,29 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     if(flight.cajas.some(c=>c.paquetes.includes(pkg.id))){ alert("Ya está en una caja."); setScan(""); return; }
     const activeId = activeBoxId || flight.cajas[0]?.id;
     if(!activeId){ alert("Creá una caja primero."); return; }
-    setFlights(flights.map(f=>f.id!==flightId?f:{...f, cajas:f.cajas.map(c=>c.id!==activeId?c:{...c,paquetes:[...c.paquetes, pkg.id]})}));
+    
+    const updatedFlights = flights.map(f => {
+      if (f.id !== flightId) return f;
+      const updatedCajas = f.cajas.map(c => 
+        c.id !== activeId ? c : {...c, paquetes: [...c.paquetes, pkg.id]}
+      );
+      return {...f, cajas: updatedCajas};
+    });
+    setFlights(updatedFlights);
     onAssign(pkg.id); setScan("");
   }
   function move(pid,fromId,toId){
     if(!toId||!flight) return;
-    setFlights(prev=>prev.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id===fromId?{...c,paquetes:c.paquetes.filter(x=>x!==pid)}:c)}));
-    setFlights(prev=>prev.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.map(c=>c.id===toId?{...c,paquetes:[...c.paquetes,pid]}:c)}));
+    let updatedFlights = flights.map(f => {
+        if(f.id !== flightId) return f;
+        const newCajas = f.cajas.map(c => {
+            if(c.id === fromId) return {...c, paquetes: c.paquetes.filter(p => p !== pid)};
+            if(c.id === toId) return {...c, paquetes: [...c.paquetes, pid]};
+            return c;
+        });
+        return {...f, cajas: newCajas};
+    });
+    setFlights(updatedFlights);
   }
   function removeBox(id){
     if(!flight) return;
@@ -1872,18 +1786,16 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
         });
         const couriers = Object.keys(byCourier).sort();
         const cantPaquetes = pkgObjs.length;
-        const ws = cloneWs(baseWs);
+        const ws = cloneSheetObject(baseWs);
         replacePlaceholdersInSheet(ws, {
           "NUMERO DE CAJA": String(idx+1),
           "CANTIDAD DE PAQUETES": String(cantPaquetes)
         });
 
-        const headers = findCellsWith(ws, /{{\s*COURIER\s*}}/i).sort((a,b)=>a.c-b.c);
+        const headers = findCells(ws, v => v.includes("{{COURIER}}")).sort((a,b)=>a.c-b.c);
         headers.forEach((h, i)=>{
           const name = couriers[i] || "";
-          const addr = XLSX.utils.encode_cell({r:h.r, c:h.c});
-          const orig = ws[addr] || { t:"s" };
-          ws[addr] = { ...orig, v: name, t:"s" };
+          writeCell(ws, h.r, h.c, name);
           fillCourierColumn(ws, {r:h.r, c:h.c}, byCourier[name] || []);
         });
 
@@ -1891,65 +1803,21 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
       });
 
       XLSX.writeFile(outWb, `cajas_${flight.codigo}.xlsx`);
-      return;
+    } else {
+        alert("No se encontró la plantilla 'cajas.xlsx' en la carpeta public/templates. Se usará un formato básico.");
+        const header = [th("Caja"), th("Peso caja (kg)"), th("Peso cartón (kg)"), th("Peso estimado (kg)"), th("Largo"), th("Ancho"), th("Alto"), th("Paquetes")];
+        const body = (flight.cajas||[]).map(c=>{
+          const est = fmtPeso(pesoEstimado(c));
+          const pkgs = (c.paquetes||[]).map(pid=>packages.find(p=>p.id===pid)?.codigo).filter(Boolean).join(", ");
+          return [ td(c.codigo), td(fmtPeso(parseComma(c.peso||"0"))), td(fmtPeso(parseComma(c.peso_carton||"0"))), td(est),
+                  td(String(c.L||"")), td(String(c.A||"")), td(String(c.H||"")), td(pkgs) ];
+        });
+        const { ws } = sheetFromAOAStyled(`Cajas_${flight.codigo}`, [header, ...body], {
+          cols:[{wch:12},{wch:16},{wch:16},{wch:18},{wch:10},{wch:10},{wch:10},{wch:40}],
+          rows:[{hpt:24}]
+        });
+        downloadXLSX(`Cajas_${flight.codigo}.xlsx`, [{name:`Cajas_${flight.codigo}`.slice(0,31), ws}]);
     }
-
-    const header = [th("Caja"), th("Peso caja (kg)"), th("Peso cartón (kg)"), th("Peso estimado (kg)"), th("Largo"), th("Ancho"), th("Alto"), th("Paquetes")];
-    const body = (flight.cajas||[]).map(c=>{
-      const est = fmtPeso(pesoEstimado(c));
-      const pkgs = (c.paquetes||[]).map(pid=>packages.find(p=>p.id===pid)?.codigo).filter(Boolean).join(", ");
-      return [ td(c.codigo), td(fmtPeso(parseComma(c.peso||"0"))), td(fmtPeso(parseComma(c.peso_carton||"0"))), td(est),
-              td(String(c.L||"")), td(String(c.A||"")), td(String(c.H||"")), td(pkgs) ];
-    });
-    const { ws } = sheetFromAOAStyled(`Cajas_${flight.codigo}`, [header, ...body], {
-      cols:[{wch:12},{wch:16},{wch:16},{wch:18},{wch:10},{wch:10},{wch:10},{wch:40}],
-      rows:[{hpt:24}]
-    });
-    downloadXLSX(`Cajas_${flight.codigo}.xlsx`, [{name:`Cajas_${flight.codigo}`.slice(0,31), ws}]);
-  }
-
-  function replacePlaceholdersInSheet(ws, map){
-    const range = wsRange(ws);
-    for(let R=range.s.r; R<=range.e.r; R++){
-      for(let C=range.s.c; C<=range.e.c; C++){
-        const addr = XLSX.utils.encode_cell({r:R,c:C});
-        const cell = ws[addr];
-        if(cell && typeof cell.v==="string"){
-          let txt = cell.v;
-          Object.entries(map).forEach(([k,v])=>{ txt = txt.replaceAll(`{{${k}}}`, (v??"").toString()); });
-          if(txt!==cell.v) ws[addr] = {...cell, v: txt, t:"s"};
-        }
-      }
-    }
-  }
-  function findCellsWith(ws, regex){
-    const out=[];
-    const range = wsRange(ws);
-    for(let R=range.s.r; R<=range.e.r; R++){
-      for(let C=range.s.c; C<=range.e.c; C++){
-        const addr = XLSX.utils.encode_cell({r:R,c:C});
-        const cell = ws[addr];
-        const v = cell && typeof cell.v==="string" ? cell.v : "";
-        if(regex.test(v)) out.push({addr, r:R, c:C, v});
-      }
-    }
-    return out;
-  }
-  function fillCourierColumn(ws, headerCell, codes){
-    let idx = 0;
-    const range = wsRange(ws);
-    for(let R=headerCell.r+1; R<=range.e.r; R++){
-      const addr = XLSX.utils.encode_cell({r:R, c:headerCell.c});
-      const cell = ws[addr];
-      const isPlaceholder = cell && typeof cell.v==="string" && cell.v.includes("{{PAQUETE}}");
-      if(!isPlaceholder) continue;
-      const val = (idx < codes.length) ? codes[idx++] : "";
-      ws[addr] = { ...(cell||{t:"s"}), v: val, t:"s" };
-    }
-  }
-  function wsRange(ws){
-    const ref = ws["!ref"] || "A1:A1";
-    return XLSX.utils.decode_range(ref);
   }
 
   return (
@@ -2076,25 +1944,23 @@ function CargasEnviadas({packages, flights, user}){
   function exportFlightXLSX(){
     if(!flight){ alert("Seleccioná una carga."); return; }
 
-    // Pestaña 1: Packing List
-    const headerPacking = ["Courier", "Casilla", "Código de paquete", "Fecha", "Empresa de envío", "Nombre y apellido", "Tracking", "Remitente", "Peso real", "Peso facturable (mín 0,200 kg)", "Medidas", "Exceso de volumen", "Descripción", "Precio (EUR)"].map(th);
+    const headerPacking = ["Courier", "Casilla", "Código de paquete", "Fecha", "Empresa de envío", "Nombre y apellido", "Tracking", "Remitente", "Peso real", "Peso facturable", "Medidas", "Exceso de volumen", "Descripción", "Precio (EUR)"].map(th);
     const bodyPacking = paquetesDeVuelo.map(p => [
       td(p.courier), td(p.casilla), td(p.codigo), td(p.fecha), td(p.empresa_envio), td(p.nombre_apellido),
-      td(p.tracking), td(p.remitente), td(fmtPeso(p.peso_real)), td(fmtPeso(p.peso_facturable)),
-      td(`${p.largo}x${p.ancho}x${p.alto} cm`), td(fmtPeso(p.exceso_volumen)), td(p.descripcion), td(fmtMoney(p.valor_aerolinea))
+      td(p.tracking), td(p.remitente), tdNum(p.peso_real, "0.000"), tdNum(p.peso_facturable, "0.000"),
+      td(`${p.largo}x${p.ancho}x${p.alto} cm`), tdNum(p.exceso_volumen, "0.000"), td(p.descripcion), tdNum(p.valor_aerolinea, "0.00")
     ]);
     const sheetPacking = sheetFromAOAStyled("Packing list", [headerPacking, ...bodyPacking], {
         cols: [{wch:16},{wch:10},{wch:18},{wch:12},{wch:20},{wch:22},{wch:18},{wch:18},{wch:12},{wch:14},{wch:14},{wch:14},{wch:28},{wch:12}],
         rows: [{hpt:24}]
     });
 
-    // Pestaña 2: Cajas
     const headerCajas = ["Nº de Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(th);
     const bodyCajas = resumenCajas.map(c => [
-      td(c.codigo), td(c.courier), td(fmtPeso(c.peso)), td(c.L), td(c.A), td(c.H), td(fmtPeso(c.vol))
+      td(c.codigo), td(c.courier), tdNum(c.peso, "0.000"), tdInt(c.L), tdInt(c.A), tdInt(c.H), tdNum(c.vol, "0.000")
     ]);
     const totalsRow = [
-      td(""), th("Totales"), th(fmtPeso(totPeso)), td(""), td(""), td(""), th(fmtPeso(totVol))
+      td(""), th("Totales"), tdNum(totPeso, "0.000"), td(""), td(""), td(""), tdNum(totVol, "0.000")
     ];
     const sheetCajas = sheetFromAOAStyled("Cajas", [headerCajas, ...bodyCajas, totalsRow], {
         cols: [{wch:14},{wch:20},{wch:12},{wch:10},{wch:10},{wch:10},{wch:14}],
@@ -2393,6 +2259,7 @@ function Extras({flights, couriers, extras, setExtras}){
   const [fecha,setFecha]=useState(new Date().toISOString().slice(0,10));
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
+  const [statusFilter, setStatusFilter] = useState("Pendiente"); // Filtro de estado
 
   const add=()=>{
     if(!(flightId && courier && desc && monto)) return;
@@ -2402,7 +2269,8 @@ function Extras({flights, couriers, extras, setExtras}){
   const filtered = extras
     .filter(e=>!from || (e.fecha || (flights.find(f=>f.id===e.flight_id)?.fecha_salida)||"")>=from)
     .filter(e=>!to || (e.fecha || (flights.find(f=>f.id===e.flight_id)?.fecha_salida)||"")<=to)
-    .filter(e=>!flightId || e.flight_id===flightId);
+    .filter(e=>!flightId || e.flight_id===flightId)
+    .filter(e => statusFilter === 'Todos' || e.estado === statusFilter);
 
   const upd=(id,patch)=> setExtras(extras.map(e=>e.id===id?{...e,...patch}:e));
   const del=(id)=> setExtras(extras.filter(e=>e.id!==id));
@@ -2410,33 +2278,25 @@ function Extras({flights, couriers, extras, setExtras}){
   return (
     <Section title="Trabajos extras">
       <div className="grid md:grid-cols-6 gap-2 mb-2">
-        <Field label="Carga">
-          <select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
-            <option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
-          </select>
-        </Field>
-        <Field label="Courier">
-          <select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}>
-            <option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}
-          </select>
-        </Field>
+        <Field label="Carga"><select className="w-full rounded-xl border px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}><option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}</select></Field>
+        <Field label="Courier"><select className="w-full rounded-xl border px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}><option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}</select></Field>
         <Field label="Descripción"><Input value={desc} onChange={e=>setDesc(e.target.value)}/></Field>
         <Field label="Monto (USD)"><Input value={monto} onChange={e=>setMonto(e.target.value)} placeholder="10,00"/></Field>
-        <Field label="Estado">
-          <select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}>
-            <option>Pendiente</option><option>Cobrado</option>
-          </select>
-        </Field>
+        <Field label="Estado"><select className="w-full rounded-xl border px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}><option>Pendiente</option><option>Cobrado</option></select></Field>
         <Field label="Fecha"><Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></Field>
       </div>
-      <div className="flex justify-end mb-4">
-        <button onClick={add} className={BTN_PRIMARY}>Agregar</button>
-      </div>
+      <div className="flex justify-end mb-4"><button onClick={add} className={BTN_PRIMARY}>Agregar</button></div>
 
       <div className="grid md:grid-cols-3 gap-2 mb-3">
         <Field label="Filtrar desde"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field>
         <Field label="Filtrar hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
-        <div />
+        <Field label="Filtrar por estado">
+            <select className="w-full rounded-xl border px-3 py-2" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                <option value="Pendiente">Pendiente</option>
+                <option value="Cobrado">Cobrado</option>
+                <option value="Todos">Todos</option>
+            </select>
+        </Field>
       </div>
 
       <div className="overflow-auto">
@@ -2457,9 +2317,7 @@ function Extras({flights, couriers, extras, setExtras}){
                       <option>Pendiente</option><option>Cobrado</option>
                     </select>
                   </td>
-                  <td className="px-3 py-2">
-                    <button onClick={()=>del(e.id)} className="px-2 py-1 border rounded text-red-600">Eliminar</button>
-                  </td>
+                  <td className="px-3 py-2"><button onClick={()=>del(e.id)} className="px-2 py-1 border rounded text-red-600">Eliminar</button></td>
                 </tr>
               );
             })}
@@ -2492,7 +2350,7 @@ function App(){
     localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems));
   },[sinCasillaItems]);
 
-  const PENDIENTES_KEY = "ee_pendientes_v2"; // version bump for new status field
+  const PENDIENTES_KEY = "ee_pendientes_v2";
   const [pendientes, setPendientes] = useState([]);
   useEffect(()=>{
     try{

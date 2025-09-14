@@ -1685,14 +1685,17 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     if (flightId) {
         const currentFlight = flights.find(f => f.id === flightId);
         if (currentFlight?.cajas?.length > 0) {
-            setActiveBoxId(currentFlight.cajas[0].id);
+            // Only set the first box as active if no box is currently active, or if the active one is gone
+            if (!activeBoxId || !currentFlight.cajas.some(c => c.id === activeBoxId)) {
+                setActiveBoxId(currentFlight.cajas[0].id);
+            }
         } else {
             setActiveBoxId(null);
         }
         setEditingBoxId(null);
         setEditingBoxData(null);
     }
-  },[flightId]);
+  },[flightId, flights]);
 
   const startEditing = (box) => {
     setEditingBoxId(box.id);
@@ -1877,7 +1880,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                       : <button className="px-2 py-1 border rounded bg-indigo-600 text-white" onClick={(e)=>{e.stopPropagation(); saveBoxChanges();}}>Guardar</button>
                     }
                     <button className="px-2 py-1 border rounded" onClick={(e)=>{e.stopPropagation(); reorderBox(c.id,"up")}}>↑</button>
-                    <button className="px-2 py-1 border rounded" onClick={(e)=>{e.stopPropagation(); reorderBox(c.id,"down")}>↓</button>
+                    <button className="px-2 py-1 border rounded" onClick={(e)=>{e.stopPropagation(); reorderBox(c.id,"down")}}>↓</button>
                     <button className="px-2 py-1 border rounded text-red-600" onClick={(e)=>{e.stopPropagation(); removeBox(c.id)}}>Eliminar</button>
                   </div>
                 </div>
@@ -1899,7 +1902,11 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                     return (
                       <li key={pid} className="flex items-center gap-2 py-1 border-b">
                         <span className="font-mono">{p.codigo}</span><span className="text-gray-600">{p.courier}</span>
-                        <button className="text-red-600 text-xs" onClick={(e)=>{e.stopPropagation(); updBox(c.id,"paquetes", c.paquetes.filter(z=>z!==pid))}}>Quitar</button>
+                        <button className="text-red-600 text-xs" onClick={(e)=>{e.stopPropagation(); 
+                          const updatedPaquetes = c.paquetes.filter(z => z !== pid);
+                          const updatedCaja = {...c, paquetes: updatedPaquetes};
+                          setFlights(flights.map(f => f.id === flightId ? {...f, cajas: f.cajas.map(cj => cj.id === c.id ? updatedCaja : cj)} : f));
+                        }}>Quitar</button>
                         {flight.cajas.length>1 && (
                           <select className="text-xs border rounded px-1 py-0.5 ml-auto" defaultValue="" onChange={e=>{e.stopPropagation(); move(pid,c.id,e.target.value)}}>
                             <option value="" disabled>Mover a…</option>

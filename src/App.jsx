@@ -159,77 +159,92 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
     <html><head><meta charset="utf-8"><title>Etiqueta de Caja</title>
     <style>
       @page { size: 100mm 150mm; margin: 5mm; }
-      body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: flex-start; }
+      body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+      }
       .label {
         width: 90mm;
         height: 140mm;
-        border: 1px solid black;
+        border: 2px solid black;
         display: flex;
         flex-direction: column;
-        text-align: center;
+        justify-content: space-between;
         padding: 5mm;
         box-sizing: border-box;
       }
-      .header { width: 100%; margin-bottom: 5mm; }
-      .header .courier {
-        font-size: 40pt;
+      .header {
+        text-align: center;
+      }
+      .courier {
+        font-size: 50pt;
         font-weight: bold;
-        line-height: 1;
+        line-height: 1.1;
+        margin-bottom: 5mm;
       }
-      .header .line {
-        border-bottom: 1px solid black;
-        width: 100%;
-        margin-top: 2mm;
+      .box-title {
+        font-size: 50pt;
+        font-weight: bold;
+        margin-bottom: 10mm;
       }
-      .content { flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; width: 100%; }
-      .content .box-title { font-size: 64pt; font-weight: bold; margin-top: 5mm; margin-bottom: 10mm; }
-      .content .detail-group { margin-bottom: 10mm; }
-      .content .details { font-size: 16pt; }
-      .content .details-value { font-size: 32pt; font-weight: bold; }
-
-      .footer { width: 100%; font-size: 10pt; text-align: left; margin-top: auto; }
-      .footer .obs {
-        line-height: 1.4;
+      .content {
+        text-align: center;
+      }
+      .detail-group {
+        margin-bottom: 8mm;
+      }
+      .details-label {
+        font-size: 18pt;
+        font-weight: bold;
+      }
+      .details-value {
+        font-size: 24pt;
+        font-weight: bold;
+      }
+      .footer {
+        font-size: 10pt;
+        text-align: left;
+        line-height: 1.3;
+      }
+      .footer-info {
         margin-bottom: 4mm;
       }
-      .footer .info-box {
-        border: 1px dotted black;
-        padding: 2mm;
-        line-height: 1.4;
-        text-align: left;
+      .company-info {
+        border-top: 1px solid black;
+        padding-top: 4mm;
       }
     </style></head><body>
       <div class="label">
         <div class="header">
-          <div class="courier">${deaccent(courier || "").toUpperCase().replace(" ", "<br>")}</div>
-          <div class="line"></div>
+          <div class="courier">${deaccent(courier || "").toUpperCase()}</div>
+          <div class="box-title">CAJA ${boxNumber}</div>
         </div>
 
         <div class="content">
-          <div class="box-title">CAJA ${boxNumber}</div>
-          
           <div class="detail-group">
-            <div class="details">PESO:</div>
+            <div class="details-label">PESO:</div>
             <div class="details-value">${fmtPeso(pesoKg)} kg</div>
           </div>
-          
           <div class="detail-group">
-            <div class="details">MEDIDAS:</div>
+            <div class="details-label">MEDIDAS:</div>
             <div class="details-value">${deaccent(medidasTxt || "")}</div>
           </div>
         </div>
 
         <div class="footer">
-          <div class="obs">
+          <div class="footer-info">
             Obs:<br/>
             Fecha: ${fecha}<br/>
             ${cajaDeTexto}
           </div>
-          <div class="info-box">
-            EUROPA ENVIOS<br/>
-            una empresa de <b>LAMAQUINALOGISTICA SL</b><br/>
+          <div class="company-info">
+            <b>Europa Envíos</b><br/>
+            Una empresa de LAMAQUINALOGISTICA SL<br/>
             Málaga, España.<br/>
-            Telefono: +34633740831<br/>
+            Teléfono: +34633740831<br/>
             info@europaenvios.com
           </div>
         </div>

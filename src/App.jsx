@@ -152,104 +152,123 @@ function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt
 
 /* ========== Etiqueta de Caja (NUEVO ESTILO) ========== */
 function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
-  // El usuario solicitó dejar el número total de cajas en blanco para completarlo manualmente.
-  const cajaDeTexto = `CAJA: ${boxNumber} de `;
+  // El usuario quiere dejar el número total de cajas en blanco para completarlo manualmente.
+  const cajaDeTexto = `CAJA: ${boxNumber} de`;
 
   return `
-    <html><head><meta charset="utf-8"><title>Etiqueta de Caja</title>
-    <style>
-      @page { size: 100mm 150mm; margin: 5mm; }
-      body {
-        font-family: Arial, sans-serif;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-      }
-      .label {
-        width: 90mm;
-        height: 140mm;
-        border: 2px solid black;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        padding: 5mm;
-        box-sizing: border-box;
-      }
-      .header {
-        text-align: center;
-      }
-      .courier {
-        font-size: 50pt;
-        font-weight: bold;
-        line-height: 1.1;
-        margin-bottom: 5mm;
-      }
-      .box-title {
-        font-size: 50pt;
-        font-weight: bold;
-        margin-bottom: 10mm;
-      }
-      .content {
-        text-align: center;
-      }
-      .detail-group {
-        margin-bottom: 8mm;
-      }
-      .details-label {
-        font-size: 18pt;
-        font-weight: bold;
-      }
-      .details-value {
-        font-size: 24pt;
-        font-weight: bold;
-      }
-      .footer {
-        font-size: 10pt;
-        text-align: left;
-        line-height: 1.3;
-      }
-      .footer-info {
-        margin-bottom: 4mm;
-      }
-      .company-info {
-        border-top: 1px solid black;
-        padding-top: 4mm;
-      }
-    </style></head><body>
-      <div class="label">
-        <div class="header">
-          <div class="courier">${deaccent(courier || "").toUpperCase()}</div>
-          <div class="box-title">CAJA ${boxNumber}</div>
-        </div>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Etiqueta de Caja</title>
+        <style>
+          @page {
+            size: 100mm 150mm;
+            margin: 5mm;
+          }
+          body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            -webkit-print-color-adjust: exact;
+          }
+          .label {
+            width: 90mm;
+            height: 140mm;
+            border: 2px solid black;
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+            padding: 5mm;
+            box-sizing: border-box;
+          }
+          .header {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+          }
+          .courier {
+            font-size: 48pt;
+            font-weight: bold;
+            line-height: 1;
+            word-break: break-word; /* Break long courier names */
+          }
+          .box-title {
+            font-size: 60pt;
+            font-weight: bold;
+            margin-top: 5mm;
+          }
+          .content {
+            flex-grow: 2;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+          }
+          .detail-group {
+            margin-bottom: 10mm;
+          }
+          .details-label {
+            font-size: 18pt;
+            font-weight: bold;
+          }
+          .details-value {
+            font-size: 32pt;
+            font-weight: bold;
+          }
+          .footer {
+            flex-grow: 1;
+            text-align: left;
+            font-size: 12pt;
+            line-height: 1.4;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+          }
+          .footer-obs {
+             padding-bottom: 5mm;
+          }
+          .company-info {
+            font-size: 9pt;
+            border-top: 1px solid black;
+            padding-top: 2mm;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="label">
+          <div class="header">
+            <div class="courier">${deaccent(courier || "").toUpperCase()}</div>
+            <div class="box-title">CAJA ${boxNumber}</div>
+          </div>
 
-        <div class="content">
-          <div class="detail-group">
-            <div class="details-label">PESO:</div>
-            <div class="details-value">${fmtPeso(pesoKg)} kg</div>
+          <div class="content">
+            <div class="detail-group">
+              <div class="details-label">PESO:</div>
+              <div class="details-value">${fmtPeso(pesoKg)} kg</div>
+            </div>
+            <div class="detail-group">
+              <div class="details-label">MEDIDAS:</div>
+              <div class="details-value">${deaccent(medidasTxt || "")}</div>
+            </div>
           </div>
-          <div class="detail-group">
-            <div class="details-label">MEDIDAS:</div>
-            <div class="details-value">${deaccent(medidasTxt || "")}</div>
-          </div>
-        </div>
 
-        <div class="footer">
-          <div class="footer-info">
-            Obs:<br/>
-            Fecha: ${fecha}<br/>
-            ${cajaDeTexto}
-          </div>
-          <div class="company-info">
-            <b>Europa Envíos</b><br/>
-            Una empresa de LAMAQUINALOGISTICA SL<br/>
-            Málaga, España.<br/>
-            Teléfono: +34633740831<br/>
-            info@europaenvios.com
+          <div class="footer">
+            <div class="footer-obs">
+                Fecha: ${fecha}<br/>
+                ${cajaDeTexto}
+            </div>
+             <div class="company-info">
+                <b>Europa Envíos</b><br/>
+                Una empresa de LAMAQUINALOGISTICA SL<br/>
+                Málaga, España.<br/>
+                Teléfono: +34633740831<br/>
+                info@europaenvios.com
+             </div>
           </div>
         </div>
-      </div>
-    </body></html>`;
+      </body>
+    </html>`;
 }
 
 

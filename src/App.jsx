@@ -381,8 +381,17 @@ const KpiCard = ({ title, value, icon, color }) => (
   </div>
 );
 
-function Dashboard({ packages, flights, pendientes, onTabChange }) {
-  const paquetesEnBodega = useMemo(() => packages.filter(p => flights.find(f => f.id === p.flight_id)?.estado === "En bodega"), [packages, flights]);
+function Dashboard({ packages, flights, pendientes, onTabChange, currentUser }) {
+  const isAdmin = currentUser.role === 'ADMIN';
+
+  const paquetesEnBodega = useMemo(() => {
+    let filteredPackages = packages.filter(p => flights.find(f => f.id === p.flight_id)?.estado === "En bodega");
+    if (!isAdmin) {
+      filteredPackages = filteredPackages.filter(p => p.courier === currentUser.courier);
+    }
+    return filteredPackages;
+  }, [packages, flights, isAdmin, currentUser.courier]);
+
   const cargasEnTransito = useMemo(() => flights.filter(f => f.estado === "En tránsito"), [flights]);
   const tareasPendientes = useMemo(() => pendientes.filter(t => t.status === "No realizada"), [pendientes]);
 
@@ -395,7 +404,11 @@ function Dashboard({ packages, flights, pendientes, onTabChange }) {
         const key = d.toISOString().slice(5, 10); // MM-DD
         data[key] = 0;
     }
-    packages.forEach(p => {
+    let packagesToProcess = packages;
+    if (!isAdmin) {
+        packagesToProcess = packages.filter(p => p.courier === currentUser.courier);
+    }
+    packagesToProcess.forEach(p => {
         const d = new Date(p.fecha);
         const key = d.toISOString().slice(5, 10);
         if (data[key] !== undefined) {
@@ -403,17 +416,21 @@ function Dashboard({ packages, flights, pendientes, onTabChange }) {
         }
     });
     return Object.entries(data).map(([name, value]) => ({ name, paquetes: value }));
-  }, [packages]);
+  }, [packages, isAdmin, currentUser.courier]);
   
   const kgPorCourier = useMemo(() => {
     const agg = {};
-    paquetesEnBodega.forEach(p => {
+    let packagesToProcess = paquetesEnBodega;
+    if (!isAdmin) {
+        packagesToProcess = paquetesEnBodega.filter(p => p.courier === currentUser.courier);
+    }
+    packagesToProcess.forEach(p => {
         agg[p.courier] = (agg[p.courier] || 0) + p.peso_real;
     });
     return Object.entries(agg)
         .filter(([, kg]) => kg > 0)
         .map(([name, value]) => ({ name, value }));
-  }, [paquetesEnBodega]);
+  }, [paquetesEnBodega, isAdmin, currentUser.courier]);
   
   const totalKgBodega = useMemo(() => sum(kgPorCourier.map(c => c.value)), [kgPorCourier]);
 
@@ -425,19 +442,21 @@ function Dashboard({ packages, flights, pendientes, onTabChange }) {
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         <KpiCard title="Paquetes en Bodega" value={paquetesEnBodega.length} icon={Iconos.box} color="border-francia-500" />
-        <KpiCard title="Cargas en Tránsito" value={cargasEnTransito.length} icon={Iconos.envios} color="border-amber-500" />
-        <KpiCard title="Tareas Pendientes" value={tareasPendientes.length} icon={Iconos.gestion} color="border-red-500" />
+        {isAdmin && <KpiCard title="Cargas en Tránsito" value={cargasEnTransito.length} icon={Iconos.envios} color="border-amber-500" />}
+        {isAdmin && <KpiCard title="Tareas Pendientes" value={tareasPendientes.length} icon={Iconos.gestion} color="border-red-500" />}
       </div>
 
       {/* Acciones Rápidas */}
-      <div className="mb-8">
-        <h2 className="text-xl font-bold text-slate-800 mb-4">Acciones Rápidas</h2>
-        <div className="flex flex-wrap gap-4">
-          <button className={BTN_PRIMARY} onClick={() => onTabChange("Recepción")}>Registrar Nuevo Paquete</button>
-          <button className={BTN_PRIMARY} onClick={() => onTabChange("Gestión de cargas")}>Crear Nueva Carga</button>
-          <button className={BTN_PRIMARY} onClick={() => onTabChange("Armado de cajas")}>Armar Cajas</button>
+      {isAdmin && (
+        <div className="mb-8">
+            <h2 className="text-xl font-bold text-slate-800 mb-4">Acciones Rápidas</h2>
+            <div className="flex flex-wrap gap-4">
+                <button className={BTN_PRIMARY} onClick={() => onTabChange("Recepción")}>Registrar Nuevo Paquete</button>
+                <button className={BTN_PRIMARY} onClick={() => onTabChange("Gestión de cargas")}>Crear Nueva Carga</button>
+                <button className={BTN_PRIMARY} onClick={() => onTabChange("Armado de cajas")}>Armar Cajas</button>
+            </div>
         </div>
-      </div>
+      )}
       
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1466,7 +1485,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
                   <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 cursor-pointer select-none" onClick={()=>toggleSort(h.toLowerCase().replace(" ", "_"))}>{h}<Arrow col={h.toLowerCase().replace(" ", "_")}/></th>
               ))}
               <th className="text-left px-3 py-2 font-semibold text-slate-600">Foto</th>
-              <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>
+              {user.role === 'ADMIN' && <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -1487,12 +1506,14 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
                   <td className="px-3 py-2">
                     {p.foto ? <img alt="foto" src={p.foto} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={()=>setViewer(p.foto)} /> : "—"}
                   </td>
-                  <td className="px-3 py-2">
-                    <div className="flex gap-2">
-                      <button className={BTN_ICON} onClick={()=>start(p)} disabled={user.role==="COURIER"}>{Iconos.edit}</button>
-                      <button className={BTN_ICON_DANGER} onClick={()=>requestDelete(p)} disabled={user.role==="COURIER"}>{Iconos.delete}</button>
-                    </div>
-                  </td>
+                  {user.role === 'ADMIN' &&
+                    <td className="px-3 py-2">
+                        <div className="flex gap-2">
+                        <button className={BTN_ICON} onClick={()=>start(p)}>{Iconos.edit}</button>
+                        <button className={BTN_ICON_DANGER} onClick={()=>requestDelete(p)}>{Iconos.delete}</button>
+                        </div>
+                    </td>
+                  }
                 </tr>
               );
             })}
@@ -1878,6 +1899,7 @@ function CargasEnviadas({packages, flights, user}){
   const [to,setTo]=useState("");
   const [estado,setEstado]=useState("");
   const [flightId,setFlightId]=useState("");
+  const isAdmin = user.role === 'ADMIN';
 
   const list = flights
     .filter(f=>f.estado!=="En bodega")
@@ -1924,19 +1946,23 @@ function CargasEnviadas({packages, flights, user}){
         rows: [{hpt:24}]
     });
 
-    const headerCajas = ["Nº de Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(th);
-    const bodyCajas = resumenCajas.map(c => [
-      td(c.codigo), td(c.courier), tdNum(c.peso, "0.000"), tdInt(c.L), tdInt(c.A), tdInt(c.H), tdNum(c.vol, "0.000")
-    ]);
-    const totalsRow = [
-      td(""), th("Totales"), tdNum(totPeso, "0.000"), td(""), td(""), td(""), tdNum(totVol, "0.000")
-    ];
-    const sheetCajas = sheetFromAOAStyled("Cajas", [headerCajas, ...bodyCajas, totalsRow], {
-        cols: [{wch:14},{wch:20},{wch:12},{wch:10},{wch:10},{wch:10},{wch:14}],
-        rows: [{hpt:24}]
-    });
+    if (isAdmin) {
+        const headerCajas = ["Nº de Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(th);
+        const bodyCajas = resumenCajas.map(c => [
+        td(c.codigo), td(c.courier), tdNum(c.peso, "0.000"), tdInt(c.L), tdInt(c.A), tdInt(c.H), tdNum(c.vol, "0.000")
+        ]);
+        const totalsRow = [
+        td(""), th("Totales"), tdNum(totPeso, "0.000"), td(""), td(""), td(""), tdNum(totVol, "0.000")
+        ];
+        const sheetCajas = sheetFromAOAStyled("Cajas", [headerCajas, ...bodyCajas, totalsRow], {
+            cols: [{wch:14},{wch:20},{wch:12},{wch:10},{wch:10},{wch:10},{wch:14}],
+            rows: [{hpt:24}]
+        });
 
-    downloadXLSX(`Carga_${flight.codigo}.xlsx`, [sheetPacking, sheetCajas]);
+        downloadXLSX(`Carga_${flight.codigo}.xlsx`, [sheetPacking, sheetCajas]);
+    } else {
+        downloadXLSX(`Carga_${flight.codigo}.xlsx`, [sheetPacking]);
+    }
   }
 
   return (
@@ -1988,26 +2014,30 @@ function CargasEnviadas({packages, flights, user}){
               </tbody>
             </table>
           </div>
-          <h3 className="text-lg font-semibold text-slate-800 mt-6 mb-2">Resumen de Cajas</h3>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead><tr className="bg-slate-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
-              <tbody className="divide-y divide-slate-200">
-                {resumenCajas.map(r=>(
-                  <tr key={r.n} className="hover:bg-slate-50">
-                    <td className="px-3 py-2">{r.codigo}</td>
-                    <td className="px-3 py-2">{r.courier}</td>
-                    <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
-                    <td className="px-3 py-2">{r.L}</td>
-                    <td className="px-3 py-2">{r.A}</td>
-                    <td className="px-3 py-2">{r.H}</td>
-                    <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
-                  </tr>
-                ))}
-                <tr className="bg-slate-100 font-bold"><td className="px-3 py-2"></td><td className="px-3 py-2">Totales</td><td className="px-3 py-2">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2">{fmtPeso(totVol)}</td></tr>
-              </tbody>
-            </table>
-          </div>
+          {isAdmin && 
+            <>
+                <h3 className="text-lg font-semibold text-slate-800 mt-6 mb-2">Resumen de Cajas</h3>
+                <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                    <thead><tr className="bg-slate-50">{["Nº Caja","Courier","Peso","Largo","Ancho","Alto","Volumétrico"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+                    <tbody className="divide-y divide-slate-200">
+                        {resumenCajas.map(r=>(
+                        <tr key={r.n} className="hover:bg-slate-50">
+                            <td className="px-3 py-2">{r.codigo}</td>
+                            <td className="px-3 py-2">{r.courier}</td>
+                            <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
+                            <td className="px-3 py-2">{r.L}</td>
+                            <td className="px-3 py-2">{r.A}</td>
+                            <td className="px-3 py-2">{r.H}</td>
+                            <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
+                        </tr>
+                        ))}
+                        <tr className="bg-slate-100 font-bold"><td className="px-3 py-2"></td><td className="px-3 py-2">Totales</td><td className="px-3 py-2">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2">{fmtPeso(totVol)}</td></tr>
+                    </tbody>
+                    </table>
+                </div>
+            </>
+          }
         </>
       )}
     </Section>
@@ -2530,7 +2560,7 @@ function App(){
 
       {/* Contenido Principal */}
       <main className="overflow-y-auto p-4 sm:p-6 lg:p-8">
-        {tab==="Dashboard" && <Dashboard packages={packages} flights={flights} pendientes={pendientes} onTabChange={setTab} />}
+        {tab==="Dashboard" && <Dashboard packages={packages} flights={flights} pendientes={pendientes} onTabChange={setTab} currentUser={currentUser} />}
         {tab==="Recepción" && <Reception currentUser={currentUser} couriers={couriers} setCouriers={setCouriers} estados={estados} setEstados={setEstados} flights={flights} onAdd={(p)=>setPackages([p,...packages])}/>}
         {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} setItems={setSinCasillaItems} setPendientes={setPendientes}/>}
         {tab==="Pendientes" && <Pendientes items={pendientes} setItems={setPendientes}/>}

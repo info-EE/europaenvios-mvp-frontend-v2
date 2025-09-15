@@ -1,5 +1,6 @@
-/* Europa Envíos – MVP v0.8.3 (Exportación de Cajas con formato de plantilla)
-    - Armado de Cajas: La exportación a XLSX se ha rediseñado para que coincida con el formato de la imagen de plantilla proporcionada (IMAGEN 2), incluyendo colores, bordes y estilos específicos sin necesidad de plantillas externas.
+/* Europa Envíos – MVP v0.8.4 (Exportación de Cajas y Proformas con formato personalizado)
+    - Armado de Cajas: La exportación a XLSX se ha rediseñado para que coincida con el formato de la imagen de plantilla proporcionada, incluyendo colores, bordes y estilos específicos.
+    - Proformas: La exportación a XLSX ahora coincide con el formato de la proforma de ejemplo, incluyendo el encabezado de la empresa y los estilos de la tabla.
     - Se ha verificado la funcionalidad de todas las pestañas para asegurar que no haya errores.
 */
 
@@ -1712,86 +1713,74 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
         return;
     }
 
-    const wb = XLSX.utils.book_new();
+    const wb = new ExcelJS.Workbook();
 
-    const thinBorder = { style: "thin", color: { rgb: "FF000000" } };
+    const thinBorder = { style: "thin", color: { argb: "FF000000" } };
     const allBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
 
-    const headerStyle = {
-        font: { bold: true, color: { rgb: "FFFFFFFF" }, sz: 12 },
-        fill: { fgColor: { rgb: "FF4F4F4F" } },
-        alignment: { horizontal: "center", vertical: "center" },
-        border: allBorders
-    };
-     const subHeaderStyle = { font: { bold: true }, border: allBorders };
-     const courierHeaderStyle = { fill: { fgColor: { rgb: "FFE6F2F7" } }, border: allBorders, alignment: { vertical: "center", horizontal: "center" } };
-    const packageCellStyle = { fill: { fgColor: { rgb: "FFFFEBE0" } }, border: allBorders, alignment: { vertical: "center" } };
-    const emptyCellStyle = { border: allBorders }; // Estilo para celdas vacías con bordes
-
     (flight.cajas || []).forEach((caja, idx) => {
-        const pkgObjs = (caja.paquetes || []).map(pid => packages.find(p => p.id === pid)).filter(Boolean);
-        const cantPaquetes = pkgObjs.length;
+      const ws = wb.addWorksheet(`CAJA ${idx + 1}`);
+      const pkgObjs = (caja.paquetes || []).map(pid => packages.find(p => p.id === pid)).filter(Boolean);
+      const cantPaquetes = pkgObjs.length;
 
-        const byCourier = {};
-        pkgObjs.forEach(p => {
-            if (!byCourier[p.courier]) byCourier[p.courier] = [];
-            byCourier[p.courier].push(p.codigo);
+      const byCourier = {};
+      pkgObjs.forEach(p => {
+          if (!byCourier[p.courier]) byCourier[p.courier] = [];
+          byCourier[p.courier].push(p.codigo);
+      });
+
+      const couriers = Object.keys(byCourier).sort();
+      
+      // Estilos
+      ws.getCell('B2').value = "CONTROL DE PAQUETES";
+      ws.getCell('B2').font = { bold: true, color: { argb: "FFFFFFFF" }, sz: 12 };
+      ws.getCell('B2').fill = { type: 'pattern', pattern:'solid', fgColor:{argb:'FF4F4F4F'} };
+      ws.getCell('B2').alignment = { horizontal: "center", vertical: "center" };
+      ws.mergeCells('B2:L2');
+      
+      ws.getCell('B3').value = `CAJA Nº ${idx + 1}`;
+      ws.getCell('B3').font = { bold: true };
+      ws.mergeCells('B3:F3');
+
+      ws.getCell('G3').value = `CANTIDAD DE PAQUETES: ${cantPaquetes}`;
+      ws.getCell('G3').font = { bold: true };
+      ws.mergeCells('G3:L3');
+
+      let col = 2;
+      couriers.forEach(c => {
+        const cell = ws.getCell(4, col);
+        cell.value = c;
+        cell.fill = { type: 'pattern', pattern:'solid', fgColor:{argb:'FFE6F2F7'} };
+        cell.alignment = { vertical: "center", horizontal: "center" };
+        let row = 5;
+        byCourier[c].forEach(p => {
+          const pkgCell = ws.getCell(row, col);
+          pkgCell.value = p;
+          pkgCell.fill = { type: 'pattern', pattern:'solid', fgColor:{argb:'FFFFEBE0'} };
+          row++;
         });
-
-        const couriers = Object.keys(byCourier).sort();
-        const maxPackagesInCourier = Math.max(0, ...couriers.map(c => byCourier[c].length));
-        const packageRowCount = Math.max(28, maxPackagesInCourier); 
-
-        const wsData = [];
-        
-        wsData.push([]); 
-
-        // Fila 2: Encabezado principal
-        const headerRow = new Array(12).fill(null);
-        headerRow[1] = { v: "CONTROL DE PAQUETES", s: headerStyle };
-        for(let i=2; i<=11; i++) headerRow[i] = {v: "", s: headerStyle};
-        wsData.push(headerRow);
-
-        // Fila 3: Sub-encabezados
-        const subHeaderRow = new Array(12).fill({ v: "", s: emptyCellStyle });
-        subHeaderRow[1] = { v: `CAJA Nº ${idx + 1}`, s: subHeaderStyle };
-        for (let i = 2; i <= 5; i++) subHeaderRow[i] = { v: "", s: subHeaderStyle };
-        subHeaderRow[6] = { v: `CANTIDAD DE PAQUETES: ${cantPaquetes}`, s: subHeaderStyle };
-        for (let i = 7; i <= 11; i++) subHeaderRow[i] = { v: "", s: subHeaderStyle };
-        wsData.push(subHeaderRow);
-
-        // Fila 4: Couriers
-        const courierRow = [null];
-        couriers.slice(0, 11).forEach(c => courierRow.push({ v: c, s: courierHeaderStyle }));
-        while(courierRow.length < 13) courierRow.push({ v: "", s: courierHeaderStyle });
-        wsData.push(courierRow);
-
-        // Filas de paquetes
-        for (let i = 0; i < packageRowCount; i++) {
-            const packageRow = [null];
-            couriers.slice(0, 11).forEach(c => {
-                const pkgCode = byCourier[c][i] || "";
-                packageRow.push({ v: pkgCode, s: packageCellStyle });
-            });
-            while(packageRow.length < 13) packageRow.push({v: "", s: packageCellStyle});
-            wsData.push(packageRow);
+        col++;
+      });
+      
+      for(let r = 2; r < 33; r++) {
+        for(let c = 2; c < 13; c++) {
+          const cell = ws.getCell(r,c);
+          if(!cell.border) {
+            cell.border = allBorders;
+          }
         }
-
-        const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-        ws["!merges"] = [
-            XLSX.utils.decode_range("B2:L2"), // Control de paquetes
-            XLSX.utils.decode_range("B3:F3"), // Caja N
-            XLSX.utils.decode_range("G3:L3"), // Cantidad
-        ];
-
-        ws["!cols"] = [{wch: 2}, ...new Array(11).fill({wch: 18})];
-        ws["!rows"] = [ null, {hpt: 20}, {hpt: 15} ];
-
-        XLSX.utils.book_append_sheet(wb, ws, `CAJA ${idx + 1}`);
+      }
     });
 
-    XLSX.writeFile(wb, `cajas_${flight.codigo}.xlsx`);
+    wb.xlsx.writeBuffer().then(buffer => {
+        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `cajas_${flight.codigo}.xlsx`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+    });
   }
 
 

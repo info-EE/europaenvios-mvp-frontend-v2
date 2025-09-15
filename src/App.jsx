@@ -150,54 +150,53 @@ function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt
     </body></html>`;
 }
 
-/* ========== Etiqueta de Caja (NUEVO ESTILO) ========== */
+/* ========== Etiqueta de Caja (NUEVO ESTILO PARA ZEBRA 4x6) ========== */
 function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
-  // El usuario quiere dejar el número total de cajas en blanco para completarlo manualmente.
   const cajaDeTexto = `CAJA: ${boxNumber} de`;
 
   return `
     <html>
       <head>
         <meta charset="utf-8">
-        <title>Etiqueta de Caja</title>
+        <title>Etiqueta de Caja ${boxNumber}</title>
         <style>
           @page {
-            size: 100mm 150mm;
-            margin: 5mm;
+            size: 4in 6in;
+            margin: 0;
           }
           body {
             font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            -webkit-print-color-adjust: exact;
+            margin: 0;
+            padding: 0;
+            width: 4in;
+            height: 6in;
           }
           .label {
-            width: 90mm;
-            height: 140mm;
-            border: 2px solid black;
+            width: 100%;
+            height: 100%;
             display: flex;
             flex-direction: column;
             text-align: center;
-            padding: 5mm;
+            padding: 4mm;
             box-sizing: border-box;
+            overflow: hidden;
           }
           .header {
-            flex-grow: 1;
+            flex-grow: 1.5;
             display: flex;
             flex-direction: column;
             justify-content: center;
           }
           .courier {
-            font-size: 48pt;
+            font-size: 42pt;
             font-weight: bold;
             line-height: 1;
-            word-break: break-word; /* Break long courier names */
+            word-break: break-word;
           }
           .box-title {
-            font-size: 60pt;
+            font-size: 54pt;
             font-weight: bold;
-            margin-top: 5mm;
+            margin-top: 4mm;
           }
           .content {
             flex-grow: 2;
@@ -206,30 +205,30 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
             justify-content: center;
           }
           .detail-group {
-            margin-bottom: 10mm;
+            margin-bottom: 8mm;
           }
           .details-label {
-            font-size: 18pt;
+            font-size: 16pt;
             font-weight: bold;
           }
           .details-value {
-            font-size: 32pt;
+            font-size: 28pt;
             font-weight: bold;
           }
           .footer {
             flex-grow: 1;
             text-align: left;
-            font-size: 12pt;
-            line-height: 1.4;
+            font-size: 11pt;
+            line-height: 1.3;
             display: flex;
             flex-direction: column;
             justify-content: flex-end;
           }
           .footer-obs {
-             padding-bottom: 5mm;
+             padding-bottom: 4mm;
           }
           .company-info {
-            font-size: 9pt;
+            font-size: 8pt;
             border-top: 1px solid black;
             padding-top: 2mm;
           }

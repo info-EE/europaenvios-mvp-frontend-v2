@@ -25,6 +25,7 @@ const Iconos = {
   envios: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>,
   gestion: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.663c.11-.256.217-.512.324-.768a3.375 3.375 0 016.082-2.348c.384.473.727.986 1.03 1.536a3.007 3.007 0 01-2.33 4.293c-.453.138-.927.234-1.4.301M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
   logout: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>,
+  print: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.061dec1.124 0 .904-.935 1.124-1.932 1.124-3.003 0-1.068-.22-2.072-.634-2.942m-1.124-3.003c.17-.283.352-.55.55-.81m0 0a3.003 3.003 0 00-2.095-2.095m0 0c-.26-.198-.537-.375-.81-.55m-2.095 2.095a3.003 3.003 0 00-2.095-2.095m0 0c-.283.17-.55.352-.81.55m2.095 2.095c.198.26.375.537.55.81" /></svg>,
 };
 
 
@@ -148,6 +149,89 @@ function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt
       </div>
     </body></html>`;
 }
+
+/* ========== Etiqueta de Caja ========== */
+function boxLabelHTML({ courier, boxNumber, totalBoxes, pesoKg, medidasTxt, fecha }) {
+  return `
+    <html><head><meta charset="utf-8"><title>Etiqueta de Caja</title>
+    <style>
+      @page { size: 100mm 150mm; margin: 5mm; }
+      body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 140mm; }
+      .label {
+        width: 90mm; height: 140mm;
+        border: 2px solid black;
+        display: flex; flex-direction: column;
+        justify-content: space-between;
+        align-items: center;
+        text-align: center;
+        padding: 5mm;
+        box-sizing: border-box;
+      }
+      .header { width: 100%; }
+      .header .courier { font-size: 36pt; font-weight: bold; }
+      .header .line {
+        border-bottom: 3px solid black;
+        height: 1px;
+        width: 100%;
+        margin: 4mm 0;
+        position: relative;
+      }
+      .header .line::before, .header .line::after {
+        content: '';
+        position: absolute;
+        top: -4px;
+        background: black;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .header .line::before { left: 0; }
+      .header .line::after { right: 0; }
+      .content { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+      .content .box-title { font-size: 56pt; font-weight: bold; margin-bottom: 10mm; }
+      .content .details { font-size: 16pt; }
+      .content .details-value { font-size: 28pt; font-weight: bold; }
+      .footer { width: 100%; font-size: 9pt; }
+      .footer .obs { text-align: left; }
+      .footer .info-box {
+        border: 1px dotted black;
+        padding: 2mm;
+        margin-top: 4mm;
+        line-height: 1.4;
+      }
+    </style></head><body>
+      <div class="label">
+        <div class="header">
+          <div class="courier">${deaccent(courier || "").toUpperCase()}</div>
+          <div class="line"></div>
+        </div>
+
+        <div class="content">
+          <div class="box-title">CAJA ${boxNumber}</div>
+          <div class="details">PESO:</div>
+          <div class="details-value">${fmtPeso(pesoKg)} kg</div>
+          <div class="details" style="margin-top: 8mm;">MEDIDAS:</div>
+          <div class="details-value">${deaccent(medidasTxt || "")}</div>
+        </div>
+
+        <div class="footer">
+          <div class="obs">
+            Obs:<br/>
+            Fecha: ${fecha}<br/>
+            CAJA: ${boxNumber} de ${totalBoxes}
+          </div>
+          <div class="info-box">
+            <b>EUROPA ENVIOS</b><br/>
+            una empresa de <b>LAMAQUINALOGISTICA SL</b><br/>
+            Málaga, España.<br/>
+            Telefono: +34633740831<br/>
+            info@europaenvios.com
+          </div>
+        </div>
+      </div>
+    </body></html>`;
+}
+
 
 /* ========== ExcelJS específicos (Proforma) ========== */
 // Esta sección no requiere cambios
@@ -1804,6 +1888,22 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     });
   }
 
+  function handlePrintBoxLabel(caja, index) {
+    if (!flight) return;
+    const couriers = new Set(caja.paquetes.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
+    const etiqueta = couriers.size === 0 ? flight.codigo : (couriers.size === 1 ? [...couriers][0] : "MULTICOURIER");
+
+    const data = {
+      courier: etiqueta,
+      boxNumber: index + 1,
+      totalBoxes: flight.cajas.length,
+      pesoKg: parseComma(caja.peso || "0"),
+      medidasTxt: `${caja.L || 0} x ${caja.A || 0} x ${caja.H || 0}`,
+      fecha: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })
+    };
+    const html = boxLabelHTML(data);
+    printHTMLInIframe(html);
+  }
 
   return (
     <Section title="Armado de cajas">
@@ -1823,7 +1923,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
         </div>
         <div className="md:col-span-3">
           {!flight && <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para empezar a armar las cajas."/>}
-          {flight && flight.cajas.map((c)=>{
+          {flight && flight.cajas.map((c, idx)=>{
             const couriers = new Set(c.paquetes.map(pid=>packages.find(p=>p.id===pid)?.courier).filter(Boolean));
             const etiqueta = couriers.size===0? "—" : (couriers.size===1? [...couriers][0] : "MULTICOURIER");
             const isActive = activeBoxId===c.id;
@@ -1840,6 +1940,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                     {isActive && <span className="ml-2 text-francia-600 text-xs font-bold">(ACTIVA)</span>}
                   </div>
                   <div className="flex gap-2">
+                    <button className={BTN_ICON} onClick={(e)=>{e.stopPropagation(); handlePrintBoxLabel(c, idx);}} title="Imprimir etiqueta de caja">{Iconos.print}</button>
                     {!isEditing
                       ? <button className={BTN_ICON} onClick={(e)=>{e.stopPropagation(); startEditing(c);}}>{Iconos.edit}</button>
                       : <button className={BTN_ICON + " bg-green-100 text-green-700"} onClick={(e)=>{e.stopPropagation(); saveBoxChanges();}}>{Iconos.save}</button>

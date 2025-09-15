@@ -150,78 +150,83 @@ function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt
     </body></html>`;
 }
 
-/* ========== Etiqueta de Caja ========== */
-function boxLabelHTML({ courier, boxNumber, totalBoxes, pesoKg, medidasTxt, fecha }) {
+/* ========== Etiqueta de Caja (NUEVO ESTILO) ========== */
+function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
+  // El usuario solicitó dejar el número total de cajas en blanco para completarlo manualmente.
+  const cajaDeTexto = `CAJA: ${boxNumber} de `;
+
   return `
     <html><head><meta charset="utf-8"><title>Etiqueta de Caja</title>
     <style>
       @page { size: 100mm 150mm; margin: 5mm; }
-      body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 140mm; }
+      body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: flex-start; }
       .label {
-        width: 90mm; height: 140mm;
-        border: 2px solid black;
-        display: flex; flex-direction: column;
-        justify-content: space-between;
-        align-items: center;
+        width: 90mm;
+        height: 140mm;
+        border: 1px solid black;
+        display: flex;
+        flex-direction: column;
         text-align: center;
         padding: 5mm;
         box-sizing: border-box;
       }
-      .header { width: 100%; }
-      .header .courier { font-size: 36pt; font-weight: bold; }
+      .header { width: 100%; margin-bottom: 5mm; }
+      .header .courier {
+        font-size: 40pt;
+        font-weight: bold;
+        line-height: 1;
+      }
       .header .line {
-        border-bottom: 3px solid black;
-        height: 1px;
+        border-bottom: 1px solid black;
         width: 100%;
-        margin: 4mm 0;
-        position: relative;
+        margin-top: 2mm;
       }
-      .header .line::before, .header .line::after {
-        content: '';
-        position: absolute;
-        top: -4px;
-        background: black;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-      }
-      .header .line::before { left: 0; }
-      .header .line::after { right: 0; }
-      .content { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; }
-      .content .box-title { font-size: 56pt; font-weight: bold; margin-bottom: 10mm; }
+      .content { flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; width: 100%; }
+      .content .box-title { font-size: 64pt; font-weight: bold; margin-top: 5mm; margin-bottom: 10mm; }
+      .content .detail-group { margin-bottom: 10mm; }
       .content .details { font-size: 16pt; }
-      .content .details-value { font-size: 28pt; font-weight: bold; }
-      .footer { width: 100%; font-size: 9pt; }
-      .footer .obs { text-align: left; }
+      .content .details-value { font-size: 32pt; font-weight: bold; }
+
+      .footer { width: 100%; font-size: 10pt; text-align: left; margin-top: auto; }
+      .footer .obs {
+        line-height: 1.4;
+        margin-bottom: 4mm;
+      }
       .footer .info-box {
         border: 1px dotted black;
         padding: 2mm;
-        margin-top: 4mm;
         line-height: 1.4;
+        text-align: left;
       }
     </style></head><body>
       <div class="label">
         <div class="header">
-          <div class="courier">${deaccent(courier || "").toUpperCase()}</div>
+          <div class="courier">${deaccent(courier || "").toUpperCase().replace(" ", "<br>")}</div>
           <div class="line"></div>
         </div>
 
         <div class="content">
           <div class="box-title">CAJA ${boxNumber}</div>
-          <div class="details">PESO:</div>
-          <div class="details-value">${fmtPeso(pesoKg)} kg</div>
-          <div class="details" style="margin-top: 8mm;">MEDIDAS:</div>
-          <div class="details-value">${deaccent(medidasTxt || "")}</div>
+          
+          <div class="detail-group">
+            <div class="details">PESO:</div>
+            <div class="details-value">${fmtPeso(pesoKg)} kg</div>
+          </div>
+          
+          <div class="detail-group">
+            <div class="details">MEDIDAS:</div>
+            <div class="details-value">${deaccent(medidasTxt || "")}</div>
+          </div>
         </div>
 
         <div class="footer">
           <div class="obs">
             Obs:<br/>
             Fecha: ${fecha}<br/>
-            CAJA: ${boxNumber} de ${totalBoxes}
+            ${cajaDeTexto}
           </div>
           <div class="info-box">
-            <b>EUROPA ENVIOS</b><br/>
+            EUROPA ENVIOS<br/>
             una empresa de <b>LAMAQUINALOGISTICA SL</b><br/>
             Málaga, España.<br/>
             Telefono: +34633740831<br/>
@@ -1896,7 +1901,6 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     const data = {
       courier: etiqueta,
       boxNumber: index + 1,
-      totalBoxes: flight.cajas.length,
       pesoKg: parseComma(caja.peso || "0"),
       medidasTxt: `${caja.L || 0} x ${caja.A || 0} x ${caja.H || 0}`,
       fecha: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })

@@ -1,7 +1,7 @@
-/* Europa Envíos – MVP v0.8.4 (Exportación de Cajas y Proformas con formato personalizado)
-    - Armado de Cajas: La exportación a XLSX se ha rediseñado para que coincida con el formato de la imagen de plantilla proporcionada, incluyendo colores, bordes y estilos específicos.
-    - Proformas: La exportación a XLSX ahora coincide con el formato de la proforma de ejemplo, incluyendo el encabezado de la empresa y los estilos de la tabla.
-    - Se ha verificado la funcionalidad de todas las pestañas para asegurar que no haya errores.
+/* Europa Envíos – MVP v0.8.5 (Mejoras para rol COURIER)
+    - Cargas Enviadas (Courier): Se muestra el peso total facturable y el exceso volumétrico de los paquetes del courier en la carga seleccionada.
+    - Proformas (Courier): Se da acceso a la pestaña y se filtra para que solo vea la proforma de su courier.
+    - Se ha verificado que los cambios no afecten la funcionalidad del rol ADMIN.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -92,7 +92,7 @@ function saveUsers(users){
 }
 function courierPrefix(name){ return limpiar(name || ""); }
 function tabsForRole(role){
-  if(role==="COURIER") return ["Dashboard", "Paquetes sin casilla","Paquetes en bodega","Cargas enviadas"];
+  if(role==="COURIER") return ["Dashboard", "Paquetes sin casilla","Paquetes en bodega","Cargas enviadas", "Proformas"];
   return ["Dashboard", "Recepción","Paquetes sin casilla","Pendientes","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
 }
 
@@ -1900,6 +1900,7 @@ function CargasEnviadas({packages, flights, user}){
   const [estado,setEstado]=useState("");
   const [flightId,setFlightId]=useState("");
   const isAdmin = user.role === 'ADMIN';
+  const isCourier = user.role === 'COURIER';
 
   const list = flights
     .filter(f=>f.estado!=="En bodega")
@@ -1914,6 +1915,16 @@ function CargasEnviadas({packages, flights, user}){
     ? packages.filter(p=>p.flight_id===flightId)
     : []
   ).filter(p => user.role!=="COURIER" || (p.courier===user.courier && String(p.codigo||"").toUpperCase().startsWith(pref)));
+
+  const courierTotals = useMemo(() => {
+    if (!flight || !isCourier) return { facturable: 0, exceso: 0 };
+    const courierPackages = packages.filter(p => p.flight_id === flightId && p.courier === user.courier);
+    return {
+      facturable: sum(courierPackages.map(p => p.peso_facturable)),
+      exceso: sum(courierPackages.map(p => p.exceso_volumen))
+    };
+  }, [flight, packages, isCourier, user.courier, flightId]);
+
 
   const resumenCajas = useMemo(()=>{
     if(!flight) return [];
@@ -1991,7 +2002,15 @@ function CargasEnviadas({packages, flights, user}){
 
       {!flight ? <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para ver sus paquetes y cajas." /> : (
         <>
-          <h3 className="text-lg font-semibold text-slate-800 mt-6 mb-2">Paquetes del vuelo: {flight.codigo}</h3>
+          <div className="flex justify-between items-center mt-6 mb-2">
+            <h3 className="text-lg font-semibold text-slate-800">Paquetes del vuelo: {flight.codigo}</h3>
+            {isCourier && (
+              <div className="flex gap-4 text-sm">
+                <div><b>Kg Facturables:</b> <span className="font-mono">{fmtPeso(courierTotals.facturable)} kg</span></div>
+                <div><b>Exceso Volumétrico:</b> <span className="font-mono">{fmtPeso(courierTotals.exceso)} kg</span></div>
+              </div>
+            )}
+          </div>
           <div className="overflow-x-auto mb-6">
             <table className="min-w-full text-sm">
               <thead><tr className="bg-slate-50">{["Courier","Código","Casilla","Fecha","Nombre","Tracking","Peso real","Medidas","Exceso","Descripción"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
@@ -2214,10 +2233,11 @@ function CargasAdmin({flights,setFlights, packages}){
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
-function Proformas({packages, flights, extras}){
+function Proformas({packages, flights, extras, user}){
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
   const [flightId,setFlightId]=useState("");
+  const isCourier = user.role === 'COURIER';
 
   const list = flights
     .filter(f=>!from || f.fecha_salida>=from)
@@ -2230,11 +2250,12 @@ function Proformas({packages, flights, extras}){
     const m=new Map();
     flight.cajas.forEach(c=>c.paquetes.forEach(pid=>{
       const p=packages.find(x=>x.id===pid); if(!p) return;
+      if (isCourier && p.courier !== user.courier) return;
       if(!m.has(p.courier)) m.set(p.courier,{courier:p.courier,kg_real:0,kg_fact:0,kg_exc:0});
       const a=m.get(p.courier); a.kg_real+=p.peso_real; a.kg_fact+=p.peso_facturable; a.kg_exc+=p.exceso_volumen;
     }));
     return Array.from(m.values());
-  },[flight,packages]);
+  },[flight,packages, isCourier, user.courier]);
 
   const extrasDeCourier = (courier)=> extras.filter(e=>e.flight_id===flightId && e.courier===courier);
 
@@ -2568,7 +2589,7 @@ function App(){
         {tab==="Armado de cajas" && <ArmadoCajas packages={packages} flights={flights} setFlights={setFlights} onAssign={(id)=>setPackages(packages.map(p=>p.id===id?p:{...p}))}/>}
         {tab==="Cargas enviadas" && <CargasEnviadas packages={packages} flights={flights} user={currentUser}/>}
         {tab==="Gestión de cargas" && <CargasAdmin flights={flights} setFlights={setFlights} packages={packages}/>}
-        {tab==="Proformas" && <Proformas packages={packages} flights={flights} extras={extras}/>}
+        {tab==="Proformas" && <Proformas packages={packages} flights={flights} extras={extras} user={currentUser}/>}
         {tab==="Usuarios" && <Usuarios currentUser={currentUser} onCurrentUserChange={(u)=>setCurrentUser(u)}/>}
         {tab==="Extras" && <Extras flights={flights} couriers={couriers} extras={extras} setExtras={setExtras}/>}
       </main>

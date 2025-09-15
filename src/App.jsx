@@ -15,6 +15,10 @@ import ExcelJS from "exceljs/dist/exceljs.min.js";
 // =======================================================
 import { storage } from "./firebase";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
+
+import { db } from "./firebase";
+import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
+
 // =======================================================
 
 /* ========== Iconos SVG (Heroicons) ========== */
@@ -195,7 +199,10 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
             justify-content: center;
           }
           .courier {
-            font-size: 42pt;
+            /* ======================================================= */
+            /* LÍNEA MODIFICADA: TAMAÑO DE FUENTE REDUCIDO DE 42pt a 28pt */
+            /* ======================================================= */
+            font-size: 28pt;
             font-weight: bold;
             line-height: 1;
             word-break: break-word;
@@ -276,7 +283,6 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
       </body>
     </html>`;
 }
-
 
 /* ========== ExcelJS específicos (Proforma) ========== */
 // Esta sección no requiere cambios
@@ -1099,7 +1105,7 @@ const InfoBox=({title,value})=>(
   </div>
 );
 /* ========== Paquetes sin casilla (con tracking + edición/borrado ADMIN, visibilidad por rol) ========== */
-function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
+function PaquetesSinCasilla({ currentUser, items, setItems, onAsignarCasilla }){
   const isAdmin = currentUser?.role === "ADMIN";
   const [q,setQ] = useState("");
   const [from,setFrom] = useState("");
@@ -1127,26 +1133,18 @@ function PaquetesSinCasilla({ currentUser, items, setItems, setPendientes }){
     setNombre(""); setTracking("");
   }
 
+  // =======================================================
+  // FUNCIÓN MODIFICADA PARA USAR LA PROP onAsignarCasilla
+  // =======================================================
   const handleAsignarCasilla = (paquete) => {
     if(!isAdmin) return;
     const casilla = window.prompt(`Asignar casilla para el paquete Nº ${paquete.numero} (${paquete.nombre}):`);
     if (casilla && casilla.trim()) {
-      const nuevaTarea = {
-        id: uuid(),
-        type: "ASIGNAR_CASILLA",
-        status: "No realizada",
-        fecha: new Date().toISOString().slice(0,10),
-        data: {
-          numero: paquete.numero,
-          nombre: paquete.nombre,
-          tracking: paquete.tracking,
-          casilla: casilla.trim().toUpperCase(),
-        }
-      };
-      setPendientes(prev => [nuevaTarea, ...prev]);
-      setItems(prev => prev.filter(p => p.id !== paquete.id));
+      // Llama a la función que nos pasó el componente padre
+      onAsignarCasilla(paquete, casilla);
     }
   };
+  // =======================================================
 
   const filtered = useMemo(()=>{
     const arr = items
@@ -2646,32 +2644,43 @@ function Extras({flights, couriers, extras, setExtras}){
 function App(){
   const [currentUser,setCurrentUser]=useState(null);
   const [tab,setTab]=useState("Dashboard");
-  const [couriers,setCouriers]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_couriers_v1")) || COURIERS_INICIALES; } catch { return COURIERS_INICIALES; } });
-  const [estados,setEstados]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_estados_v1")) || ESTADOS_INICIALES; } catch { return ESTADOS_INICIALES; } });
-  const [flights,setFlights]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_flights_v2")) || []; } catch { return []; } });
-  const [packages,setPackages]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_packages_v1")) || []; } catch { return []; } });
-  const [extras,setExtras]=useState(() => { try { return JSON.parse(localStorage.getItem("ee_extras_v1")) || []; } catch { return []; } });
+
+  // Claves para el localStorage
+  const COURIERS_KEY = "ee_couriers_v1";
+  const ESTADOS_KEY = "ee_estados_v1";
+  const FLIGHTS_KEY = "ee_flights_v2";
+  const PACKAGES_KEY = "ee_packages_v1";
+  const EXTRAS_KEY = "ee_extras_v1";
+  const SINCASILLA_KEY = "ee_sincasilla_v1";
+  const PENDIENTES_KEY = "ee_pendientes_v2";
+
+  // Función genérica para cargar datos desde localStorage
+  const loadFromLocalStorage = (key, defaultValue) => {
+    try {
+      const storedValue = localStorage.getItem(key);
+      return storedValue ? JSON.parse(storedValue) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
+
+  const [couriers,setCouriers]=useState(() => loadFromLocalStorage(COURIERS_KEY, COURIERS_INICIALES));
+  const [estados,setEstados]=useState(() => loadFromLocalStorage(ESTADOS_KEY, ESTADOS_INICIALES));
+  const [flights,setFlights]=useState(() => loadFromLocalStorage(FLIGHTS_KEY, []));
+  const [packages,setPackages]=useState(() => loadFromLocalStorage(PACKAGES_KEY, []));
+  const [extras,setExtras]=useState(() => loadFromLocalStorage(EXTRAS_KEY, []));
+  const [sinCasillaItems, setSinCasillaItems] = useState(() => loadFromLocalStorage(SINCASILLA_KEY, []));
+  const [pendientes, setPendientes] = useState(() => loadFromLocalStorage(PENDIENTES_KEY, []));
+
 
   // --- Persistencia en localStorage ---
-  useEffect(() => { localStorage.setItem("ee_couriers_v1", JSON.stringify(couriers)); }, [couriers]);
-  useEffect(() => { localStorage.setItem("ee_estados_v1", JSON.stringify(estados)); }, [estados]);
-  useEffect(() => { localStorage.setItem("ee_flights_v2", JSON.stringify(flights)); }, [flights]);
-  useEffect(() => { localStorage.setItem("ee_packages_v1", JSON.stringify(packages)); }, [packages]);
-  useEffect(() => { localStorage.setItem("ee_extras_v1", JSON.stringify(extras)); }, [extras]);
-
-  const SINCASILLA_KEY = "ee_sincasilla_v1";
-  const [sinCasillaItems, setSinCasillaItems] = useState([]);
-  useEffect(()=>{
-    try{ const raw = localStorage.getItem(SINCASILLA_KEY); if(raw) setSinCasillaItems(JSON.parse(raw)); } catch {}
-  },[]);
-  useEffect(()=>{ localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems)); },[sinCasillaItems]);
-
-  const PENDIENTES_KEY = "ee_pendientes_v2";
-  const [pendientes, setPendientes] = useState([]);
-  useEffect(()=>{
-    try{ const raw = localStorage.getItem(PENDIENTES_KEY); if(raw) setPendientes(JSON.parse(raw)); } catch {}
-  },[]);
-  useEffect(()=>{ localStorage.setItem(PENDIENTES_KEY, JSON.stringify(pendientes)); },[pendientes]);
+  useEffect(() => { localStorage.setItem(COURIERS_KEY, JSON.stringify(couriers)); }, [couriers]);
+  useEffect(() => { localStorage.setItem(ESTADOS_KEY, JSON.stringify(estados)); }, [estados]);
+  useEffect(() => { localStorage.setItem(FLIGHTS_KEY, JSON.stringify(flights)); }, [flights]);
+  useEffect(() => { localStorage.setItem(PACKAGES_KEY, JSON.stringify(packages)); }, [packages]);
+  useEffect(() => { localStorage.setItem(EXTRAS_KEY, JSON.stringify(extras)); }, [extras]);
+  useEffect(() => { localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems)); },[sinCasillaItems]);
+  useEffect(() => { localStorage.setItem(PENDIENTES_KEY, JSON.stringify(pendientes)); },[pendientes]);
 
   useEffect(()=>{
     if(currentUser){
@@ -2680,10 +2689,37 @@ function App(){
     }
   },[currentUser, tab]);
 
+
+  // =======================================================
+  // NUEVA FUNCIÓN CENTRALIZADA PARA MOVER EL PAQUETE
+  // =======================================================
+  const moverPaqueteAPendientes = (paquete, casilla) => {
+    const nuevaTarea = {
+      id: uuid(),
+      type: "ASIGNAR_CASILLA",
+      status: "No realizada",
+      fecha: new Date().toISOString().slice(0,10),
+      data: {
+        numero: paquete.numero,
+        nombre: paquete.nombre,
+        tracking: paquete.tracking,
+        casilla: casilla.trim().toUpperCase(),
+      }
+    };
+
+    // Actualizar la lista de pendientes
+    setPendientes(prevPendientes => [nuevaTarea, ...prevPendientes]);
+
+    // Eliminar de la lista sin casilla
+    setSinCasillaItems(prevItems => prevItems.filter(p => p.id !== paquete.id));
+  };
+  // =======================================================
+
+
   if(!currentUser) return <Login onLogin={setCurrentUser} />;
 
   const allowedTabs = tabsForRole(currentUser.role);
-  
+
   const navStructure = [
     { category: "Principal", icon: Iconos.dashboard, tabs: ["Dashboard"] },
     { category: "Paquetes", icon: Iconos.paquetes, tabs: ["Recepción", "Paquetes en bodega", "Paquetes sin casilla", "Pendientes"] },
@@ -2729,7 +2765,7 @@ function App(){
           })}
         </nav>
       </aside>
-      
+
       {/* Barra Superior */}
       <header className="bg-white border-b border-slate-200 flex items-center justify-end px-6 h-16">
         <div className="flex items-center gap-4">
@@ -2747,7 +2783,10 @@ function App(){
       <main className="overflow-y-auto p-4 sm:p-6 lg:p-8">
         {tab==="Dashboard" && <Dashboard packages={packages} flights={flights} pendientes={pendientes} onTabChange={setTab} currentUser={currentUser} />}
         {tab==="Recepción" && <Reception currentUser={currentUser} couriers={couriers} setCouriers={setCouriers} estados={estados} setEstados={setEstados} flights={flights} onAdd={(p)=>setPackages([p,...packages])}/>}
-        {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} setItems={setSinCasillaItems} setPendientes={setPendientes}/>}
+
+        {/* AQUÍ SE PASA LA NUEVA FUNCIÓN */}
+        {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} setItems={setSinCasillaItems} onAsignarCasilla={moverPaqueteAPendientes}/>}
+
         {tab==="Pendientes" && <Pendientes items={pendientes} setItems={setPendientes}/>}
         {tab==="Paquetes en bodega" && <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={(p)=>setPackages(packages.map(x=>x.id===p.id?p:x))} onDelete={(id)=>setPackages(packages.filter(p=>p.id!==id))} setPendientes={setPendientes}/>}
         {tab==="Armado de cajas" && <ArmadoCajas packages={packages} flights={flights} setFlights={setFlights} onAssign={(id)=>setPackages(packages.map(p=>p.id===id?p:{...p}))}/>}

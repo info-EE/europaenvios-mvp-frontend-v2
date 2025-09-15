@@ -10,6 +10,13 @@ import * as XLSX from "xlsx-js-style";
 import JsBarcode from "jsbarcode";
 import ExcelJS from "exceljs/dist/exceljs.min.js";
 
+// =======================================================
+// IMPORTS DE FIREBASE AÑADIDOS
+// =======================================================
+import { storage } from "./firebase";
+import { ref, uploadString, getDownloadURL } from "firebase/storage";
+// =======================================================
+
 /* ========== Iconos SVG (Heroicons) ========== */
 const Iconos = {
   upload: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>,
@@ -833,7 +840,9 @@ function ManageList({label,items,setItems}){
   );
 }
 
-/* ========== Recepción (listas dinámicas + foto opcional + REGLAS NUEVAS) ========== */
+// =======================================================
+// SECCIÓN DE RECEPCIÓN TOTALMENTE REEMPLAZADA
+// =======================================================
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const [flightId,setFlightId]=useState("");
@@ -844,13 +853,15 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     empresa:"", nombre:"", tracking:"", remitente:"",
     peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
     desc:"", valor_txt:"",
-    foto:null // opcional
+    foto:null // AHORA GUARDARÁ LA URL DE FIREBASE
   });
+
+  // NUEVO ESTADO: Para saber si una foto se está subiendo
+  const [isUploading, setIsUploading] = useState(false);
 
   const codigoCargaSel = useMemo(() => flights.find(f=>f.id===flightId)?.codigo || "", [flightId, flights]);
   const estadosPermitidos = useMemo(() => estadosPermitidosPorCarga(codigoCargaSel, estados), [codigoCargaSel, estados]);
 
-  // Código correlativo por courier
   useEffect(()=>{
     if(!form.courier) { setForm(f=>({...f, codigo:""})); return; }
     const key="seq_"+courierPrefix(form.courier);
@@ -859,15 +870,12 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     setForm(f=>({...f, codigo: `${courierPrefix(form.courier)}${n}`}));
   },[form.courier]);
 
-  // Si solo hay un estado permitido, seleccionarlo automáticamente
   useEffect(() => {
     if (estadosPermitidos.length === 1 && form.estado !== estadosPermitidos[0]) {
       setForm(f => ({ ...f, estado: estadosPermitidos[0] }));
     }
   }, [estadosPermitidos, form.estado]);
 
-
-  // Limitar opciones de courier
   const courierOptions = useMemo(()=>{
     return allowedCouriersByContext({
       casilla: form.casilla,
@@ -876,7 +884,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     });
   }, [form.casilla, codigoCargaSel, couriers]);
 
-  // Auto-ajustar courier
   useEffect(()=>{
     if(!courierOptions.includes(form.courier)){
       setForm(f=>({...f, courier: courierOptions.length===1 ? courierOptions[0] : ""}));
@@ -895,6 +902,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     ].every(k=>String(form[k]||"").trim()!=="");
 
   const submit=()=>{
+    if (isUploading) return; // Evita guardar si la foto aún está subiendo
     const fl = flights.find(f=>f.id===flightId);
     if (fl?.codigo.toUpperCase().startsWith("AIR-MULTI") && form.courier === "ParaguayBox") {
       alert("No se permite cargar paquetes de ParaguayBox en cargas que comiencen con AIR-MULTI.");
@@ -918,7 +926,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       peso_real: peso, largo: L, ancho: A, alto: H,
       descripcion: form.desc, valor_aerolinea: parseComma(form.valor_txt),
       peso_facturable: Number(fact.toFixed(3)), peso_volumetrico: Number(vol.toFixed(3)), exceso_volumen: Number(exc.toFixed(3)),
-      foto: form.foto, estado_bodega: "En bodega",
+      foto: form.foto,
+      estado_bodega: "En bodega",
     };
 
     const medidas = `${L}x${A}x${H} cm`;
@@ -949,39 +958,55 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     })();
     return ()=>{ if(streamRef.current){ streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; } };
   },[camOpen]);
+
+  // NUEVA FUNCIÓN: Sube la imagen a Firebase
+  const handleImageUpload = async (imageDataUrl) => {
+    if (!imageDataUrl) return;
+    setIsUploading(true);
+    try {
+      const imageName = `paquetes/${uuid()}.jpg`; // Crea un nombre único
+      const storageRef = ref(storage, imageName);
+      const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
+      const downloadURL = await getDownloadURL(snapshot.ref); // Obtiene la URL pública
+      setForm(f => ({ ...f, foto: downloadURL })); // Guarda la URL en el formulario
+    } catch (error) {
+      console.error("Error al subir imagen:", error);
+      alert("Hubo un error al subir la foto.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // FUNCIÓN ACTUALIZADA: Llama a la nueva función de subida
   const tomarFoto=()=>{
     const v=videoRef.current; if(!v) return;
     const canvas=document.createElement("canvas");
     canvas.width=v.videoWidth; canvas.height=v.videoHeight;
     const ctx=canvas.getContext("2d"); ctx.drawImage(v,0,0);
     const data=canvas.toDataURL("image/jpeg",0.85);
-    setForm(f=>({...f, foto:data})); setCamOpen(false);
+    handleImageUpload(data); // Llama a la función de subida
+    setCamOpen(false);
   };
 
   const fileRef = useRef(null);
+  // FUNCIÓN ACTUALIZADA: Llama a la nueva función de subida
   const onFile = (e)=>{
     const file=e.target.files?.[0]; if(!file) return;
-    const r=new FileReader(); r.onload=()=>setForm(f=>({...f,foto:r.result})); r.readAsDataURL(file);
+    const r=new FileReader();
+    r.onload=() => handleImageUpload(r.result); // Llama a la función de subida
+    r.readAsDataURL(file);
   };
 
   const [showMgr,setShowMgr]=useState(false);
 
   if(currentUser.role==="COURIER"){
-    return (
-      <Section title="Recepción de paquete">
-        <div className="text-gray-600">Tu rol no tiene acceso a Recepción.</div>
-      </Section>
-    );
+    return ( <Section title="Recepción de paquete"><div className="text-gray-600">Tu rol no tiene acceso a Recepción.</div></Section> );
   }
 
   return (
     <Section
       title="Recepción de paquete"
-      right={
-        <div className="flex items-center gap-2">
-          <button className={BTN} onClick={()=>setShowMgr(s=>!s)}>Gestionar listas</button>
-        </div>
-      }
+      right={ <div className="flex items-center gap-2"><button className={BTN} onClick={()=>setShowMgr(s=>!s)}>Gestionar listas</button></div> }
     >
       {showMgr && (
         <div className="grid md:grid-cols-2 gap-4 my-4 p-4 bg-slate-50 rounded-lg">
@@ -1001,11 +1026,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
           <Input value={form.casilla} onChange={e=>setForm({...form,casilla:limpiar(e.target.value)})}/>
         </Field>
         <Field label="Courier" required>
-          <select
-            className="w-full text-sm rounded-lg border-slate-300 px-3 py-2"
-            value={form.courier}
-            onChange={e=>setForm({...form,courier:e.target.value})}
-          >
+          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})}>
             <option value="">Seleccionar…</option>
             {courierOptions.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
@@ -1040,9 +1061,11 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         <Field label="Foto del paquete (opcional)">
           <div className="flex gap-2 items-center">
             <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
-            <button type="button" onClick={()=>fileRef.current?.click()} className={BTN}>Seleccionar archivo</button>
-            <button type="button" onClick={()=>setCamOpen(true)} className={BTN}>Tomar foto</button>
-            {form.foto ? <span className="text-green-600 text-sm font-semibold">✓ foto cargada</span> : <span className="text-slate-500 text-sm">Opcional</span>}
+            <button type="button" onClick={()=>fileRef.current?.click()} className={BTN} disabled={isUploading}>Seleccionar archivo</button>
+            <button type="button" onClick={()=>setCamOpen(true)} className={BTN} disabled={isUploading}>Tomar foto</button>
+            {/* NUEVO: Feedback visual mientras se sube la foto */}
+            {isUploading ? <span className="text-francia-600 text-sm font-semibold">Subiendo...</span> :
+             form.foto ? <a href={form.foto} target="_blank" rel="noopener noreferrer" className="text-green-600 text-sm font-semibold hover:underline">✓ Ver foto</a> : <span className="text-slate-500 text-sm">Opcional</span>}
           </div>
         </Field>
       </div>
@@ -1052,19 +1075,22 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         <InfoBox title="Exceso de volumen" value={`${fmtPeso(exc)} kg`}/>
       </div>
       <div className="flex justify-end mt-6">
-        <button onClick={submit} className={BTN_PRIMARY}>Guardar paquete</button>
+        {/* NUEVO: El botón se deshabilita mientras sube la foto */}
+        <button onClick={submit} className={BTN_PRIMARY} disabled={isUploading}>
+          {isUploading ? "Subiendo foto..." : "Guardar paquete"}
+        </button>
       </div>
       <Modal open={camOpen} onClose={()=>setCamOpen(false)} title="Tomar foto">
         <div className="space-y-3">
           <video ref={videoRef} playsInline className="w-full rounded-xl bg-black/50" />
-          <div className="flex justify-end">
-            <button onClick={tomarFoto} className={BTN_PRIMARY}>Capturar</button>
-          </div>
+          <div className="flex justify-end"> <button onClick={tomarFoto} className={BTN_PRIMARY}>Capturar</button></div>
         </div>
       </Modal>
     </Section>
   );
 }
+// =======================================================
+
 
 const InfoBox=({title,value})=>(
   <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">

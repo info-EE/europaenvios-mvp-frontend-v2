@@ -1,7 +1,8 @@
-/* Europa Envíos – MVP v0.9.0 (Migración a Firestore)
-    - Toda la gestión de datos (paquetes, cargas, extras, etc.) se migra de localStorage a Cloud Firestore.
-    - Los datos ahora son persistentes, se guardan en la nube y se actualizan en tiempo real para todos los usuarios.
-    - Se eliminó la lógica de carga/guardado de localStorage y se reemplazó con funciones asíncronas (add, update, delete) y listeners de Firestore (onSnapshot).
+/* Europa Envíos – MVP v1.0.0 (Migración a Firebase Authentication)
+    - Se elimina toda la gestión de usuarios basada en localStorage y la encriptación sha256Hex.
+    - La autenticación ahora es manejada por Firebase Authentication (signInWithEmailAndPassword, signOut).
+    - El estado del usuario se gestiona globalmente con un listener onAuthStateChanged.
+    - Los roles de usuario (ADMIN/COURIER) se leen desde una colección 'users' en Firestore.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -11,11 +12,11 @@ import JsBarcode from "jsbarcode";
 import ExcelJS from "exceljs/dist/exceljs.min.js";
 
 // =======================================================
-// IMPORTS DE FIREBASE
+// IMPORTS DE FIREBASE (ACTUALIZADOS PARA AUTH)
 // =======================================================
-import { storage, db } from "./firebase";
+import { storage, db, auth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "./firebase";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
-import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc } from "firebase/firestore";
 
 // =======================================================
 
@@ -36,7 +37,6 @@ const Iconos = {
   logout: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>,
   print: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.061dec1.124 0 .904-.935 1.124-1.932 1.124-3.003 0-1.068-.22-2.072-.634-2.942m-1.124-3.003c.17-.283.352-.55.55-.81m0 0a3.003 3.003 0 00-2.095-2.095m0 0c-.26-.198-.537-.375-.81-.55m-2.095 2.095a3.003 3.003 0 00-2.095-2.095m0 0c-.283.17-.55.352-.81.55m2.095 2.095c.198.26.375.537.55.81" /></svg>,
 };
-
 
 /* ========== utils básicos ========== */
 const uuid = () => {
@@ -86,22 +86,6 @@ function downloadXLSX(filename, sheets){
   XLSX.writeFile(wb, filename);
 }
 
-/* ========== helpers de autenticación/usuarios (localStorage) ========== */
-// NOTA: La gestión de usuarios se mantiene en localStorage por simplicidad en esta fase.
-// La migración a Firebase Authentication es el siguiente paso natural.
-const USERS_KEY = "ee_users_v1";
-
-async function sha256Hex(str){
-  const enc = new TextEncoder().encode(str);
-  const buf = await crypto.subtle.digest("SHA-256", enc);
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
-}
-function loadUsers(){
-  try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch { return []; }
-}
-function saveUsers(users){
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
 function courierPrefix(name){ return limpiar(name || ""); }
 function tabsForRole(role){
   if(role==="COURIER") return ["Dashboard", "Paquetes sin casilla","Paquetes en bodega","Cargas enviadas", "Proformas"];
@@ -281,10 +265,6 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
     </html>`;
 }
 
-/* ========== ExcelJS específicos (Proforma) ========== */
-// Esta sección no requiere cambios
-// ...
-
 /* ========== UI base ========== */
 const BTN = "px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm transition-colors duration-200";
 const BTN_PRIMARY = "px-4 py-2 rounded-lg bg-francia-600 hover:bg-francia-700 text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm hover:shadow-md";
@@ -358,7 +338,6 @@ function Modal({open,onClose,title,children}){
 }
 
 /* ========== datos iniciales (listas) ========== */
-// NOTA: Estos valores iniciales solo se usarán si la base de datos está vacía.
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
   "Aero Box", "Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos",
@@ -409,99 +388,55 @@ function estadosPermitidosPorCarga(codigo, estadosList){
   return estadosList && estadosList.length ? estadosList : ESTADOS_INICIALES;
 }
 
-/* ========== Login con contraseña (localStorage + SHA-256) ========== */
-function Login({onLogin}){
-  const [users,setUsers] = useState(loadUsers());
-  const [mode,setMode] = useState(users.length===0 ? "setup-admin" : "login");
-  const [email,setEmail]=useState("");
-  const [password,setPassword]=useState("");
-  const [err,setErr]=useState("");
-  const [adminEmail,setAdminEmail]=useState("");
-  const [adminPass1,setAdminPass1]=useState("");
-  const [adminPass2,setAdminPass2]=useState("");
-  const [creating,setCreating]=useState(false);
+/* ========== Login con Firebase Authentication ========== */
+function Login() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  async function handleLogin(){
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (loading) return;
+    setLoading(true);
     setErr("");
-    const u = users.find(u=>u.email.trim().toLowerCase()===email.trim().toLowerCase());
-    if(!u){ setErr("Usuario no encontrado."); return; }
-    const h = await sha256Hex(password);
-    if(u.pwHash !== h){ setErr("Contraseña incorrecta."); return; }
-    onLogin({ id:u.id, email:u.email, role:u.role, courier:u.courier || null });
-  }
-
-  async function createFirstAdmin(e){
-    e?.preventDefault();
-    if(creating) return;
-    setErr("");
-    if(!adminEmail || !adminPass1 || !adminPass2){ setErr("Completá todos los campos."); return; }
-    if(adminPass1!==adminPass2){ setErr("Las contraseñas no coinciden."); return; }
-    setCreating(true);
-    try{
-      const newU = { id: uuid(), email: adminEmail.trim(), role: "ADMIN", courier: null, pwHash: await sha256Hex(adminPass1) };
-      const next = [newU];
-      saveUsers(next);
-      setUsers(next);
-      onLogin({ id:newU.id, email:newU.email, role:newU.role, courier:null });
-    }finally{
-      setCreating(false);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      // El onLogin se disparará automáticamente por el listener onAuthStateChanged en App
+    } catch (error) {
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        setErr("Usuario o contraseña incorrectos.");
+      } else {
+        console.error("Firebase Login Error:", error);
+        setErr("Error al iniciar sesión. Inténtalo de nuevo.");
+      }
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100">
       <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8 w-full max-w-md">
-        {mode==="login" ? (
-          <>
-            <img src="/logo.png" alt="Logo Europa Envíos" className="w-48 mx-auto mb-6" />
-            <h1 className="text-2xl font-bold text-slate-800 mb-4 text-center">Acceso al sistema</h1>
-            <Field label="Email" required>
-              <Input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@empresa.com"/>
-            </Field>
-            <div className="h-4" />
-            <Field label="Contraseña" required>
-              <PasswordInput value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••"/>
-            </Field>
-            {err && <div className="text-red-600 text-sm my-2">{err}</div>}
-            <button onClick={handleLogin} className={BTN_PRIMARY+" w-full mt-4"}>Entrar</button>
-
-            {users.length===0 && (
-              <div className="text-xs text-slate-500 mt-4 text-center">
-                No hay usuarios creados.{" "}
-                <button className="underline font-semibold" onClick={()=>setMode("setup-admin")}>Crear primer ADMIN</button>
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <img src="/logo.png" alt="Logo Europa Envíos" className="w-48 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-slate-800 mb-1 text-center">Configurar primer ADMIN</h1>
-            <p className="text-sm text-slate-600 mb-4 text-center">No se encontraron usuarios. Creá la cuenta de administrador.</p>
-            <Field label="Email del ADMIN" required>
-              <Input type="email" value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} placeholder="admin@empresa.com"/>
-            </Field>
-              <div className="h-4" />
-            <Field label="Contraseña" required>
-              <PasswordInput value={adminPass1} onChange={e=>setAdminPass1(e.target.value)} placeholder="••••••••"/>
-            </Field>
-              <div className="h-4" />
-            <Field label="Repetir contraseña" required>
-              <PasswordInput value={adminPass2} onChange={e=>setAdminPass2(e.target.value)} placeholder="••••••••"/>
-            </Field>
-            {err && <div className="text-red-600 text-sm my-2">{err}</div>}
-            <button onClick={createFirstAdmin} disabled={creating} className={BTN_PRIMARY+" w-full mt-4 disabled:opacity-50"}>
-              {creating ? "Creando..." : "Crear ADMIN y entrar"}
-            </button>
-            <div className="text-xs text-slate-500 mt-4 text-center">
-              ¿Ya tenías usuarios?{" "}
-              <button className="underline font-semibold" onClick={()=>setMode("login")}>Volver al login</button>
-            </div>
-          </>
-        )}
+        <img src="/logo.png" alt="Logo Europa Envíos" className="w-48 mx-auto mb-6" />
+        <h1 className="text-2xl font-bold text-slate-800 mb-4 text-center">Acceso al sistema</h1>
+        <form onSubmit={handleLogin}>
+          <Field label="Email" required>
+            <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@empresa.com" autoComplete="email"/>
+          </Field>
+          <div className="h-4" />
+          <Field label="Contraseña" required>
+            <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"/>
+          </Field>
+          {err && <div className="text-red-600 text-sm my-2 text-center">{err}</div>}
+          <button type="submit" disabled={loading} className={BTN_PRIMARY + " w-full mt-4 disabled:opacity-50"}>
+            {loading ? "Entrando..." : "Entrar"}
+          </button>
+        </form>
       </div>
     </div>
   );
 }
+
 
 /* ========== DASHBOARD ========== */
 const KpiCard = ({ title, value, icon, color }) => (
@@ -645,183 +580,33 @@ function Dashboard({ packages, flights, pendientes, onTabChange, currentUser }) 
 }
 
 
-/* ========== Gestión de Usuarios (solo ADMIN) ========== */
-function Usuarios({ currentUser, onCurrentUserChange }){
-  const [users,setUsers] = useState(loadUsers());
-  const [q,setQ] = useState("");
-  const [emailNew,setEmailNew]=useState("");
-  const [roleNew,setRoleNew]=useState("COURIER");
-  const [courierNew,setCourierNew]=useState("");
-  const [pw1,setPw1]=useState("");
-  const [pw2,setPw2]=useState("");
-  const [err,setErr]=useState("");
-  const [edit,setEdit]=useState(null);
-  const [pw1e,setPw1e]=useState("");
-  const [pw2e,setPw2e]=useState("");
-
-  const filtered = users.filter(u =>
-    (u.email+u.role+(u.courier||"")).toLowerCase().includes(q.toLowerCase())
-  );
-
-  async function addUser(){
-    setErr("");
-    if(!emailNew || !pw1 || !pw2){ setErr("Completá email y contraseña."); return; }
-    if(pw1!==pw2){ setErr("Las contraseñas no coinciden."); return; }
-    if(users.some(u=>u.email.trim().toLowerCase()===emailNew.trim().toLowerCase())){ setErr("Ya existe un usuario con ese email."); return; }
-    if(roleNew==="COURIER" && !courierNew.trim()){ setErr("Seleccioná/ingresá un courier."); return; }
-
-    const newU = {
-      id: uuid(),
-      email: emailNew.trim(),
-      role: roleNew,
-      courier: roleNew==="COURIER" ? courierNew.trim() : null,
-      pwHash: await sha256Hex(pw1)
-    };
-    const next = [...users, newU];
-    saveUsers(next);
-    setUsers(next);
-    setEmailNew(""); setRoleNew("COURIER"); setCourierNew("");
-    setPw1(""); setPw2("");
-  }
-
-  async function updateUser(){
-    if(!edit) return;
-    setErr("");
-    const idx = users.findIndex(u=>u.id===edit.id);
-    if(idx<0) return;
-
-    if(!edit.email){ setErr("El email es obligatorio."); return; }
-    if(users.some((u,i)=>i!==idx && u.email.trim().toLowerCase()===edit.email.trim().toLowerCase())){ setErr("Ya existe un usuario con ese email."); return; }
-    if(edit.role==="COURIER" && !edit.courier?.trim()){ setErr("El courier es obligatorio para rol COURIER."); return; }
-
-    const next = [...users];
-    const current = {...edit};
-    if(pw1e || pw2e){
-      if(pw1e!==pw2e){ setErr("Las contraseñas no coinciden."); return; }
-      current.pwHash = await sha256Hex(pw1e);
-    }
-    next[idx] = current;
-    saveUsers(next);
-    setUsers(next);
-
-    if(currentUser?.id === current.id){
-      onCurrentUserChange?.({ id:current.id, email:current.email, role:current.role, courier:current.courier||null });
-    }
-    setEdit(null); setPw1e(""); setPw2e("");
-  }
-
-  function deleteUser(u){
-    if(u.role==="ADMIN" && users.filter(x=>x.role==="ADMIN").length<=1){
-      alert("No podés eliminar el último ADMIN.");
-      return;
-    }
-    const ok = window.confirm(`¿Eliminar el usuario ${u.email}?`);
-    if(!ok) return;
-    const next = users.filter(x=>x.id!==u.id);
-    saveUsers(next);
-    setUsers(next);
-  }
-
+/* ========== Gestión de Usuarios (REEMPLAZADO) ========== */
+function Usuarios() {
   return (
-    <Section
-      title="Usuarios"
-      right={<div className="flex gap-2 items-end">
-        <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
-      </div>}
-    >
-      {/* Alta */}
-      <div className="bg-slate-50 rounded-xl p-4 mb-4">
-        <div className="font-semibold text-slate-800 mb-3">Crear nuevo usuario</div>
-        <div className="grid md:grid-cols-5 gap-4">
-          <Field label="Email" required><Input value={emailNew} onChange={e=>setEmailNew(e.target.value)} placeholder="usuario@empresa.com"/></Field>
-          <Field label="Rol" required>
-            <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={roleNew} onChange={e=>setRoleNew(e.target.value)}>
-              <option>COURIER</option>
-              <option>ADMIN</option>
-            </select>
-          </Field>
-          <Field label="Courier (si corresponde)">
-            <Input list="courierList" value={courierNew} onChange={e=>setCourierNew(e.target.value)} placeholder="Aero Box / Global Box / ..." />
-            <datalist id="courierList">
-              {COURIERS_INICIALES.map(c=><option key={c} value={c} />)}
-            </datalist>
-          </Field>
-          <Field label="Contraseña" required>
-            <PasswordInput value={pw1} onChange={e=>setPw1(e.target.value)} placeholder="••••••••"/>
-          </Field>
-          <Field label="Repetir contraseña" required>
-            <PasswordInput value={pw2} onChange={e=>setPw2(e.target.value)} placeholder="••••••••"/>
-          </Field>
-        </div>
-        {err && <div className="text-red-600 text-sm mt-2">{err}</div>}
-        <div className="flex justify-end mt-4">
-          <button className={BTN_PRIMARY} onClick={addUser}>{Iconos.add} Crear</button>
-        </div>
-      </div>
-
-      {/* Listado */}
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="bg-slate-50">
-              {["Email","Rol","Courier","Acciones"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
-            {filtered.map(u=>(
-              <tr key={u.id} className="hover:bg-slate-50">
-                <td className="px-3 py-2 whitespace-nowrap">{u.email}</td>
-                <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${u.role === 'ADMIN' ? 'bg-francia-100 text-francia-700' : 'bg-slate-100 text-slate-700'}`}>{u.role}</span></td>
-                <td className="px-3 py-2">{u.role==="COURIER" ? (u.courier||"—") : "—"}</td>
-                <td className="px-3 py-2">
-                  <div className="flex gap-2">
-                    <button className={BTN_ICON} onClick={()=>{ setEdit({...u}); setPw1e(""); setPw2e(""); }}>{Iconos.edit}</button>
-                    <button className={BTN_ICON_DANGER} onClick={()=>deleteUser(u)}>{Iconos.delete}</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {filtered.length===0 && (
-              <tr><td colSpan={4}><EmptyState icon={Iconos.box} title="Sin usuarios" message="Crea el primer usuario para empezar a gestionar."/></td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Modal Edición */}
-      <Modal open={!!edit} onClose={()=>setEdit(null)} title="Editar usuario">
-        {edit && (
-          <div className="grid md:grid-cols-3 gap-4">
-            <Field label="Email" required>
-              <Input value={edit.email} onChange={e=>setEdit({...edit, email:e.target.value})}/>
-            </Field>
-            <Field label="Rol" required>
-              <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={edit.role} onChange={e=>setEdit({...edit, role:e.target.value})}>
-                <option>COURIER</option>
-                <option>ADMIN</option>
-              </select>
-            </Field>
-            <Field label="Courier (si corresponde)">
-              <Input list="courierList" value={edit.courier||""} onChange={e=>setEdit({...edit, courier:e.target.value})}/>
-            </Field>
-            <div className="md:col-span-3 h-px bg-slate-200 my-2" />
-            <Field label="Nueva contraseña (opcional)">
-              <PasswordInput value={pw1e} onChange={e=>setPw1e(e.target.value)} placeholder="Dejar vacío para no cambiar"/>
-            </Field>
-            <Field label="Repetir contraseña (opcional)">
-              <PasswordInput value={pw2e} onChange={e=>setPw2e(e.target.value)} placeholder="Dejar vacío para no cambiar"/>
-            </Field>
-
-            <div className="md:col-span-3 flex justify-end gap-2 mt-4">
-              <button className={BTN} onClick={()=>setEdit(null)}>Cancelar</button>
-              <button className={BTN_PRIMARY} onClick={updateUser}>{Iconos.save} Guardar cambios</button>
+    <Section title="Gestión de Usuarios">
+      <div className="bg-francia-50 border-l-4 border-francia-500 p-4 rounded-r-lg">
+        <div className="flex">
+          <div className="flex-shrink-0">
+            <svg className="h-5 w-5 text-francia-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <div className="ml-3">
+            <h3 className="text-sm font-medium text-francia-800">Atención: Nueva gestión de usuarios</h3>
+            <div className="mt-2 text-sm text-francia-700">
+              <p>La gestión de usuarios (crear, editar, eliminar y cambiar contraseñas) ahora se realiza directamente en la Consola de Firebase para mayor seguridad.</p>
+              <ul className="list-disc pl-5 mt-2 space-y-1">
+                <li><b>Para añadir un usuario:</b> Ve a Firebase Console → Authentication → Users → Add user.</li>
+                <li><b>Para asignar un rol:</b> Ve a Firebase Console → Firestore Database → `users` collection. Crea un documento con el UID del usuario y añade los campos `role` y `courier`.</li>
+              </ul>
             </div>
           </div>
-        )}
-      </Modal>
+        </div>
+      </div>
     </Section>
   );
 }
+
 /* ========== helpers listas sencillas ========== */
 function ManageList({label, items, onAdd, onRemove}){
   const [txt,setTxt]=useState("");
@@ -844,9 +629,7 @@ function ManageList({label, items, onAdd, onRemove}){
   );
 }
 
-// =======================================================
-// SECCIÓN DE RECEPCIÓN TOTALMENTE REEMPLAZADA
-// =======================================================
+/* ========== SECCIÓN DE RECEPCIÓN ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const [flightId,setFlightId]=useState("");
@@ -861,8 +644,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
   });
 
   const [isUploading, setIsUploading] = useState(false);
-  const [lastCourier, setLastCourier] = useState("");
-  const [lastSeq, setLastSeq] = useState(0);
 
   const codigoCargaSel = useMemo(() => flights.find(f=>f.id===flightId)?.codigo || "", [flightId, flights]);
   const estadosPermitidos = useMemo(() => estadosPermitidosPorCarga(codigoCargaSel, estados.map(e => e.name)), [codigoCargaSel, estados]);
@@ -872,8 +653,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       setForm(f=>({...f, codigo:""}));
       return;
     }
-    // Lógica para obtener el secuencial desde una fuente externa (ej. Firestore) o mantenerla en memoria.
-    // Para simplificar, aquí reiniciamos a 1, pero en un caso real se necesitaría un contador persistente.
     const key="seq_"+courierPrefix(form.courier);
     const next=(Number(localStorage.getItem(key))||0)+1;
     const n= next>999?1:next;
@@ -922,13 +701,11 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     if(!flightId){ alert("Seleccioná una Carga."); return; }
     if(!okCampos()){ alert("Faltan campos."); return; }
     
-    // NOTA: La lógica del secuencial debería ser manejada en el backend/Firestore para evitar duplicados.
     const key="seq_"+courierPrefix(form.courier);
     let cur=(Number(localStorage.getItem(key))||0)+1; if(cur>999) cur=1;
     localStorage.setItem(key,String(cur));
 
     const p={
-      // No generamos 'id' aquí, Firestore lo hará automáticamente.
       flight_id: flightId,
       courier: form.courier, estado: form.estado, casilla: form.casilla,
       codigo: form.codigo,
@@ -1096,16 +873,13 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     </Section>
   );
 }
-// =======================================================
-
-
 const InfoBox=({title,value})=>(
   <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
     <div className="text-sm text-slate-600">{title}</div>
     <div className="text-2xl font-semibold text-slate-800">{value}</div>
   </div>
 );
-/* ========== Paquetes sin casilla (con tracking + edición/borrado ADMIN, visibilidad por rol) ========== */
+/* ========== Paquetes sin casilla ========== */
 function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }){
   const isAdmin = currentUser?.role === "ADMIN";
   const [q,setQ] = useState("");
@@ -1287,7 +1061,7 @@ function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onA
     </Section>
   );
 }
-/* ========== Pestaña de Pendientes (con filtros, estados y creación manual) ========== */
+/* ========== Pestaña de Pendientes ========== */
 function Pendientes({ items, onAdd, onUpdate, onRemove }) {
   const [editItem, setEditItem] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -1430,7 +1204,7 @@ function Pendientes({ items, onAdd, onUpdate, onRemove }) {
   );
 }
 
-/* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
+/* ========== Paquetes en bodega ========== */
 function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendiente}){
   const [q,setQ]=useState("");
   const [flightId,setFlightId]=useState("");
@@ -1746,7 +1520,8 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
     </Section>
   );
 }
-/* ========== Armado de cajas (peso de cartón al crear + Peso estimado + Export cajas.xlsx con una hoja por caja) ========== */
+
+/* ========== Armado de cajas ========== */
 function ArmadoCajas({packages, flights, onUpdateFlight, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
@@ -1769,7 +1544,7 @@ function ArmadoCajas({packages, flights, onUpdateFlight, onAssign}){
         setEditingBoxId(null);
         setEditingBoxData(null);
     }
-  },[flightId]);
+  },[flightId, flights]);
 
   const startEditing = (box) => {
     setEditingBoxId(box.id);
@@ -1878,7 +1653,6 @@ function ArmadoCajas({packages, flights, onUpdateFlight, onAssign}){
 
       const couriers = Object.keys(byCourier).sort();
       
-      // Estilos
       ws.getCell('B2').value = "CONTROL DE PAQUETES";
       ws.getCell('B2').font = { bold: true, color: { argb: "FFFFFFFF" }, sz: 12 };
       ws.getCell('B2').fill = { type: 'pattern', pattern:'solid', fgColor:{argb:'FF4F4F4F'} };
@@ -2036,7 +1810,7 @@ function ArmadoCajas({packages, flights, onUpdateFlight, onAssign}){
   );
 }
 
-/* ========== Cargas enviadas (filtro + export XLSX) ========== */
+/* ========== Cargas enviadas ========== */
 function CargasEnviadas({packages, flights, user}){
   const [from,setFrom]=useState("");
   const [to,setTo]=useState("");
@@ -2205,7 +1979,7 @@ function CargasEnviadas({packages, flights, user}){
     </Section>
   );
 }
-/* ========== Gestión de cargas (crear/editar/eliminar con confirmación) ========== */
+/* ========== Gestión de cargas ========== */
 function CargasAdmin({flights, onAdd, onUpdate, onDelete, packages}){
   const [code,setCode]=useState("");
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
@@ -2364,7 +2138,7 @@ function CargasAdmin({flights, onAdd, onUpdate, onDelete, packages}){
 }
 
 
-/* ========== Proformas (cant 3 dec; unit/sub 2; extras y 4% con cant=1) ========== */
+/* ========== Proformas ========== */
 const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
@@ -2615,8 +2389,9 @@ function Extras({flights, couriers, extras, onAdd, onUpdate, onDelete}){
 
 /* ========== Componente Principal de la Aplicación ========== */
 function App(){
-  const [currentUser,setCurrentUser]=useState(null);
-  const [tab,setTab]=useState("Dashboard");
+  const [currentUser, setCurrentUser] = useState(null);
+  const [initialising, setInitialising] = useState(true);
+  const [tab, setTab] = useState("Dashboard");
 
   // Estados para los datos de la aplicación
   const [couriers, setCouriers] = useState([]);
@@ -2627,9 +2402,32 @@ function App(){
   const [sinCasillaItems, setSinCasillaItems] = useState([]);
   const [pendientes, setPendientes] = useState([]);
 
+  // Listener de autenticación de Firebase
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // Usuario está logueado, obtenemos su rol desde Firestore
+        const userDocRef = doc(db, "users", user.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          setCurrentUser({ uid: user.uid, email: user.email, ...userDoc.data() });
+        } else {
+          // Si no tiene rol en Firestore, lo deslogueamos
+          console.warn(`El usuario ${user.email} no tiene un rol asignado en Firestore.`);
+          await signOut(auth);
+          setCurrentUser(null);
+        }
+      } else {
+        // No hay usuario logueado
+        setCurrentUser(null);
+      }
+      setInitialising(false);
+    });
+    return unsubscribe; // Limpiar el listener al desmontar
+  }, []);
+
   // --- Conexión a Firestore en tiempo real ---
   useEffect(() => {
-    // Listener genérico para una colección
     const createListener = (collectionName, setter, initialData, orderByField = null) => {
       const collRef = orderByField 
         ? query(collection(db, collectionName), orderBy(orderByField, "desc"))
@@ -2638,7 +2436,6 @@ function App(){
       return onSnapshot(collRef, (snapshot) => {
         const items = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
         if (items.length === 0 && initialData) {
-          // Si la colección está vacía, la poblamos con los datos iniciales
           initialData.forEach(item => addDoc(collection(db, collectionName), { name: item }));
         }
         setter(items);
@@ -2653,15 +2450,9 @@ function App(){
     const unsubSinCasilla = createListener("sinCasilla", setSinCasillaItems, null, "fecha");
     const unsubPendientes = createListener("pendientes", setPendientes, null, "fecha");
 
-    // Limpieza de listeners al desmontar el componente
     return () => {
-      unsubCouriers();
-      unsubEstados();
-      unsubFlights();
-      unsubPackages();
-      unsubExtras();
-      unsubSinCasilla();
-      unsubPendientes();
+      unsubCouriers(); unsubEstados(); unsubFlights(); unsubPackages();
+      unsubExtras(); unsubSinCasilla(); unsubPendientes();
     };
   }, []);
 
@@ -2683,17 +2474,12 @@ function App(){
   const sinCasillaHandlers = createCrudHandlers("sinCasilla");
   const pendientesHandlers = createCrudHandlers("pendientes");
 
-  // --- Lógica específica ---
   const moverPaqueteAPendientes = (paquete, casilla) => {
     const nuevaTarea = {
-      type: "ASIGNAR_CASILLA",
-      status: "No realizada",
-      fecha: new Date().toISOString().slice(0,10),
+      type: "ASIGNAR_CASILLA", status: "No realizada", fecha: new Date().toISOString().slice(0,10),
       data: {
-        numero: paquete.numero,
-        nombre: paquete.nombre,
-        tracking: paquete.tracking,
-        casilla: casilla.trim().toUpperCase(),
+        numero: paquete.numero, nombre: paquete.nombre,
+        tracking: paquete.tracking, casilla: casilla.trim().toUpperCase(),
       }
     };
     pendientesHandlers.add(nuevaTarea);
@@ -2707,8 +2493,21 @@ function App(){
     }
   },[currentUser, tab]);
 
+  if (initialising) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="text-lg font-semibold">Cargando...</div>
+      </div>
+    );
+  }
 
-  if(!currentUser) return <Login onLogin={setCurrentUser} />;
+  if (!currentUser) {
+    return <Login />;
+  }
+  
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
 
   const allowedTabs = tabsForRole(currentUser.role);
 
@@ -2721,7 +2520,6 @@ function App(){
 
   return (
     <div className="h-screen w-screen grid grid-cols-[256px_1fr] grid-rows-[auto_1fr] bg-slate-100">
-      {/* Barra de Navegación Lateral */}
       <aside className="row-span-2 bg-white border-r border-slate-200 flex flex-col">
         <div className="p-4 h-32 border-b border-slate-200 flex items-center justify-center">
             <img src="/logo.png" alt="Logo Europa Envíos" className="max-w-full max-h-full" />
@@ -2758,31 +2556,29 @@ function App(){
         </nav>
       </aside>
 
-      {/* Barra Superior */}
       <header className="bg-white border-b border-slate-200 flex items-center justify-end px-6 h-16">
         <div className="flex items-center gap-4">
           <div className="text-right">
             <p className="text-sm font-semibold text-slate-700">{currentUser.email}</p>
-            <p className="text-xs text-slate-500">{currentUser.role}</p>
+            <p className="text-xs text-slate-500">{currentUser.role}{currentUser.role === 'COURIER' && ` (${currentUser.courier})`}</p>
           </div>
-          <button onClick={() => setCurrentUser(null)} className={BTN_ICON + " text-slate-500"} title="Cerrar sesión">
+          <button onClick={handleLogout} className={BTN_ICON + " text-slate-500"} title="Cerrar sesión">
             {Iconos.logout}
           </button>
         </div>
       </header>
 
-      {/* Contenido Principal */}
       <main className="overflow-y-auto p-4 sm:p-6 lg:p-8">
         {tab==="Dashboard" && <Dashboard packages={packages} flights={flights} pendientes={pendientes} onTabChange={setTab} currentUser={currentUser} />}
         {tab==="Recepción" && <Reception currentUser={currentUser} couriers={couriers} setCouriers={couriersHandlers} estados={estados} setEstados={estadosHandlers} flights={flights} onAdd={packagesHandlers.add}/>}
         {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} onAdd={sinCasillaHandlers.add} onUpdate={sinCasillaHandlers.update} onRemove={sinCasillaHandlers.remove} onAsignarCasilla={moverPaqueteAPendientes}/>}
         {tab==="Pendientes" && <Pendientes items={pendientes} onAdd={pendientesHandlers.add} onUpdate={pendientesHandlers.update} onRemove={pendientesHandlers.remove} />}
         {tab==="Paquetes en bodega" && <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={packagesHandlers.update} onDelete={packagesHandlers.remove} onPendiente={pendientesHandlers.add} />}
-        {tab==="Armado de cajas" && <ArmadoCajas packages={packages} flights={flights} onUpdateFlight={flightsHandlers.update} onAssign={()=>{/* La lógica de onAssign ya no es necesaria aquí */}}/>}
+        {tab==="Armado de cajas" && <ArmadoCajas packages={packages} flights={flights} onUpdateFlight={flightsHandlers.update} onAssign={()=>{}}/>}
         {tab==="Cargas enviadas" && <CargasEnviadas packages={packages} flights={flights} user={currentUser}/>}
         {tab==="Gestión de cargas" && <CargasAdmin flights={flights} onAdd={flightsHandlers.add} onUpdate={flightsHandlers.update} onDelete={flightsHandlers.remove} packages={packages}/>}
         {tab==="Proformas" && <Proformas packages={packages} flights={flights} extras={extras} user={currentUser}/>}
-        {tab==="Usuarios" && <Usuarios currentUser={currentUser} onCurrentUserChange={(u)=>setCurrentUser(u)}/>}
+        {tab==="Usuarios" && <Usuarios />}
         {tab==="Extras" && <Extras flights={flights} couriers={couriers} extras={extras} onAdd={extrasHandlers.add} onUpdate={extrasHandlers.update} onDelete={extrasHandlers.remove} />}
       </main>
     </div>

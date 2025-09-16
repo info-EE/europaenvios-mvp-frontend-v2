@@ -1,7 +1,7 @@
-/* Europa Envíos – MVP v0.8.5 (Mejoras para rol COURIER)
-    - Cargas Enviadas (Courier): Se muestra el peso total facturable y el exceso volumétrico de los paquetes del courier en la carga seleccionada.
-    - Proformas (Courier): Se da acceso a la pestaña y se filtra para que solo vea la proforma de su courier.
-    - Se ha verificado que los cambios no afecten la funcionalidad del rol ADMIN.
+/* Europa Envíos – MVP v0.9.0 (Migración a Firestore)
+    - Toda la gestión de datos (paquetes, cargas, extras, etc.) se migra de localStorage a Cloud Firestore.
+    - Los datos ahora son persistentes, se guardan en la nube y se actualizan en tiempo real para todos los usuarios.
+    - Se eliminó la lógica de carga/guardado de localStorage y se reemplazó con funciones asíncronas (add, update, delete) y listeners de Firestore (onSnapshot).
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -11,13 +11,11 @@ import JsBarcode from "jsbarcode";
 import ExcelJS from "exceljs/dist/exceljs.min.js";
 
 // =======================================================
-// IMPORTS DE FIREBASE AÑADIDOS
+// IMPORTS DE FIREBASE
 // =======================================================
-import { storage } from "./firebase";
+import { storage, db } from "./firebase";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
-
-import { db } from "./firebase";
-import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy } from "firebase/firestore";
 
 // =======================================================
 
@@ -89,6 +87,8 @@ function downloadXLSX(filename, sheets){
 }
 
 /* ========== helpers de autenticación/usuarios (localStorage) ========== */
+// NOTA: La gestión de usuarios se mantiene en localStorage por simplicidad en esta fase.
+// La migración a Firebase Authentication es el siguiente paso natural.
 const USERS_KEY = "ee_users_v1";
 
 async function sha256Hex(str){
@@ -199,9 +199,6 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
             justify-content: center;
           }
           .courier {
-            /* ======================================================= */
-            /* LÍNEA MODIFICADA: TAMAÑO DE FUENTE REDUCIDO DE 42pt a 28pt */
-            /* ======================================================= */
             font-size: 28pt;
             font-weight: bold;
             line-height: 1;
@@ -361,6 +358,7 @@ function Modal({open,onClose,title,children}){
 }
 
 /* ========== datos iniciales (listas) ========== */
+// NOTA: Estos valores iniciales solo se usarán si la base de datos está vacía.
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
   "Aero Box", "Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos",
@@ -825,20 +823,20 @@ function Usuarios({ currentUser, onCurrentUserChange }){
   );
 }
 /* ========== helpers listas sencillas ========== */
-function ManageList({label,items,setItems}){
+function ManageList({label, items, onAdd, onRemove}){
   const [txt,setTxt]=useState("");
   return (
     <div className="bg-slate-50 rounded-xl p-3">
       <div className="font-medium mb-2 text-slate-800">{label}</div>
       <div className="flex gap-2">
         <Input value={txt} onChange={e=>setTxt(e.target.value)} placeholder={`Agregar a ${label}`}/>
-        <button className={BTN} onClick={()=>{ if(!txt.trim()) return; setItems([...items, txt.trim()]); setTxt(""); }}>Añadir</button>
+        <button className={BTN} onClick={()=>{ if(!txt.trim()) return; onAdd({ name: txt.trim() }); setTxt(""); }}>Añadir</button>
       </div>
       <ul className="mt-2 text-sm">
-        {items.map((x,i)=>(
-          <li key={i} className="flex items-center justify-between py-1.5 border-b border-slate-200">
-            <span className="text-slate-700">{x}</span>
-            <button className="text-red-600 text-xs font-semibold" onClick={()=>setItems(items.filter((_,j)=>j!==i))}>Quitar</button>
+        {items.map((x)=>(
+          <li key={x.id} className="flex items-center justify-between py-1.5 border-b border-slate-200">
+            <span className="text-slate-700">{x.name}</span>
+            <button className="text-red-600 text-xs font-semibold" onClick={()=>onRemove(x.id)}>Quitar</button>
           </li>
         ))}
       </ul>
@@ -859,17 +857,23 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     empresa:"", nombre:"", tracking:"", remitente:"",
     peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
     desc:"", valor_txt:"",
-    foto:null // AHORA GUARDARÁ LA URL DE FIREBASE
+    foto:null
   });
 
-  // NUEVO ESTADO: Para saber si una foto se está subiendo
   const [isUploading, setIsUploading] = useState(false);
+  const [lastCourier, setLastCourier] = useState("");
+  const [lastSeq, setLastSeq] = useState(0);
 
   const codigoCargaSel = useMemo(() => flights.find(f=>f.id===flightId)?.codigo || "", [flightId, flights]);
-  const estadosPermitidos = useMemo(() => estadosPermitidosPorCarga(codigoCargaSel, estados), [codigoCargaSel, estados]);
+  const estadosPermitidos = useMemo(() => estadosPermitidosPorCarga(codigoCargaSel, estados.map(e => e.name)), [codigoCargaSel, estados]);
 
   useEffect(()=>{
-    if(!form.courier) { setForm(f=>({...f, codigo:""})); return; }
+    if(!form.courier) {
+      setForm(f=>({...f, codigo:""}));
+      return;
+    }
+    // Lógica para obtener el secuencial desde una fuente externa (ej. Firestore) o mantenerla en memoria.
+    // Para simplificar, aquí reiniciamos a 1, pero en un caso real se necesitaría un contador persistente.
     const key="seq_"+courierPrefix(form.courier);
     const next=(Number(localStorage.getItem(key))||0)+1;
     const n= next>999?1:next;
@@ -886,7 +890,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     return allowedCouriersByContext({
       casilla: form.casilla,
       flightCode: codigoCargaSel,
-      avail: couriers
+      avail: couriers.map(c => c.name)
     });
   }, [form.casilla, codigoCargaSel, couriers]);
 
@@ -907,8 +911,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       "tracking","remitente","peso_real_txt","L_txt","A_txt","H_txt","desc","valor_txt"
     ].every(k=>String(form[k]||"").trim()!=="");
 
-  const submit=()=>{
-    if (isUploading) return; // Evita guardar si la foto aún está subiendo
+  const submit= async ()=>{
+    if (isUploading) return;
     const fl = flights.find(f=>f.id===flightId);
     if (fl?.codigo.toUpperCase().startsWith("AIR-MULTI") && form.courier === "ParaguayBox") {
       alert("No se permite cargar paquetes de ParaguayBox en cargas que comiencen con AIR-MULTI.");
@@ -917,13 +921,15 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
     if(!flightId){ alert("Seleccioná una Carga."); return; }
     if(!okCampos()){ alert("Faltan campos."); return; }
-
+    
+    // NOTA: La lógica del secuencial debería ser manejada en el backend/Firestore para evitar duplicados.
     const key="seq_"+courierPrefix(form.courier);
     let cur=(Number(localStorage.getItem(key))||0)+1; if(cur>999) cur=1;
     localStorage.setItem(key,String(cur));
 
     const p={
-      id: uuid(), flight_id: flightId,
+      // No generamos 'id' aquí, Firestore lo hará automáticamente.
+      flight_id: flightId,
       courier: form.courier, estado: form.estado, casilla: form.casilla,
       codigo: form.codigo,
       codigo_full: `${fl?.codigo||"CARGA"}-${form.codigo}`,
@@ -942,7 +948,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       pesoKg: peso, medidasTxt: medidas, desc: form.desc, cargaTxt: fl?.codigo || "-"
     });
 
-    onAdd(p);
+    await onAdd(p);
     printHTMLInIframe(html);
 
     setFlightId("");
@@ -965,16 +971,15 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     return ()=>{ if(streamRef.current){ streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; } };
   },[camOpen]);
 
-  // NUEVA FUNCIÓN: Sube la imagen a Firebase
   const handleImageUpload = async (imageDataUrl) => {
     if (!imageDataUrl) return;
     setIsUploading(true);
     try {
-      const imageName = `paquetes/${uuid()}.jpg`; // Crea un nombre único
+      const imageName = `paquetes/${uuid()}.jpg`;
       const storageRef = ref(storage, imageName);
       const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
-      const downloadURL = await getDownloadURL(snapshot.ref); // Obtiene la URL pública
-      setForm(f => ({ ...f, foto: downloadURL })); // Guarda la URL en el formulario
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      setForm(f => ({ ...f, foto: downloadURL }));
     } catch (error) {
       console.error("Error al subir imagen:", error);
       alert("Hubo un error al subir la foto.");
@@ -983,23 +988,21 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     }
   };
 
-  // FUNCIÓN ACTUALIZADA: Llama a la nueva función de subida
   const tomarFoto=()=>{
     const v=videoRef.current; if(!v) return;
     const canvas=document.createElement("canvas");
     canvas.width=v.videoWidth; canvas.height=v.videoHeight;
     const ctx=canvas.getContext("2d"); ctx.drawImage(v,0,0);
     const data=canvas.toDataURL("image/jpeg",0.85);
-    handleImageUpload(data); // Llama a la función de subida
+    handleImageUpload(data);
     setCamOpen(false);
   };
 
   const fileRef = useRef(null);
-  // FUNCIÓN ACTUALIZADA: Llama a la nueva función de subida
   const onFile = (e)=>{
     const file=e.target.files?.[0]; if(!file) return;
     const r=new FileReader();
-    r.onload=() => handleImageUpload(r.result); // Llama a la función de subida
+    r.onload=() => handleImageUpload(r.result);
     r.readAsDataURL(file);
   };
 
@@ -1016,8 +1019,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     >
       {showMgr && (
         <div className="grid md:grid-cols-2 gap-4 my-4 p-4 bg-slate-50 rounded-lg">
-          <ManageList label="Couriers" items={couriers} setItems={setCouriers}/>
-          <ManageList label="Estados" items={estados} setItems={setEstados}/>
+          <ManageList label="Couriers" items={couriers} onAdd={setCouriers.add} onRemove={setCouriers.remove}/>
+          <ManageList label="Estados" items={estados} onAdd={setEstados.add} onRemove={setEstados.remove}/>
         </div>
       )}
 
@@ -1069,7 +1072,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
             <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
             <button type="button" onClick={()=>fileRef.current?.click()} className={BTN} disabled={isUploading}>Seleccionar archivo</button>
             <button type="button" onClick={()=>setCamOpen(true)} className={BTN} disabled={isUploading}>Tomar foto</button>
-            {/* NUEVO: Feedback visual mientras se sube la foto */}
             {isUploading ? <span className="text-francia-600 text-sm font-semibold">Subiendo...</span> :
              form.foto ? <a href={form.foto} target="_blank" rel="noopener noreferrer" className="text-green-600 text-sm font-semibold hover:underline">✓ Ver foto</a> : <span className="text-slate-500 text-sm">Opcional</span>}
           </div>
@@ -1081,7 +1083,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         <InfoBox title="Exceso de volumen" value={`${fmtPeso(exc)} kg`}/>
       </div>
       <div className="flex justify-end mt-6">
-        {/* NUEVO: El botón se deshabilita mientras sube la foto */}
         <button onClick={submit} className={BTN_PRIMARY} disabled={isUploading}>
           {isUploading ? "Subiendo foto..." : "Guardar paquete"}
         </button>
@@ -1105,7 +1106,7 @@ const InfoBox=({title,value})=>(
   </div>
 );
 /* ========== Paquetes sin casilla (con tracking + edición/borrado ADMIN, visibilidad por rol) ========== */
-function PaquetesSinCasilla({ currentUser, items, setItems, onAsignarCasilla }){
+function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }){
   const isAdmin = currentUser?.role === "ADMIN";
   const [q,setQ] = useState("");
   const [from,setFrom] = useState("");
@@ -1128,23 +1129,18 @@ function PaquetesSinCasilla({ currentUser, items, setItems, onAsignarCasilla }){
     if(!isAdmin) return;
     if(!fecha || !nombre.trim()){ alert("Completá Fecha y Nombre."); return; }
     const numero = nextNumero();
-    const row = { id: uuid(), fecha, numero, nombre: nombre.trim(), tracking: tracking.trim() };
-    setItems([ ...items, row ]);
+    const row = { fecha, numero, nombre: nombre.trim(), tracking: tracking.trim() };
+    onAdd(row);
     setNombre(""); setTracking("");
   }
 
-  // =======================================================
-  // FUNCIÓN MODIFICADA PARA USAR LA PROP onAsignarCasilla
-  // =======================================================
   const handleAsignarCasilla = (paquete) => {
     if(!isAdmin) return;
     const casilla = window.prompt(`Asignar casilla para el paquete Nº ${paquete.numero} (${paquete.nombre}):`);
     if (casilla && casilla.trim()) {
-      // Llama a la función que nos pasó el componente padre
       onAsignarCasilla(paquete, casilla);
     }
   };
-  // =======================================================
 
   const filtered = useMemo(()=>{
     const arr = items
@@ -1166,8 +1162,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems, onAsignarCasilla }){
   function saveEdit(){
     if(!isAdmin) return;
     if(!editId) return;
-    const next = items.map(r => r.id===editId ? { ...r, ...editRow, nombre:(editRow.nombre||"").trim() } : r);
-    setItems(next);
+    onUpdate({ id: editId, ...editRow });
     setEditId(null);
   }
   function cancelEdit(){ setEditId(null); }
@@ -1175,7 +1170,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems, onAsignarCasilla }){
     if(!isAdmin) return;
     const ok = window.confirm(`¿Eliminar el paquete Nº ${r.numero}?`);
     if(!ok) return;
-    setItems(items.filter(x=>x.id!==r.id));
+    onRemove(r.id);
   }
 
   function exportXLSX(){
@@ -1293,7 +1288,7 @@ function PaquetesSinCasilla({ currentUser, items, setItems, onAsignarCasilla }){
   );
 }
 /* ========== Pestaña de Pendientes (con filtros, estados y creación manual) ========== */
-function Pendientes({ items, setItems }) {
+function Pendientes({ items, onAdd, onUpdate, onRemove }) {
   const [editItem, setEditItem] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [newTask, setNewTask] = useState({ type: 'MANUAL', fecha: new Date().toISOString().slice(0,10), details: '' });
@@ -1320,26 +1315,26 @@ function Pendientes({ items, setItems }) {
   const cancelEdit = () => setEditItem(null);
 
   const saveEdit = () => {
-    setItems(prev => prev.map(item => item.id === editItem.id ? editItem : item ));
+    onUpdate(editItem);
     setEditItem(null);
   };
   
-  const toggleStatus = (id) => {
-    setItems(prev => prev.map(item => item.id === id ? { ...item, status: item.status === 'Realizada' ? 'No realizada' : 'Realizada' } : item ));
+  const toggleStatus = (item) => {
+    onUpdate({ ...item, status: item.status === 'Realizada' ? 'No realizada' : 'Realizada' });
   };
 
   const deleteTask = (id) => {
     const ok = window.confirm("¿Seguro que quieres eliminar esta tarea pendiente? Esta acción no se puede deshacer.");
-    if (ok) setItems(prev => prev.filter(item => item.id !== id));
+    if (ok) onRemove(id);
   };
 
   const handleCreateTask = () => {
     if (!newTask.details.trim()) { alert("Por favor, ingresá los detalles de la tarea."); return; }
     const taskToAdd = {
-      id: uuid(), type: newTask.type, status: "No realizada", fecha: newTask.fecha,
+      type: newTask.type, status: "No realizada", fecha: newTask.fecha,
       data: { details: newTask.details }
     };
-    setItems(prev => [taskToAdd, ...prev]);
+    onAdd(taskToAdd);
     setModalOpen(false);
     setNewTask({ type: 'MANUAL', fecha: new Date().toISOString().slice(0,10), details: '' });
   };
@@ -1388,7 +1383,7 @@ function Pendientes({ items, setItems }) {
                 <td className="px-3 py-2">{renderTaskDetails(item)}</td>
                 <td className="px-3 py-2">
                   <div className="flex gap-2 flex-wrap">
-                    <button className={`px-3 py-1 text-xs rounded-lg text-white font-semibold transition-colors ${item.status === 'No realizada' ? 'bg-green-600 hover:bg-green-700' : 'bg-yellow-500 hover:bg-yellow-600'}`} onClick={() => toggleStatus(item.id)}>
+                    <button className={`px-3 py-1 text-xs rounded-lg text-white font-semibold transition-colors ${item.status === 'No realizada' ? 'bg-green-600 hover:bg-green-700' : 'bg-yellow-500 hover:bg-yellow-600'}`} onClick={() => toggleStatus(item)}>
                       {item.status === 'No realizada' ? 'Realizada' : 'Pendiente'}
                     </button>
                     <button className={BTN_ICON} onClick={() => startEdit(item)}>{Iconos.edit}</button>
@@ -1436,7 +1431,7 @@ function Pendientes({ items, setItems }) {
 }
 
 /* ========== Paquetes en bodega (filtro por rol/courier + prefijo) ========== */
-function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendientes}){
+function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendiente}){
   const [q,setQ]=useState("");
   const [flightId,setFlightId]=useState("");
   const [dateFrom,setDateFrom]=useState("");
@@ -1460,7 +1455,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
       .filter(p => {
         const flight = flights.find(f => f.id === p.flight_id);
         if (!flight) return false;
-        // Mostrar si la carga está "En bodega" O si el paquete no está en ninguna caja.
         return flight.estado === "En bodega" || !paquetesEnCajaIds.has(p.id);
       })
       .filter(p => !flightId || p.flight_id === flightId)
@@ -1528,7 +1522,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
         const oldFlight = flights.find(f => f.id === originalPackage.flight_id);
         const newFlight = flights.find(f => f.id === form.flight_id);
         const tarea = {
-            id: uuid(),
             type: "CAMBIO_CARGA",
             status: "No realizada",
             fecha: new Date().toISOString().slice(0, 10),
@@ -1538,7 +1531,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
                 newFlight: newFlight?.codigo || 'N/A',
             }
         };
-        setPendientes(prev => [tarea, ...prev]);
+        onPendiente(tarea);
     }
 
     const peso = parseComma(form.peso_real_txt);
@@ -1754,7 +1747,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, setPendien
   );
 }
 /* ========== Armado de cajas (peso de cartón al crear + Peso estimado + Export cajas.xlsx con una hoja por caja) ========== */
-function ArmadoCajas({packages, flights, setFlights, onAssign}){
+function ArmadoCajas({packages, flights, onUpdateFlight, onAssign}){
   const [flightId,setFlightId]=useState("");
   const flight = flights.find(f=>f.id===flightId);
   const [scan,setScan]=useState("");
@@ -1789,27 +1782,21 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
   };
   
   const saveBoxChanges = () => {
-    if(!editingBoxData) return;
-    setFlights(flights.map(f =>
-      f.id !== flightId ? f : {
-        ...f,
-        cajas: f.cajas.map(c => c.id !== editingBoxId ? c : editingBoxData)
-      }
-    ));
+    if(!editingBoxData || !flight) return;
+    const updatedCajas = flight.cajas.map(c => c.id !== editingBoxId ? c : editingBoxData);
+    onUpdateFlight({ ...flight, cajas: updatedCajas });
     cancelEditing();
   };
   
   function addBox(){
-    if(!flightId) return;
+    if(!flightId || !flight) return;
     const inTxt = window.prompt("Ingresá el peso de la caja de cartón (kg), ej: 0,250", "0,250");
     if(inTxt===null) return;
     const peso_carton = fmtPeso(parseComma(inTxt));
     const n = (flight?.cajas?.length||0)+1;
     const newBox = {id:uuid(),codigo:`Caja ${n}`,paquetes:[],peso:"",L:"",A:"",H:"", peso_carton};
-    const updatedFlights = flights.map(f =>
-      f.id !== flightId ? f : { ...f, cajas: [...(f.cajas || []), newBox] }
-    );
-    setFlights(updatedFlights);
+    const updatedCajas = [...(flight.cajas || []), newBox];
+    onUpdateFlight({ ...flight, cajas: updatedCajas });
     setActiveBoxId(newBox.id);
   }
 
@@ -1821,32 +1808,25 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     const currentActiveId = activeBoxId || flight.cajas[0]?.id;
     if(!currentActiveId){ alert("Creá una caja primero."); return; }
     
-    const updatedFlights = flights.map(f => {
-      if (f.id !== flightId) return f;
-      const updatedCajas = f.cajas.map(c => 
-        c.id !== currentActiveId ? c : {...c, paquetes: [...c.paquetes, pkg.id]}
-      );
-      return {...f, cajas: updatedCajas};
-    });
-    setFlights(updatedFlights);
+    const updatedCajas = flight.cajas.map(c => 
+      c.id !== currentActiveId ? c : {...c, paquetes: [...c.paquetes, pkg.id]}
+    );
+    onUpdateFlight({...flight, cajas: updatedCajas});
     onAssign(pkg.id); setScan("");
   }
   function move(pid,fromId,toId){
     if(!toId||!flight) return;
-    let updatedFlights = flights.map(f => {
-        if(f.id !== flightId) return f;
-        const newCajas = f.cajas.map(c => {
-            if(c.id === fromId) return {...c, paquetes: c.paquetes.filter(p => p !== pid)};
-            if(c.id === toId) return {...c, paquetes: [...c.paquetes, pid]};
-            return c;
-        });
-        return {...f, cajas: newCajas};
+    const newCajas = flight.cajas.map(c => {
+        if(c.id === fromId) return {...c, paquetes: c.paquetes.filter(p => p !== pid)};
+        if(c.id === toId) return {...c, paquetes: [...c.paquetes, pid]};
+        return c;
     });
-    setFlights(updatedFlights);
+    onUpdateFlight({...flight, cajas: newCajas});
   }
   function removeBox(id){
     if(!flight) return;
-    setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:f.cajas.filter(c=>c.id!==id)}));
+    const updatedCajas = flight.cajas.filter(c=>c.id!==id);
+    onUpdateFlight({...flight, cajas: updatedCajas});
     if(activeBoxId===id) setActiveBoxId(null);
     if(editingBoxId===id) cancelEditing();
   }
@@ -1857,7 +1837,7 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
     const j = dir==="up"? i-1 : i+1;
     if(j<0||j>=arr.length) return;
     [arr[i],arr[j]]=[arr[j],arr[i]];
-    setFlights(flights.map(f=>f.id!==flightId?f:{...f,cajas:arr}));
+    onUpdateFlight({...flight,cajas:arr});
   }
 
   function pesoEstimado(caja){
@@ -2039,7 +2019,8 @@ function ArmadoCajas({packages, flights, setFlights, onAssign}){
                         <button className={BTN_ICON_DANGER} onClick={(e)=>{e.stopPropagation(); 
                           const updatedPaquetes = c.paquetes.filter(z => z !== pid);
                           const updatedCaja = {...c, paquetes: updatedPaquetes};
-                          setFlights(flights.map(f => f.id === flightId ? {...f, cajas: f.cajas.map(cj => cj.id === c.id ? updatedCaja : cj)} : f));
+                          const updatedCajas = flight.cajas.map(cj => cj.id === c.id ? updatedCaja : cj);
+                          onUpdateFlight({ ...flight, cajas: updatedCajas });
                         }}>{Iconos.delete}</button>
                       </li>
                     );
@@ -2090,7 +2071,7 @@ function CargasEnviadas({packages, flights, user}){
 
   const resumenCajas = useMemo(()=>{
     if(!flight) return [];
-    return flight.cajas.map((c,i)=>{
+    return (flight.cajas || []).map((c,i)=>{
       const peso=parseComma(c.peso||"0");
       const L=parseIntEU(c.L||0), A=parseIntEU(c.A||0), H=parseIntEU(c.H||0);
       const vol=(A*H*L)/6000 || 0;
@@ -2225,7 +2206,7 @@ function CargasEnviadas({packages, flights, user}){
   );
 }
 /* ========== Gestión de cargas (crear/editar/eliminar con confirmación) ========== */
-function CargasAdmin({flights,setFlights, packages}){
+function CargasAdmin({flights, onAdd, onUpdate, onDelete, packages}){
   const [code,setCode]=useState("");
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [awb,setAwb]=useState("");
@@ -2239,7 +2220,7 @@ function CargasAdmin({flights,setFlights, packages}){
 
   function create(){
     if(!code) return;
-    setFlights([{id:uuid(),codigo:code,fecha_salida:date,estado:"En bodega",awb,factura_cacesa:fac,cajas:[], docs: []},...flights]);
+    onAdd({codigo:code,fecha_salida:date,estado:"En bodega",awb,factura_cacesa:fac,cajas:[], docs: []});
     setCode(""); setAwb(""); setFac("");
   }
   
@@ -2250,10 +2231,8 @@ function CargasAdmin({flights,setFlights, packages}){
     return missingIds.map(id => allPackages.find(p => p.id === id)?.codigo || 'ID desconocido');
   }
 
-  function upd(id,field,value){
-    if(field==="estado" && value!=="En bodega"){
-      const f = flights.find(x=>x.id===id);
-      if(f && f.estado === 'En bodega'){
+  function upd(f,field,value){
+    if(field==="estado" && value!=="En bodega" && f.estado === 'En bodega'){
         const missingPackages = getMissingScanPackages(f, packages);
         if(missingPackages.length > 0){
           const packageList = missingPackages.join(', ');
@@ -2261,23 +2240,21 @@ function CargasAdmin({flights,setFlights, packages}){
           const ok = window.confirm(message);
           if(!ok) return;
         }
-      }
     }
-    setFlights(flights.map(f=>f.id===id?{...f,[field]:value}:f));
+    onUpdate({...f, [field]:value});
   }
-  function del(id){
-    const f = flights.find(x=>x.id===id);
+  function del(id, codigo){
     const tienePaquetes = packages.some(p=>p.flight_id===id);
     if(tienePaquetes){
-      alert(`No se puede eliminar la carga ${f?.codigo||""} porque tiene paquetes asociados.`);
+      alert(`No se puede eliminar la carga ${codigo||""} porque tiene paquetes asociados.`);
       return;
     }
-    const ok = window.confirm(`¿Eliminar la carga ${f?.codigo||id}?`);
+    const ok = window.confirm(`¿Eliminar la carga ${codigo||id}?`);
     if(!ok) return;
-    setFlights(flights.filter(x=>x.id!==id));
+    onDelete(id);
   }
   
-  const handleFileUpload = (e, flightId) => {
+  const handleFileUpload = (e, flight) => {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -2288,17 +2265,13 @@ function CargasAdmin({flights,setFlights, packages}){
         name: file.name,
         data: event.target.result,
       };
-      setFlights(flights.map(f =>
-        f.id === flightId ? { ...f, docs: [...(f.docs || []), newDoc] } : f
-      ));
+      onUpdate({ ...flight, docs: [...(flight.docs || []), newDoc] });
     };
     reader.readAsDataURL(file);
   };
 
-  const deleteDocument = (flightId, docId) => {
-    setFlights(flights.map(f =>
-      f.id === flightId ? { ...f, docs: f.docs.filter(d => d.id !== docId) } : f
-    ));
+  const deleteDocument = (flight, docId) => {
+    onUpdate({ ...flight, docs: flight.docs.filter(d => d.id !== docId) });
   };
 
 
@@ -2333,31 +2306,31 @@ function CargasAdmin({flights,setFlights, packages}){
         {list.length > 0 ? list.map(f => (
             <div key={f.id} className="bg-white rounded-xl shadow-md border border-slate-200 flex flex-col">
               <div className="p-4 border-b border-slate-200 flex justify-between items-center">
-                <Input className="text-lg font-bold !border-0 !p-0 !ring-0" value={f.codigo} onChange={e => upd(f.id, "codigo", e.target.value)} />
+                <Input className="text-lg font-bold !border-0 !p-0 !ring-0" value={f.codigo} onChange={e => upd(f, "codigo", e.target.value)} />
                 <div className="flex gap-2">
                     <button className={BTN_ICON} onClick={() => document.getElementById(`file-input-${f.id}`).click()}>{Iconos.upload}</button>
-                    <input type="file" id={`file-input-${f.id}`} className="hidden" onChange={(e) => handleFileUpload(e, f.id)} />
-                    <button className={BTN_ICON_DANGER} onClick={()=>del(f.id)}>{Iconos.delete}</button>
+                    <input type="file" id={`file-input-${f.id}`} className="hidden" onChange={(e) => handleFileUpload(e, f)} />
+                    <button className={BTN_ICON_DANGER} onClick={()=>del(f.id, f.codigo)}>{Iconos.delete}</button>
                 </div>
               </div>
               <div className="p-4 space-y-3 flex-grow">
                  <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">Estado</span>
-                  <select className="text-sm rounded-lg border-slate-300 px-2 py-1" value={f.estado} onChange={e => upd(f.id, "estado", e.target.value)}>
+                  <select className="text-sm rounded-lg border-slate-300 px-2 py-1" value={f.estado} onChange={e => upd(f, "estado", e.target.value)}>
                     {ESTADOS_CARGA.map(s=><option key={s}>{s}</option>)}
                   </select>
                 </div>
                  <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">Fecha Salida</span>
-                  <Input type="date" value={f.fecha_salida} onChange={e => upd(f.id, "fecha_salida", e.target.value)} />
+                  <Input type="date" value={f.fecha_salida} onChange={e => upd(f, "fecha_salida", e.target.value)} />
                 </div>
                  <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">AWB</span>
-                  <Input value={f.awb || ""} onChange={e => upd(f.id, "awb", e.target.value)} />
+                  <Input value={f.awb || ""} onChange={e => upd(f, "awb", e.target.value)} />
                 </div>
                  <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">Factura</span>
-                  <Input value={f.factura_cacesa || ""} onChange={e => upd(f.id, "factura_cacesa", e.target.value)} />
+                  <Input value={f.factura_cacesa || ""} onChange={e => upd(f, "factura_cacesa", e.target.value)} />
                 </div>
                  <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-500">Cajas</span>
@@ -2373,7 +2346,7 @@ function CargasAdmin({flights,setFlights, packages}){
                                 <a href={doc.data} download={doc.name} className="text-francia-600 hover:underline flex items-center gap-2">
                                     {Iconos.file} {doc.name}
                                 </a>
-                                <button onClick={() => deleteDocument(f.id, doc.id)} className={BTN_ICON_DANGER}>{Iconos.delete}</button>
+                                <button onClick={() => deleteDocument(f, doc.id)} className={BTN_ICON_DANGER}>{Iconos.delete}</button>
                             </li>
                         ))}
                     </ul>
@@ -2410,7 +2383,7 @@ function Proformas({packages, flights, extras, user}){
   const porCourier = useMemo(()=>{
     if(!flight) return [];
     const m=new Map();
-    flight.cajas.forEach(c=>c.paquetes.forEach(pid=>{
+    (flight.cajas || []).forEach(c=>c.paquetes.forEach(pid=>{
       const p=packages.find(x=>x.id===pid); if(!p) return;
       if (isCourier && p.courier !== user.courier) return;
       if(!m.has(p.courier)) m.set(p.courier,{courier:p.courier,kg_real:0,kg_fact:0,kg_exc:0});
@@ -2562,7 +2535,7 @@ function Proformas({packages, flights, extras, user}){
 }
 
 /* ========== Extras ========== */
-function Extras({flights, couriers, extras, setExtras}){
+function Extras({flights, couriers, extras, onAdd, onUpdate, onDelete}){
   const [flightId,setFlightId]=useState("");
   const [courier,setCourier]=useState("");
   const [desc,setDesc]=useState("");
@@ -2575,7 +2548,7 @@ function Extras({flights, couriers, extras, setExtras}){
 
   const add=()=>{
     if(!(flightId && courier && desc && monto)) return;
-    setExtras([...extras,{ id:uuid(), flight_id:flightId, courier, descripcion:desc, monto, estado, fecha }]);
+    onAdd({ flight_id:flightId, courier, descripcion:desc, monto, estado, fecha });
     setDesc(""); setMonto("");
   };
   const filtered = extras
@@ -2584,14 +2557,14 @@ function Extras({flights, couriers, extras, setExtras}){
     .filter(e=>!flightId || e.flight_id===flightId)
     .filter(e => statusFilter === 'Todos' || e.estado === statusFilter);
 
-  const upd=(id,patch)=> setExtras(extras.map(e=>e.id===id?{...e,...patch}:e));
-  const del=(id)=> setExtras(extras.filter(e=>e.id!==id));
+  const upd=(id,patch)=> onUpdate({id, ...patch});
+  const del=(id)=> onDelete(id);
 
   return (
     <Section title="Trabajos extras">
       <div className="grid md:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg items-end">
         <Field label="Carga"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}><option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}</select></Field>
-        <Field label="Courier"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}><option value="">—</option>{couriers.map(c=><option key={c}>{c}</option>)}</select></Field>
+        <Field label="Courier"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={courier} onChange={e=>setCourier(e.target.value)}><option value="">—</option>{couriers.map(c=><option key={c.name}>{c.name}</option>)}</select></Field>
         <Field label="Descripción"><Input value={desc} onChange={e=>setDesc(e.target.value)}/></Field>
         <Field label="Monto (USD)"><Input value={monto} onChange={e=>setMonto(e.target.value)} placeholder="10,00"/></Field>
         <Field label="Estado"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={estado} onChange={e=>setEstado(e.target.value)}><option>Pendiente</option><option>Cobrado</option></select></Field>
@@ -2645,57 +2618,74 @@ function App(){
   const [currentUser,setCurrentUser]=useState(null);
   const [tab,setTab]=useState("Dashboard");
 
-  // Claves para el localStorage
-  const COURIERS_KEY = "ee_couriers_v1";
-  const ESTADOS_KEY = "ee_estados_v1";
-  const FLIGHTS_KEY = "ee_flights_v2";
-  const PACKAGES_KEY = "ee_packages_v1";
-  const EXTRAS_KEY = "ee_extras_v1";
-  const SINCASILLA_KEY = "ee_sincasilla_v1";
-  const PENDIENTES_KEY = "ee_pendientes_v2";
+  // Estados para los datos de la aplicación
+  const [couriers, setCouriers] = useState([]);
+  const [estados, setEstados] = useState([]);
+  const [flights, setFlights] = useState([]);
+  const [packages, setPackages] = useState([]);
+  const [extras, setExtras] = useState([]);
+  const [sinCasillaItems, setSinCasillaItems] = useState([]);
+  const [pendientes, setPendientes] = useState([]);
 
-  // Función genérica para cargar datos desde localStorage
-  const loadFromLocalStorage = (key, defaultValue) => {
-    try {
-      const storedValue = localStorage.getItem(key);
-      return storedValue ? JSON.parse(storedValue) : defaultValue;
-    } catch {
-      return defaultValue;
-    }
-  };
+  // --- Conexión a Firestore en tiempo real ---
+  useEffect(() => {
+    // Listener genérico para una colección
+    const createListener = (collectionName, setter, initialData, orderByField = null) => {
+      const collRef = orderByField 
+        ? query(collection(db, collectionName), orderBy(orderByField, "desc"))
+        : collection(db, collectionName);
+        
+      return onSnapshot(collRef, (snapshot) => {
+        const items = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+        if (items.length === 0 && initialData) {
+          // Si la colección está vacía, la poblamos con los datos iniciales
+          initialData.forEach(item => addDoc(collection(db, collectionName), { name: item }));
+        }
+        setter(items);
+      });
+    };
 
-  const [couriers,setCouriers]=useState(() => loadFromLocalStorage(COURIERS_KEY, COURIERS_INICIALES));
-  const [estados,setEstados]=useState(() => loadFromLocalStorage(ESTADOS_KEY, ESTADOS_INICIALES));
-  const [flights,setFlights]=useState(() => loadFromLocalStorage(FLIGHTS_KEY, []));
-  const [packages,setPackages]=useState(() => loadFromLocalStorage(PACKAGES_KEY, []));
-  const [extras,setExtras]=useState(() => loadFromLocalStorage(EXTRAS_KEY, []));
-  const [sinCasillaItems, setSinCasillaItems] = useState(() => loadFromLocalStorage(SINCASILLA_KEY, []));
-  const [pendientes, setPendientes] = useState(() => loadFromLocalStorage(PENDIENTES_KEY, []));
+    const unsubCouriers = createListener("couriers", setCouriers, COURIERS_INICIALES);
+    const unsubEstados = createListener("estados", setEstados, ESTADOS_INICIALES);
+    const unsubFlights = createListener("flights", setFlights, null, "fecha_salida");
+    const unsubPackages = createListener("packages", setPackages, null, "fecha");
+    const unsubExtras = createListener("extras", setExtras, null, "fecha");
+    const unsubSinCasilla = createListener("sinCasilla", setSinCasillaItems, null, "fecha");
+    const unsubPendientes = createListener("pendientes", setPendientes, null, "fecha");
 
+    // Limpieza de listeners al desmontar el componente
+    return () => {
+      unsubCouriers();
+      unsubEstados();
+      unsubFlights();
+      unsubPackages();
+      unsubExtras();
+      unsubSinCasilla();
+      unsubPendientes();
+    };
+  }, []);
 
-  // --- Persistencia en localStorage ---
-  useEffect(() => { localStorage.setItem(COURIERS_KEY, JSON.stringify(couriers)); }, [couriers]);
-  useEffect(() => { localStorage.setItem(ESTADOS_KEY, JSON.stringify(estados)); }, [estados]);
-  useEffect(() => { localStorage.setItem(FLIGHTS_KEY, JSON.stringify(flights)); }, [flights]);
-  useEffect(() => { localStorage.setItem(PACKAGES_KEY, JSON.stringify(packages)); }, [packages]);
-  useEffect(() => { localStorage.setItem(EXTRAS_KEY, JSON.stringify(extras)); }, [extras]);
-  useEffect(() => { localStorage.setItem(SINCASILLA_KEY, JSON.stringify(sinCasillaItems)); },[sinCasillaItems]);
-  useEffect(() => { localStorage.setItem(PENDIENTES_KEY, JSON.stringify(pendientes)); },[pendientes]);
+  // --- Funciones CRUD genéricas ---
+  const createCrudHandlers = (collectionName) => ({
+    add: async (data) => addDoc(collection(db, collectionName), data),
+    update: async (data) => {
+      const { id, ...rest } = data;
+      await setDoc(doc(db, collectionName, id), rest, { merge: true });
+    },
+    remove: async (id) => deleteDoc(doc(db, collectionName, id)),
+  });
 
-  useEffect(()=>{
-    if(currentUser){
-      const allowed = tabsForRole(currentUser.role);
-      if(!allowed.includes(tab)) setTab(allowed[0]);
-    }
-  },[currentUser, tab]);
+  const couriersHandlers = createCrudHandlers("couriers");
+  const estadosHandlers = createCrudHandlers("estados");
+  const flightsHandlers = createCrudHandlers("flights");
+  const packagesHandlers = createCrudHandlers("packages");
+  const extrasHandlers = createCrudHandlers("extras");
+  const sinCasillaHandlers = createCrudHandlers("sinCasilla");
+  const pendientesHandlers = createCrudHandlers("pendientes");
 
-
-  // =======================================================
-  // NUEVA FUNCIÓN CENTRALIZADA PARA MOVER EL PAQUETE
-  // =======================================================
+  // --- Lógica específica ---
   const moverPaqueteAPendientes = (paquete, casilla) => {
     const nuevaTarea = {
-      id: uuid(),
       type: "ASIGNAR_CASILLA",
       status: "No realizada",
       fecha: new Date().toISOString().slice(0,10),
@@ -2706,14 +2696,16 @@ function App(){
         casilla: casilla.trim().toUpperCase(),
       }
     };
-
-    // Actualizar la lista de pendientes
-    setPendientes(prevPendientes => [nuevaTarea, ...prevPendientes]);
-
-    // Eliminar de la lista sin casilla
-    setSinCasillaItems(prevItems => prevItems.filter(p => p.id !== paquete.id));
+    pendientesHandlers.add(nuevaTarea);
+    sinCasillaHandlers.remove(paquete.id);
   };
-  // =======================================================
+  
+  useEffect(()=>{
+    if(currentUser){
+      const allowed = tabsForRole(currentUser.role);
+      if(!allowed.includes(tab)) setTab(allowed[0]);
+    }
+  },[currentUser, tab]);
 
 
   if(!currentUser) return <Login onLogin={setCurrentUser} />;
@@ -2782,19 +2774,16 @@ function App(){
       {/* Contenido Principal */}
       <main className="overflow-y-auto p-4 sm:p-6 lg:p-8">
         {tab==="Dashboard" && <Dashboard packages={packages} flights={flights} pendientes={pendientes} onTabChange={setTab} currentUser={currentUser} />}
-        {tab==="Recepción" && <Reception currentUser={currentUser} couriers={couriers} setCouriers={setCouriers} estados={estados} setEstados={setEstados} flights={flights} onAdd={(p)=>setPackages([p,...packages])}/>}
-
-        {/* AQUÍ SE PASA LA NUEVA FUNCIÓN */}
-        {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} setItems={setSinCasillaItems} onAsignarCasilla={moverPaqueteAPendientes}/>}
-
-        {tab==="Pendientes" && <Pendientes items={pendientes} setItems={setPendientes}/>}
-        {tab==="Paquetes en bodega" && <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={(p)=>setPackages(packages.map(x=>x.id===p.id?p:x))} onDelete={(id)=>setPackages(packages.filter(p=>p.id!==id))} setPendientes={setPendientes}/>}
-        {tab==="Armado de cajas" && <ArmadoCajas packages={packages} flights={flights} setFlights={setFlights} onAssign={(id)=>setPackages(packages.map(p=>p.id===id?p:{...p}))}/>}
+        {tab==="Recepción" && <Reception currentUser={currentUser} couriers={couriers} setCouriers={couriersHandlers} estados={estados} setEstados={estadosHandlers} flights={flights} onAdd={packagesHandlers.add}/>}
+        {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} onAdd={sinCasillaHandlers.add} onUpdate={sinCasillaHandlers.update} onRemove={sinCasillaHandlers.remove} onAsignarCasilla={moverPaqueteAPendientes}/>}
+        {tab==="Pendientes" && <Pendientes items={pendientes} onAdd={pendientesHandlers.add} onUpdate={pendientesHandlers.update} onRemove={pendientesHandlers.remove} />}
+        {tab==="Paquetes en bodega" && <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={packagesHandlers.update} onDelete={packagesHandlers.remove} onPendiente={pendientesHandlers.add} />}
+        {tab==="Armado de cajas" && <ArmadoCajas packages={packages} flights={flights} onUpdateFlight={flightsHandlers.update} onAssign={()=>{/* La lógica de onAssign ya no es necesaria aquí */}}/>}
         {tab==="Cargas enviadas" && <CargasEnviadas packages={packages} flights={flights} user={currentUser}/>}
-        {tab==="Gestión de cargas" && <CargasAdmin flights={flights} setFlights={setFlights} packages={packages}/>}
+        {tab==="Gestión de cargas" && <CargasAdmin flights={flights} onAdd={flightsHandlers.add} onUpdate={flightsHandlers.update} onDelete={flightsHandlers.remove} packages={packages}/>}
         {tab==="Proformas" && <Proformas packages={packages} flights={flights} extras={extras} user={currentUser}/>}
         {tab==="Usuarios" && <Usuarios currentUser={currentUser} onCurrentUserChange={(u)=>setCurrentUser(u)}/>}
-        {tab==="Extras" && <Extras flights={flights} couriers={couriers} extras={extras} setExtras={setExtras}/>}
+        {tab==="Extras" && <Extras flights={flights} couriers={couriers} extras={extras} onAdd={extrasHandlers.add} onUpdate={extrasHandlers.update} onDelete={extrasHandlers.remove} />}
       </main>
     </div>
   );

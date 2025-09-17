@@ -1,6 +1,6 @@
 /* Europa Envíos – MVP v1.2.0 (Contador Sin Casilla Centralizado)
     - Se migra el contador de paquetes "sin casilla" de localStorage a Firestore.
-    - Se utiliza una transacción de Firestore en la función `nextNumero` de PaquetesSinCasilla
+    - Se utiliza una transacción de Firestore en la función `add` de PaquetesSinCasilla
       para garantizar códigos únicos y secuenciales en un entorno multiusuario.
 */
 
@@ -805,6 +805,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
     </Section>
   );
 }
+
 const InfoBox=({title,value})=>(
   <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
     <div className="text-sm text-slate-600">{title}</div>

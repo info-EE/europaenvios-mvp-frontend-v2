@@ -814,7 +814,7 @@ const InfoBox=({title,value})=>(
 );
 /* ========== Paquetes sin casilla ========== */
 function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla, setItems }){
-  const isAdmin = currentUser?.role === "ADMIN";
+const isAdmin = currentUser?.role === "ADMIN";
   const [q,setQ] = useState("");
   const [from,setFrom] = useState("");
   const [to,setTo] = useState("");
@@ -823,10 +823,13 @@ function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onA
   const [tracking,setTracking] = useState("");
   const [editId,setEditId] = useState(null);
   const [editRow,setEditRow] = useState({ fecha:"", nombre:"", tracking:"" });
+  const [isAdding, setIsAdding] = useState(false); // <-- NUEVO: Estado para deshabilitar el botón
 
   const add = async () => {
-    if(!isAdmin) return;
+    if(!isAdmin || isAdding) return; // Evita doble clic
     if(!fecha || !nombre.trim()){ alert("Completá Fecha y Nombre."); return; }
+
+    setIsAdding(true); // Deshabilita el botón
 
     let finalNumero = 0;
     try {
@@ -843,31 +846,21 @@ function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onA
           finalNumero = newCount;
         }
       });
-    } catch (e) {
-      console.error("Error en la transacción del contador: ", e);
-      alert(`No se pudo generar el número del paquete. Error: ${e.message}`);
-      return;
-    }
 
-    const row = { fecha, numero: finalNumero, nombre: nombre.trim(), tracking: tracking.trim() };
+      const row = { fecha, numero: finalNumero, nombre: nombre.trim(), tracking: tracking.trim() };
+      await onAdd(row); // Guarda en la base de datos
 
-    try {
-      // Guardamos en la base de datos y obtenemos la referencia del nuevo documento
-      const docRef = await onAdd(row);
+      // YA NO actualizamos el estado manualmente. Dejamos que el listener de Firestore lo haga.
 
-      // --- ¡AQUÍ ESTÁ LA MAGIA! ---
-      // Actualizamos la lista en la pantalla al instante con el nuevo paquete.
-      setItems(prevItems => [...prevItems, { ...row, id: docRef.id }]);
-
-      // Limpiamos los campos del formulario
       setNombre("");
       setTracking("");
-
-    } catch (error) {
-      console.error("Error al guardar el paquete sin casilla:", error);
-      alert("No se pudo guardar el paquete en la base de datos.");
+    } catch (e) {
+      console.error("Error al crear paquete sin casilla: ", e);
+      alert(`No se pudo generar el paquete. Error: ${e.message}`);
+    } finally {
+      setIsAdding(false); // Vuelve a habilitar el botón, incluso si hay un error
     }
-  }
+  };
 
   const handleAsignarCasilla = (paquete) => {
     if(!isAdmin) return;
@@ -942,7 +935,7 @@ function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onA
             <Input value={tracking} onChange={e=>setTracking(e.target.value)} placeholder="1Z999..." />
           </Field>
           <div className="flex items-end">
-            <button onClick={add} className={BTN_PRIMARY}>{Iconos.add}</button>
+            <button onClick={add} disabled={isAdding} className={BTN_PRIMARY + (isAdding ? " opacity-50 cursor-not-allowed" : "")}>{Iconos.add}</button>
           </div>
           <Field label="Filtrar desde">
             <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>

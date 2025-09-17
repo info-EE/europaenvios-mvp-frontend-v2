@@ -1,8 +1,7 @@
-/* Europa Envíos – MVP v1.0.0 (Migración a Firebase Authentication)
-    - Se elimina toda la gestión de usuarios basada en localStorage y la encriptación sha256Hex.
-    - La autenticación ahora es manejada por Firebase Authentication (signInWithEmailAndPassword, signOut).
-    - El estado del usuario se gestiona globalmente con un listener onAuthStateChanged.
-    - Los roles de usuario (ADMIN/COURIER) se leen desde una colección 'users' en Firestore.
+/* Europa Envíos – MVP v1.2.0 (Contador Sin Casilla Centralizado)
+    - Se migra el contador de paquetes "sin casilla" de localStorage a Firestore.
+    - Se utiliza una transacción de Firestore en la función `nextNumero` de PaquetesSinCasilla
+      para garantizar códigos únicos y secuenciales en un entorno multiusuario.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -12,11 +11,11 @@ import JsBarcode from "jsbarcode";
 import ExcelJS from "exceljs/dist/exceljs.min.js";
 
 // =======================================================
-// IMPORTS DE FIREBASE (ACTUALIZADOS PARA AUTH)
+// IMPORTS DE FIREBASE (ACTUALIZADOS PARA AUTH Y CONTADORES)
 // =======================================================
 import { storage, db, auth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "./firebase";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
-import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc } from "firebase/firestore";
+import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc, runTransaction } from "firebase/firestore";
 
 // =======================================================
 
@@ -37,15 +36,8 @@ const Iconos = {
   logout: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>,
   print: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.061dec1.124 0 .904-.935 1.124-1.932 1.124-3.003 0-1.068-.22-2.072-.634-2.942m-1.124-3.003c.17-.283.352-.55.55-.81m0 0a3.003 3.003 0 00-2.095-2.095m0 0c-.26-.198-.537-.375-.81-.55m-2.095 2.095a3.003 3.003 0 00-2.095-2.095m0 0c-.283.17-.55.352-.81.55m2.095 2.095c.198.26.375.537.55.81" /></svg>,
 };
-
-/* ========== utils básicos ========== */
-const uuid = () => {
-  try { if (window.crypto?.randomUUID) return window.crypto.randomUUID(); } catch {}
-  return `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-};
-const deaccent = (s) => String(s ?? "")
-  .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-  .replace(/ñ/g, "n").replace(/Ñ/g, "N");
+const uuid = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+const deaccent = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ñ/g, "n").replace(/Ñ/g, "N");
 const limpiar = (s) => deaccent(String(s || "")).toUpperCase().replace(/\s+/g, "");
 const parseComma = (txt) => {
   if (txt === null || txt === undefined) return 0;
@@ -63,12 +55,8 @@ const fmtMoney = (n) => Number(n || 0).toFixed(2).replace(".", ",");
 const sum = (a) => a.reduce((s, x) => s + Number(x || 0), 0);
 const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#14B8A6","#84CC16","#F97316"];
 const MIN_FACTURABLE = 0.2;
-
-/* ========== XLSX helpers ========== */
-const bd = () => ({ top:{style:"thin",color:{rgb:"FF000000"}}, bottom:{style:"thin",color:{rgb:"FF000000"}},
-  left:{style:"thin",color:{rgb:"FF000000"}}, right:{style:"thin",color:{rgb:"FF000000"}} });
-const th = (txt) => ({ v:txt, t:"s", s:{font:{bold:true,color:{rgb:"FFFFFFFF"}},fill:{fgColor:{rgb:"FF1F2937"}},
-  alignment:{horizontal:"center",vertical:"center"}, border:bd()} });
+const bd = () => ({ top:{style:"thin",color:{rgb:"FF000000"}}, bottom:{style:"thin",color:{rgb:"FF000000"}}, left:{style:"thin",color:{rgb:"FF000000"}}, right:{style:"thin",color:{rgb:"FF000000"}} });
+const th = (txt) => ({ v:txt, t:"s", s:{font:{bold:true,color:{rgb:"FFFFFFFF"}},fill:{fgColor:{rgb:"FF1F2937"}}, alignment:{horizontal:"center",vertical:"center"}, border:bd()} });
 const td = (v) => ({ v:String(v ?? ""), t:"s", s:{alignment:{vertical:"center"}, border:bd()} });
 const tdNum = (v, fmt = "0.00") => ({ v: typeof v === 'number' ? v : parseComma(v), t: "n", s: { alignment: { vertical: "center" }, border: bd(), numFmt: fmt } });
 const tdInt = (v) => ({ v: typeof v === 'number' ? v : parseIntEU(v), t: "n", s: { alignment: { vertical: "center" }, border: bd(), numFmt: "0" } });
@@ -85,14 +73,11 @@ function downloadXLSX(filename, sheets){
   sheets.forEach(({name,ws})=>XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31)));
   XLSX.writeFile(wb, filename);
 }
-
 function courierPrefix(name){ return limpiar(name || ""); }
 function tabsForRole(role){
   if(role==="COURIER") return ["Dashboard", "Paquetes sin casilla","Paquetes en bodega","Cargas enviadas", "Proformas"];
   return ["Dashboard", "Recepción","Paquetes sin casilla","Pendientes","Paquetes en bodega","Armado de cajas","Cargas enviadas","Gestión de cargas","Proformas","Usuarios","Extras"];
 }
-
-/* ========== impresión sin about:blank ========== */
 function printHTMLInIframe(html){
   const iframe = document.createElement("iframe");
   Object.assign(iframe.style, { position:"fixed", right:"0", bottom:"0", width:"0", height:"0", border:"0" });
@@ -112,8 +97,6 @@ function printHTMLInIframe(html){
     }
   }, 60);
 }
-
-/* ========== Etiquetas (sanitiza a ASCII para CODE128) ========== */
 function barcodeSVG(text){
   const safe = deaccent(String(text)).toUpperCase();
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -144,8 +127,6 @@ function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt
       </div>
     </body></html>`;
 }
-
-/* ========== Etiqueta de Caja (NUEVO ESTILO PARA ZEBRA 4x6) ========== */
 function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
   const cajaDeTexto = `CAJA: ${boxNumber} de`;
 
@@ -155,78 +136,19 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
         <meta charset="utf-8">
         <title>Etiqueta de Caja ${boxNumber}</title>
         <style>
-          @page {
-            size: 4in 6in;
-            margin: 0;
-          }
-          body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            width: 4in;
-            height: 6in;
-          }
-          .label {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            text-align: center;
-            padding: 4mm;
-            box-sizing: border-box;
-            overflow: hidden;
-          }
-          .header {
-            flex-grow: 1.5;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-          }
-          .courier {
-            font-size: 28pt;
-            font-weight: bold;
-            line-height: 1;
-            word-break: break-word;
-          }
-          .box-title {
-            font-size: 54pt;
-            font-weight: bold;
-            margin-top: 4mm;
-          }
-          .content {
-            flex-grow: 2;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-          }
-          .detail-group {
-            margin-bottom: 8mm;
-          }
-          .details-label {
-            font-size: 16pt;
-            font-weight: bold;
-          }
-          .details-value {
-            font-size: 28pt;
-            font-weight: bold;
-          }
-          .footer {
-            flex-grow: 1;
-            text-align: left;
-            font-size: 11pt;
-            line-height: 1.3;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-          }
-          .footer-obs {
-             padding-bottom: 4mm;
-          }
-          .company-info {
-            font-size: 8pt;
-            border-top: 1px solid black;
-            padding-top: 2mm;
-          }
+          @page { size: 4in 6in; margin: 0; }
+          body { font-family: Arial, sans-serif; margin: 0; padding: 0; width: 4in; height: 6in; }
+          .label { width: 100%; height: 100%; display: flex; flex-direction: column; text-align: center; padding: 4mm; box-sizing: border-box; overflow: hidden; }
+          .header { flex-grow: 1.5; display: flex; flex-direction: column; justify-content: center; }
+          .courier { font-size: 28pt; font-weight: bold; line-height: 1; word-break: break-word; }
+          .box-title { font-size: 54pt; font-weight: bold; margin-top: 4mm; }
+          .content { flex-grow: 2; display: flex; flex-direction: column; justify-content: center; }
+          .detail-group { margin-bottom: 8mm; }
+          .details-label { font-size: 16pt; font-weight: bold; }
+          .details-value { font-size: 28pt; font-weight: bold; }
+          .footer { flex-grow: 1; text-align: left; font-size: 11pt; line-height: 1.3; display: flex; flex-direction: column; justify-content: flex-end; }
+          .footer-obs { padding-bottom: 4mm; }
+          .company-info { font-size: 8pt; border-top: 1px solid black; padding-top: 2mm; }
         </style>
       </head>
       <body>
@@ -235,7 +157,6 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
             <div class="courier">${deaccent(courier || "").toUpperCase()}</div>
             <div class="box-title">CAJA ${boxNumber}</div>
           </div>
-
           <div class="content">
             <div class="detail-group">
               <div class="details-label">PESO:</div>
@@ -246,7 +167,6 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
               <div class="details-value">${deaccent(medidasTxt || "")}</div>
             </div>
           </div>
-
           <div class="footer">
             <div class="footer-obs">
                 Fecha: ${fecha}<br/>
@@ -264,13 +184,10 @@ function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha }) {
       </body>
     </html>`;
 }
-
-/* ========== UI base ========== */
 const BTN = "px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm transition-colors duration-200";
 const BTN_PRIMARY = "px-4 py-2 rounded-lg bg-francia-600 hover:bg-francia-700 text-white font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 shadow-sm hover:shadow-md";
 const BTN_ICON = "p-2 rounded-lg hover:bg-slate-100 transition-colors duration-200 text-slate-600";
 const BTN_ICON_DANGER = "p-2 rounded-lg hover:bg-red-50 transition-colors duration-200 text-red-600";
-
 const Section = ({title,right,children})=>(
   <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 mb-6">
     <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
@@ -290,7 +207,6 @@ const Field = ({label,required,children})=>(
 const Input = (p)=>(
   <input {...p} className={"w-full text-sm rounded-lg border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-francia-500 focus:border-francia-500 transition-all " +(p.className||"")} />
 );
-
 function EmptyState({ icon, title, message }) {
   return (
     <div className="text-center py-10 px-4 border-2 border-dashed border-slate-200 rounded-lg">
@@ -304,24 +220,13 @@ function PasswordInput({value,onChange,placeholder}) {
   const [show,setShow] = useState(false);
   return (
     <div className="relative">
-      <Input
-        type={show ? "text" : "password"}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        autoComplete="current-password"
-      />
-      <button
-        type="button"
-        className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-600 font-semibold"
-        onClick={()=>setShow(s=>!s)}
-      >
+      <Input type={show ? "text" : "password"} value={value} onChange={onChange} placeholder={placeholder} autoComplete="current-password" />
+      <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-600 font-semibold" onClick={()=>setShow(s=>!s)}>
         {show ? "Ocultar" : "Ver"}
       </button>
     </div>
   );
 }
-
 function Modal({open,onClose,title,children}){
   if(!open) return null;
   return (
@@ -336,8 +241,6 @@ function Modal({open,onClose,title,children}){
     </div>
   );
 }
-
-/* ========== datos iniciales (listas) ========== */
 const ESTADOS_INICIALES = ["Aéreo","Marítimo","Ofrecer marítimo"];
 const COURIERS_INICIALES = [
   "Aero Box", "Aladín","Boss Box","Buzón","Caba Box","Click Box","Easy Box","Europa Envíos",
@@ -345,8 +248,6 @@ const COURIERS_INICIALES = [
   "MC Group","Miami Express","One Box","ParaguayBox","Royal Box"
 ];
 const ESTADOS_CARGA = ["En bodega","En tránsito","Arribada", "Entregada", "Cobrada"];
-
-/* ---- Restricciones por prefijo de CASILLA y por CARGA ---- */
 const CASILLA_PREFIX_MAP = {
   "Aero Box": ["ABH","ABC","AB","ABL","ABK","ACD"], "Aladín": ["ALD"], "Boss Box": ["BBC"],
   "Buzón": ["BP","BA","BS","BE","BC","BJ","BK"], "Caba Box": ["CABA","CB","PB"],
@@ -357,7 +258,6 @@ const CASILLA_PREFIX_MAP = {
   "ParaguayBox": ["AB","AS","AY","BE","CB","CC","CE","CH","CN","CZ","ER","FA","FI","GA","KA","LB","LQ","ML","NB","NW","PI","PJ","SG","SI","SL","SR","SV","TS","VM","TT"],
   "Royal Box": ["1A","1B","1E","1G","1M","1P","1Z","2A","2B","2E","2M","2P","2Z","3E","3P","3Z","4C","4E","1C","1CB","2C","3C","5C","NB","PI"]
 };
-
 function couriersFromCasilla(casilla, availCouriers){
   const c = limpiar(casilla).toUpperCase();
   if(!c) return [];
@@ -370,7 +270,6 @@ function couriersFromCasilla(casilla, availCouriers){
   });
   return Array.from(hits);
 }
-
 function allowedCouriersByContext({ casilla, flightCode, avail }){
   const code = (flightCode||"").toUpperCase();
   if(code.startsWith("AIR-PYBOX")){
@@ -379,7 +278,6 @@ function allowedCouriersByContext({ casilla, flightCode, avail }){
   const byCasilla = couriersFromCasilla(casilla, avail);
   return byCasilla.length ? byCasilla : avail;
 }
-
 function estadosPermitidosPorCarga(codigo, estadosList){
   const s = String(codigo||"").toUpperCase();
   if (s.startsWith("AIR")) return ["Aéreo"];
@@ -402,7 +300,6 @@ function Login() {
     setErr("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // El onLogin se disparará automáticamente por el listener onAuthStateChanged en App
     } catch (error) {
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
         setErr("Usuario o contraseña incorrectos.");
@@ -579,7 +476,6 @@ function Dashboard({ packages, flights, pendientes, onTabChange, currentUser }) 
   );
 }
 
-
 /* ========== Gestión de Usuarios (REEMPLAZADO) ========== */
 function Usuarios() {
   return (
@@ -629,7 +525,7 @@ function ManageList({label, items, onAdd, onRemove}){
   );
 }
 
-/* ========== SECCIÓN DE RECEPCIÓN ========== */
+/* ========== SECCIÓN DE RECEPCIÓN (CON CONTADOR CENTRALIZADO) ========== */
 function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const [flightId,setFlightId]=useState("");
@@ -648,16 +544,33 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
   const codigoCargaSel = useMemo(() => flights.find(f=>f.id===flightId)?.codigo || "", [flightId, flights]);
   const estadosPermitidos = useMemo(() => estadosPermitidosPorCarga(codigoCargaSel, estados.map(e => e.name)), [codigoCargaSel, estados]);
 
-  useEffect(()=>{
-    if(!form.courier) {
-      setForm(f=>({...f, codigo:""}));
+  useEffect(() => {
+    if (!form.courier) {
+      setForm(f => ({ ...f, codigo: "" }));
       return;
     }
-    const key="seq_"+courierPrefix(form.courier);
-    const next=(Number(localStorage.getItem(key))||0)+1;
-    const n= next>999?1:next;
-    setForm(f=>({...f, codigo: `${courierPrefix(form.courier)}${n}`}));
-  },[form.courier]);
+  
+    // Muestra una vista previa optimista del código
+    const previewCode = async () => {
+      const prefix = courierPrefix(form.courier);
+      const counterRef = doc(db, "counters", "packageSequences");
+      try {
+        const counterSnap = await getDoc(counterRef);
+        const currentCount = counterSnap.data()?.[prefix] ?? -1;
+        if (currentCount === -1) {
+           setForm(f => ({ ...f, codigo: "ERR" }));
+           console.warn(`Contador para ${prefix} no encontrado en Firestore.`);
+        } else {
+          setForm(f => ({ ...f, codigo: `${prefix}${currentCount + 1}` }));
+        }
+      } catch (error) {
+        console.error("Error al obtener vista previa del código:", error);
+        setForm(f => ({ ...f, codigo: "ERR" }));
+      }
+    };
+  
+    previewCode();
+  }, [form.courier]);
 
   useEffect(() => {
     if (estadosPermitidos.length === 1 && form.estado !== estadosPermitidos[0]) {
@@ -686,30 +599,49 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
   const exc = Math.max(0, vol - fact);
 
   const okCampos = ()=>[
-      "courier","estado","casilla","codigo","fecha","empresa","nombre",
+      "courier","estado","casilla","fecha","empresa","nombre",
       "tracking","remitente","peso_real_txt","L_txt","A_txt","H_txt","desc","valor_txt"
     ].every(k=>String(form[k]||"").trim()!=="");
 
   const submit= async ()=>{
     if (isUploading) return;
+    if(!flightId){ alert("Seleccioná una Carga."); return; }
+    if(!okCampos()){ alert("Faltan campos."); return; }
+    
     const fl = flights.find(f=>f.id===flightId);
     if (fl?.codigo.toUpperCase().startsWith("AIR-MULTI") && form.courier === "ParaguayBox") {
       alert("No se permite cargar paquetes de ParaguayBox en cargas que comiencen con AIR-MULTI.");
       return;
     }
-
-    if(!flightId){ alert("Seleccioná una Carga."); return; }
-    if(!okCampos()){ alert("Faltan campos."); return; }
     
-    const key="seq_"+courierPrefix(form.courier);
-    let cur=(Number(localStorage.getItem(key))||0)+1; if(cur>999) cur=1;
-    localStorage.setItem(key,String(cur));
+    let finalCode = "";
+    try {
+      await runTransaction(db, async (transaction) => {
+        const prefix = courierPrefix(form.courier);
+        const counterRef = doc(db, "counters", "packageSequences");
+        const counterDoc = await transaction.get(counterRef);
+
+        if (!counterDoc.exists() || counterDoc.data()?.[prefix] === undefined) {
+          throw new Error(`El contador para "${prefix}" no está configurado en Firestore.`);
+        }
+        
+        let newCount = (counterDoc.data()[prefix] || 0) + 1;
+        if (newCount > 999) newCount = 1; // Reinicia el contador si llega a 1000
+
+        transaction.update(counterRef, { [prefix]: newCount });
+        finalCode = `${prefix}${newCount}`;
+      });
+    } catch (e) {
+      console.error("Error en la transacción del contador: ", e);
+      alert(`No se pudo generar el código del paquete. Error: ${e.message}`);
+      return;
+    }
 
     const p={
       flight_id: flightId,
       courier: form.courier, estado: form.estado, casilla: form.casilla,
-      codigo: form.codigo,
-      codigo_full: `${fl?.codigo||"CARGA"}-${form.codigo}`,
+      codigo: finalCode, // Usamos el código generado en la transacción
+      codigo_full: `${fl?.codigo||"CARGA"}-${finalCode}`,
       fecha: form.fecha, empresa_envio: form.empresa, nombre_apellido: form.nombre,
       tracking: form.tracking, remitente: form.remitente,
       peso_real: peso, largo: L, ancho: A, alto: H,
@@ -721,7 +653,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
     const medidas = `${L}x${A}x${H} cm`;
     const html = labelHTML({
-      codigo: form.codigo, nombre: form.nombre, casilla: form.casilla,
+      codigo: finalCode, nombre: form.nombre, casilla: form.casilla,
       pesoKg: peso, medidasTxt: medidas, desc: form.desc, cargaTxt: fl?.codigo || "-"
     });
 
@@ -730,7 +662,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
     setFlightId("");
     setForm(f=>({
-      ...f, courier:"", estado:"", casilla:"", codigo:"", empresa:"", nombre:"", tracking:"", remitente:"",
+      ...f, courier: currentUser.role==="COURIER" ? f.courier : "", estado:"", casilla:"", codigo:"", empresa:"", nombre:"", tracking:"", remitente:"",
       peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"", desc:"", valor_txt:"", foto:null
     }));
   };

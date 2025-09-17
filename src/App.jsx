@@ -2387,13 +2387,28 @@ function App(){
     return unsubscribe; // Limpiar el listener al desmontar
   }, []);
 
-  // --- Conexión a Firestore en tiempo real ---
+ // --- Conexión a Firestore en tiempo real (CORREGIDA) ---
   useEffect(() => {
+    // Si no hay un usuario logueado, no hacemos nada.
+    // Esto previene que se pidan datos antes de tiempo.
+    if (!currentUser) {
+      // Opcional: limpiar los datos de la pantalla al cerrar sesión
+      setFlights([]);
+      setPackages([]);
+      setCouriers([]);
+      setEstados([]);
+      setExtras([]);
+      setSinCasillaItems([]);
+      setPendientes([]);
+      return;
+    }
+
+    // Si hay un usuario, ahora sí, creamos los listeners para obtener los datos.
     const createListener = (collectionName, setter, initialData, orderByField = null) => {
-      const collRef = orderByField 
+      const collRef = orderByField
         ? query(collection(db, collectionName), orderBy(orderByField, "desc"))
         : collection(db, collectionName);
-        
+
       return onSnapshot(collRef, (snapshot) => {
         const items = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
         if (items.length === 0 && initialData) {
@@ -2411,11 +2426,12 @@ function App(){
     const unsubSinCasilla = createListener("sinCasilla", setSinCasillaItems, null, "fecha");
     const unsubPendientes = createListener("pendientes", setPendientes, null, "fecha");
 
+    // Función de limpieza que se ejecuta cuando el usuario cierra sesión.
     return () => {
       unsubCouriers(); unsubEstados(); unsubFlights(); unsubPackages();
       unsubExtras(); unsubSinCasilla(); unsubPendientes();
     };
-  }, []);
+  }, [currentUser]); // <-- LA CLAVE: Este efecto se ejecuta solo cuando 'currentUser' cambia.
 
   // --- Funciones CRUD genéricas ---
   const createCrudHandlers = (collectionName) => ({

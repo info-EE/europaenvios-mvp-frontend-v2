@@ -813,7 +813,7 @@ const InfoBox=({title,value})=>(
   </div>
 );
 /* ========== Paquetes sin casilla ========== */
-function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }){
+function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla, setItems }){
   const isAdmin = currentUser?.role === "ADMIN";
   const [q,setQ] = useState("");
   const [from,setFrom] = useState("");
@@ -824,21 +824,49 @@ function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onA
   const [editId,setEditId] = useState(null);
   const [editRow,setEditRow] = useState({ fecha:"", nombre:"", tracking:"" });
 
-  function nextNumero(){
-    const key="seq_sincasilla_v1";
-    let cur = (Number(localStorage.getItem(key))||0)+1;
-    if(cur>999) cur = 1;
-    localStorage.setItem(key,String(cur));
-    return cur;
-  }
-
-  function add(){
+  const add = async () => {
     if(!isAdmin) return;
     if(!fecha || !nombre.trim()){ alert("Completá Fecha y Nombre."); return; }
-    const numero = nextNumero();
-    const row = { fecha, numero, nombre: nombre.trim(), tracking: tracking.trim() };
-    onAdd(row);
-    setNombre(""); setTracking("");
+
+    let finalNumero = 0;
+    try {
+      const counterRef = doc(db, "counters", "sinCasillaSequence");
+      await runTransaction(db, async (transaction) => {
+        const counterDoc = await transaction.get(counterRef);
+        if (!counterDoc.exists()) {
+          transaction.set(counterRef, { currentCount: 1 });
+          finalNumero = 1;
+        } else {
+          let newCount = (counterDoc.data().currentCount || 0) + 1;
+          if (newCount > 999) newCount = 1;
+          transaction.update(counterRef, { currentCount: newCount });
+          finalNumero = newCount;
+        }
+      });
+    } catch (e) {
+      console.error("Error en la transacción del contador: ", e);
+      alert(`No se pudo generar el número del paquete. Error: ${e.message}`);
+      return;
+    }
+
+    const row = { fecha, numero: finalNumero, nombre: nombre.trim(), tracking: tracking.trim() };
+
+    try {
+      // Guardamos en la base de datos y obtenemos la referencia del nuevo documento
+      const docRef = await onAdd(row);
+
+      // --- ¡AQUÍ ESTÁ LA MAGIA! ---
+      // Actualizamos la lista en la pantalla al instante con el nuevo paquete.
+      setItems(prevItems => [...prevItems, { ...row, id: docRef.id }]);
+
+      // Limpiamos los campos del formulario
+      setNombre("");
+      setTracking("");
+
+    } catch (error) {
+      console.error("Error al guardar el paquete sin casilla:", error);
+      alert("No se pudo guardar el paquete en la base de datos.");
+    }
   }
 
   const handleAsignarCasilla = (paquete) => {
@@ -2504,7 +2532,7 @@ function App(){
       <main className="overflow-y-auto p-4 sm:p-6 lg:p-8">
         {tab==="Dashboard" && <Dashboard packages={packages} flights={flights} pendientes={pendientes} onTabChange={setTab} currentUser={currentUser} />}
         {tab==="Recepción" && <Reception currentUser={currentUser} couriers={couriers} setCouriers={couriersHandlers} estados={estados} setEstados={estadosHandlers} flights={flights} onAdd={packagesHandlers.add}/>}
-        {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} onAdd={sinCasillaHandlers.add} onUpdate={sinCasillaHandlers.update} onRemove={sinCasillaHandlers.remove} onAsignarCasilla={moverPaqueteAPendientes}/>}
+        {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} onAdd={sinCasillaHandlers.add} onUpdate={sinCasillaHandlers.update} onRemove={sinCasillaHandlers.remove} onAsignarCasilla={moverPaqueteAPendientes} setItems={setSinCasillaItems} />}
         {tab==="Pendientes" && <Pendientes items={pendientes} onAdd={pendientesHandlers.add} onUpdate={pendientesHandlers.update} onRemove={pendientesHandlers.remove} />}
         {tab==="Paquetes en bodega" && <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={packagesHandlers.update} onDelete={packagesHandlers.remove} onPendiente={pendientesHandlers.add} />}
         {tab==="Armado de cajas" && <ArmadoCajas packages={packages} flights={flights} onUpdateFlight={flightsHandlers.update} onAssign={()=>{}}/>}

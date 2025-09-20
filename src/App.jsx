@@ -1,7 +1,11 @@
-/* Europa Envíos – MVP v1.2.0 (Contador Sin Casilla Centralizado)
-    - Se migra el contador de paquetes "sin casilla" de localStorage a Firestore.
-    - Se utiliza una transacción de Firestore en la función `add` de PaquetesSinCasilla
-      para garantizar códigos únicos y secuenciales en un entorno multiusuario.
+/* Europa Envíos – MVP v1.6.0 (Ajuste Final de Etiquetas y Proformas)
+    - Se rediseña la etiqueta de recepción al formato final solicitado.
+    - Se añaden los 'extras' al cálculo de las proformas para cargas marítimas.
+    - Se ajusta el filtro de la pestaña Proformas para mostrar solo cargas AIR/MAR y con fecha por defecto de 90 días.
+    - Se modifica la lógica de exportación de proformas para cargas "MAR".
+    - Se añade validación para evitar códigos de paquete duplicados por carga.
+    - Se permite la carga de múltiples fotos por paquete.
+    - Se añade el campo opcional "CI/Pasaporte/RUC".
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -103,27 +107,34 @@ function barcodeSVG(text){
   JsBarcode(svg, safe, { format:"CODE128", displayValue:false, height:50, margin:0 });
   return new XMLSerializer().serializeToString(svg);
 }
-function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt }){
+function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt, fecha }){
   const svgHtml = barcodeSVG(codigo);
+  const fechaFmt = fecha ? new Date(fecha + 'T00:00:00').toLocaleDateString('es-ES') : '';
   return `
-    <html><head><meta charset="utf-8"><title>Etiqueta</title>
+    <html><head><meta charset="utf-8"><title>Etiqueta ${codigo}</title>
     <style>
-      @page { size: 100mm 60mm; margin: 5mm; }
-      body { font-family: Arial, sans-serif; }
-      .box { width: 100mm; height: 60mm; }
-      .line { margin: 2mm 0; font-size: 12pt; }
+      @page { size: 100mm 50mm; margin: 3mm; }
+      body { font-family: Arial, sans-serif; margin: 0; padding: 0; font-size: 10pt; line-height: 1.3; }
+      .label-container { display: flex; flex-direction: column; width: 94mm; height: 44mm; }
+      .line { margin-bottom: 1mm; }
       .b { font-weight: bold; }
-      svg { width: 90mm; height: 18mm; }
+      .header { display: flex; justify-content: space-between; font-size: 11pt; }
+      .barcode { text-align: center; margin: 1mm 0; }
+      .barcode svg { width: 100%; height: 12mm; }
+      .desc-line { white-space: normal; word-wrap: break-word; line-height: 1.2; }
     </style></head><body>
-      <div class="box">
-        <div class="line b">Codigo: ${deaccent(codigo ?? "")}</div>
-        <div class="line">${svgHtml}</div>
-        <div class="line">Cliente: ${deaccent(nombre ?? "")}</div>
-        <div class="line">Casilla: ${deaccent(casilla ?? "")}</div>
-        <div class="line">Peso: ${fmtPeso(pesoKg)} kg</div>
+      <div class="label-container">
+        <div class="header line">
+          <span>Codigo: <span class="b">${deaccent(codigo ?? "")}</span></span>
+          <span>${fechaFmt}</span>
+        </div>
+        <div class="barcode">${svgHtml}</div>
+        <div class="line">Cliente: <span class="b">${deaccent(nombre ?? "")}</span></div>
+        <div class="line">Casilla: <span class="b">${deaccent(casilla ?? "")}</span></div>
+        <div class="line">Peso: <span class="b">${fmtPeso(pesoKg)} kg</span></div>
         <div class="line">Medidas: ${deaccent(medidasTxt ?? "")}</div>
-        <div class="line">Desc: ${deaccent(desc ?? "")}</div>
-        <div class="line">Carga: ${deaccent(cargaTxt ?? "-")}</div>
+        <div class="line desc-line">Desc: ${deaccent(desc ?? "")}</div>
+        <div class="line" style="margin-top: auto;">Carga: <span class="b">${deaccent(cargaTxt ?? "-")}</span></div>
       </div>
     </body></html>`;
 }
@@ -526,17 +537,17 @@ function ManageList({label, items, onAdd, onRemove}){
 }
 
 /* ========== SECCIÓN DE RECEPCIÓN (CON CONTADOR CENTRALIZADO) ========== */
-function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, onAdd }){
+function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, packages, onAdd }){
   const vuelosBodega = flights.filter(f=>f.estado==="En bodega");
   const [flightId,setFlightId]=useState("");
   const [form,setForm]=useState({
     courier: currentUser.role==="COURIER"? (currentUser.courier || "") : "",
     estado:"", casilla:"", codigo:"",
     fecha:new Date().toISOString().slice(0,10),
-    empresa:"", nombre:"", tracking:"", remitente:"",
+    ci_ruc: "", empresa:"", nombre:"", tracking:"", remitente:"",
     peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"",
     desc:"", valor_txt:"",
-    foto:null
+    fotos:[]
   });
 
   const [isUploading, setIsUploading] = useState(false);
@@ -550,7 +561,6 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       return;
     }
   
-    // Muestra una vista previa optimista del código
     const previewCode = async () => {
       const prefix = courierPrefix(form.courier);
       const counterRef = doc(db, "counters", "packageSequences");
@@ -637,24 +647,30 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       return;
     }
 
+    const existingPackage = packages.find(p => p.flight_id === flightId && p.codigo === finalCode);
+    if (existingPackage) {
+      alert(`Error: El código de paquete "${finalCode}" ya existe en esta carga. Por favor, intente de nuevo.`);
+      return;
+    }
+
     const p={
       flight_id: flightId,
       courier: form.courier, estado: form.estado, casilla: form.casilla,
-      codigo: finalCode, // Usamos el código generado en la transacción
+      codigo: finalCode,
       codigo_full: `${fl?.codigo||"CARGA"}-${finalCode}`,
-      fecha: form.fecha, empresa_envio: form.empresa, nombre_apellido: form.nombre,
+      fecha: form.fecha, ci_ruc: form.ci_ruc, empresa_envio: form.empresa, nombre_apellido: form.nombre,
       tracking: form.tracking, remitente: form.remitente,
       peso_real: peso, largo: L, ancho: A, alto: H,
       descripcion: form.desc, valor_aerolinea: parseComma(form.valor_txt),
       peso_facturable: Number(fact.toFixed(3)), peso_volumetrico: Number(vol.toFixed(3)), exceso_volumen: Number(exc.toFixed(3)),
-      foto: form.foto,
+      fotos: form.fotos,
       estado_bodega: "En bodega",
     };
 
     const medidas = `${L}x${A}x${H} cm`;
     const html = labelHTML({
       codigo: finalCode, nombre: form.nombre, casilla: form.casilla,
-      pesoKg: peso, medidasTxt: medidas, desc: form.desc, cargaTxt: fl?.codigo || "-"
+      pesoKg: peso, medidasTxt: medidas, desc: form.desc, cargaTxt: fl?.codigo || "-", fecha: form.fecha
     });
 
     await onAdd(p);
@@ -662,8 +678,8 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
 
     setFlightId("");
     setForm(f=>({
-      ...f, courier: currentUser.role==="COURIER" ? f.courier : "", estado:"", casilla:"", codigo:"", empresa:"", nombre:"", tracking:"", remitente:"",
-      peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"", desc:"", valor_txt:"", foto:null
+      ...f, courier: currentUser.role==="COURIER" ? f.courier : "", estado:"", casilla:"", codigo:"", ci_ruc: "", empresa:"", nombre:"", tracking:"", remitente:"",
+      peso_real_txt:"", L_txt:"", A_txt:"", H_txt:"", desc:"", valor_txt:"", fotos:[]
     }));
   };
 
@@ -688,13 +704,17 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
       const storageRef = ref(storage, imageName);
       const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
       const downloadURL = await getDownloadURL(snapshot.ref);
-      setForm(f => ({ ...f, foto: downloadURL }));
+      setForm(f => ({ ...f, fotos: [...f.fotos, downloadURL] }));
     } catch (error) {
       console.error("Error al subir imagen:", error);
       alert("Hubo un error al subir la foto.");
     } finally {
       setIsUploading(false);
     }
+  };
+  
+  const removePhoto = (urlToRemove) => {
+    setForm(f => ({ ...f, fotos: f.fotos.filter(url => url !== urlToRemove) }));
   };
 
   const tomarFoto=()=>{
@@ -764,6 +784,7 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         <Field label="Fecha" required>
           <Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/>
         </Field>
+        <Field label="CI/Pasaporte/RUC"><Input value={form.ci_ruc} onChange={e=>setForm({...form,ci_ruc:e.target.value})}/></Field>
         <Field label="Empresa de envío" required><Input value={form.empresa} onChange={e=>setForm({...form,empresa:e.target.value})}/></Field>
         <Field label="Nombre y apellido" required><Input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})}/></Field>
         <Field label="Tracking" required><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})}/></Field>
@@ -776,15 +797,26 @@ function Reception({ currentUser, couriers, setCouriers, estados, setEstados, fl
         <Field label="Precio (EUR)" required>
           <Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} placeholder="10,00"/>
         </Field>
-        <Field label="Foto del paquete (opcional)">
-          <div className="flex gap-2 items-center">
-            <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
-            <button type="button" onClick={()=>fileRef.current?.click()} className={BTN} disabled={isUploading}>Seleccionar archivo</button>
-            <button type="button" onClick={()=>setCamOpen(true)} className={BTN} disabled={isUploading}>Tomar foto</button>
-            {isUploading ? <span className="text-francia-600 text-sm font-semibold">Subiendo...</span> :
-             form.foto ? <a href={form.foto} target="_blank" rel="noopener noreferrer" className="text-green-600 text-sm font-semibold hover:underline">✓ Ver foto</a> : <span className="text-slate-500 text-sm">Opcional</span>}
-          </div>
-        </Field>
+        <div className="md:col-span-3">
+            <Field label="Fotos del paquete">
+                <div className="flex gap-2 items-center">
+                    <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
+                    <button type="button" onClick={()=>fileRef.current?.click()} className={BTN} disabled={isUploading}>Seleccionar archivo</button>
+                    <button type="button" onClick={()=>setCamOpen(true)} className={BTN} disabled={isUploading}>Tomar foto</button>
+                    {isUploading && <span className="text-francia-600 text-sm font-semibold">Subiendo...</span>}
+                </div>
+            </Field>
+            <div className="flex flex-wrap gap-2 mt-2">
+                {form.fotos.map((url, index) => (
+                    <div key={index} className="relative">
+                        <a href={url} target="_blank" rel="noopener noreferrer">
+                            <img src={url} alt={`Foto ${index+1}`} className="w-20 h-20 object-cover rounded-md"/>
+                        </a>
+                        <button onClick={() => removePhoto(url)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-xs">X</button>
+                    </div>
+                ))}
+            </div>
+        </div>
       </div>
       <div className="grid md:grid-cols-3 gap-4 mt-6">
         <InfoBox title="Peso facturable (mín 0,200 kg)" value={`${fmtPeso(fact)} kg`}/>
@@ -1188,7 +1220,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
       .filter(p => !flightId || p.flight_id === flightId)
       .filter(p => !dateFrom || (p.fecha || "") >= dateFrom)
       .filter(p => !dateTo || (p.fecha || "") <= dateTo)
-      .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()))
+      .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier + p.ci_ruc).toLowerCase().includes(q.toLowerCase()))
       .filter(p => user.role !== "COURIER" || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref)));
   }, [packages, flights, flightId, dateFrom, dateTo, q, user, pref]);
 
@@ -1200,6 +1232,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
       case "casilla": return (p.casilla||"").toLowerCase();
       case "fecha": return p.fecha || "";
       case "nombre": return (p.nombre_apellido||"").toLowerCase();
+      case "ci/ruc": return (p.ci_ruc||"").toLowerCase();
       case "tracking": return (p.tracking||"").toLowerCase();
       case "peso_real": return Number(p.peso_real||0);
       case "medidas": return Number((p.largo||0)*(p.ancho||0)*(p.alto||0));
@@ -1228,7 +1261,8 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
     const html = labelHTML({
       codigo: p.codigo, nombre: p.nombre_apellido, casilla: p.casilla,
       pesoKg: p.peso_real, medidasTxt: medidas, desc: p.descripcion,
-      cargaTxt: flights.find(f=>f.id===p.flight_id)?.codigo || "-"
+      cargaTxt: flights.find(f=>f.id===p.flight_id)?.codigo || "-",
+      fecha: p.fecha
     });
     printHTMLInIframe(html);
   }
@@ -1238,6 +1272,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
   const start=(p)=>{
     setForm({
       ...p,
+      fotos: p.fotos || [],
       peso_real_txt: fmtPeso(p.peso_real),
       L_txt: String(p.largo||0), A_txt: String(p.ancho||0), H_txt: String(p.alto||0),
       valor_txt: fmtMoney(p.valor_aerolinea)
@@ -1283,7 +1318,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
   async function exportXLSX(){
     const header = [
         th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"), th("Fecha"),
-        th("Empresa de envío"), th("Nombre y apellido"), th("Tracking"), th("Remitente"),
+        th("CI/RUC"), th("Empresa de envío"), th("Nombre y apellido"), th("Tracking"), th("Remitente"),
         th("Peso real"), th("Peso facturable"), th("Medidas"), th("Exceso de volumen"),
         th("Descripción"), th("Precio (EUR)")
     ];
@@ -1292,7 +1327,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
         const medidas = `${p.largo}x${p.ancho}x${p.alto} cm`;
         return [
             td(carga), td(p.courier), td(p.estado), td(p.casilla), td(p.codigo), td(p.fecha),
-            td(p.empresa_envio), td(p.nombre_apellido), td(p.tracking), td(p.remitente),
+            td(p.ci_ruc), td(p.empresa_envio), td(p.nombre_apellido), td(p.tracking), td(p.remitente),
             tdNum(p.peso_real, "0.000"), tdNum(p.peso_facturable, "0.000"),
             td(medidas), tdNum(p.exceso_volumen, "0.000"),
             td(p.descripcion), tdNum(p.valor_aerolinea, "0.00")
@@ -1301,9 +1336,9 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
 
     const { ws } = sheetFromAOAStyled("Bodega", [header, ...body], {
         cols: [
-            {wch:12},{wch:14},{wch:12},{wch:10},{wch:18},{wch:12},{wch:20},
-            {wch:22},{wch:18},{wch:18},{wch:12},{wch:14},{wch:14},{wch:14},
-            {wch:28},{wch:12}
+            {wch:12},{wch:14},{wch:12},{wch:10},{wch:18},{wch:12},{wch:15},
+            {wch:20},{wch:22},{wch:18},{wch:18},{wch:12},{wch:14},
+            {wch:14},{wch:14},{wch:28},{wch:12}
         ],
         rows: [{ hpt: 24 }]
     });
@@ -1348,10 +1383,10 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
         <table className="min-w-full text-sm">
           <thead>
             <tr className="bg-slate-50">
-              {["Carga", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción"].map(h => (
+              {["Carga", "Código", "Casilla", "Fecha", "Nombre", "CI/RUC", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción"].map(h => (
                   <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 cursor-pointer select-none" onClick={()=>toggleSort(h.toLowerCase().replace(" ", "_"))}>{h}<Arrow col={h.toLowerCase().replace(" ", "_")}/></th>
               ))}
-              <th className="text-left px-3 py-2 font-semibold text-slate-600">Foto</th>
+              <th className="text-left px-3 py-2 font-semibold text-slate-600">Fotos</th>
               {user.role === 'ADMIN' && <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>}
             </tr>
           </thead>
@@ -1365,13 +1400,16 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
                   <td className="px-3 py-2 whitespace-nowrap">{p.casilla}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{p.fecha}</td>
                   <td className="px-3 py-2">{p.nombre_apellido}</td>
+                  <td className="px-3 py-2">{p.ci_ruc || "—"}</td>
                   <td className="px-3 py-2 font-mono">{p.tracking}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_real)} kg</td>
                   <td className="px-3 py-2 whitespace-nowrap">{p.largo}x{p.ancho}x{p.alto} cm</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.exceso_volumen)} kg</td>
                   <td className="px-3 py-2">{p.descripcion}</td>
                   <td className="px-3 py-2">
-                    {p.foto ? <img alt="foto" src={p.foto} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={()=>setViewer(p.foto)} /> : "—"}
+                    {(p.fotos && p.fotos.length > 0) ? 
+                        <img alt="foto" src={p.fotos[0]} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={()=>setViewer(p.fotos)} /> 
+                        : "—"}
                   </td>
                   {user.role === 'ADMIN' &&
                     <td className="px-3 py-2">
@@ -1384,7 +1422,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
                 </tr>
               );
             })}
-            {rows.length===0 && <tr><td colSpan={12}><EmptyState icon={Iconos.box} title="No hay paquetes en bodega" message="Utiliza el filtro para buscar en otras cargas o agrega paquetes en la pestaña de Recepción."/></td></tr>}
+            {rows.length===0 && <tr><td colSpan={13}><EmptyState icon={Iconos.box} title="No hay paquetes en bodega" message="Utiliza el filtro para buscar en otras cargas o agrega paquetes en la pestaña de Recepción."/></td></tr>}
           </tbody>
         </table>
       </div>
@@ -1448,28 +1486,35 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
             <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="CI/Pasaporte/RUC"><Input value={form.ci_ruc} onChange={e=>setForm({...form,ci_ruc:e.target.value})} /></Field>
             <Field label="Empresa de envío"><Input value={form.empresa_envio||""} onChange={e=>setForm({...form,empresa_envio:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Remitente"><Input value={form.remitente||""} onChange={e=>setForm({...form,remitente:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Peso real (kg)"><Input value={form.peso_real_txt} onChange={e=>setForm({...form,peso_real_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Largo (cm)"><Input value={form.L_txt} onChange={e=>setForm({...form,L_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Ancho (cm)"><Input value={form.A_txt} onChange={e=>setForm({...form,A_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Peso real (kg)"><Input value={form.peso_real_txt} onChange={e=>setForm({...form,peso_real_txt:e.target.value})} /></Field>
+            <Field label="Largo (cm)"><Input value={form.L_txt} onChange={e=>setForm({...form,L_txt:e.target.value})} /></Field>
+            <Field label="Ancho (cm)"><Input value={form.A_txt} onChange={e=>setForm({...form,A_txt:e.target.value})} /></Field>
+            <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} /></Field>
+            <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} /></Field>
+            <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} /></Field>
             <div className="md:col-span-3 flex items-center justify-between mt-4">
               <button onClick={()=>printPkgLabel(form)} className={BTN}>Reimprimir etiqueta</button>
               <div className="flex gap-2">
-                <button onClick={save} className={BTN_PRIMARY} disabled={user.role==="COURIER"}>Guardar</button>
+                <button onClick={save} className={BTN_PRIMARY}>Guardar</button>
               </div>
             </div>
           </div>
         )}
       </Modal>
 
-      <Modal open={!!viewer} onClose={()=>setViewer(null)} title="Foto">
-        {viewer && <img src={viewer} alt="foto" className="max-w-full rounded-xl" />}
+      <Modal open={!!viewer} onClose={()=>setViewer(null)} title="Fotos del Paquete">
+        {viewer && (
+            <div className="flex flex-wrap gap-4 justify-center">
+                {viewer.map((url, index) => (
+                    <img key={index} src={url} alt={`Foto ${index + 1}`} className="max-w-full max-h-[70vh] rounded-xl" />
+                ))}
+            </div>
+        )}
       </Modal>
     </Section>
   );
@@ -2093,18 +2138,27 @@ function CargasAdmin({flights, onAdd, onUpdate, onDelete, packages}){
 
 
 /* ========== Proformas ========== */
-const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10 };
+const T = { proc:5, fleteReal:9, fleteExc:9, despacho:10, fleteMaritimo: 12 };
 const canjeGuiaUSD = (kg)=> kg<=5?10 : kg<=10?13.5 : kg<=30?17 : kg<=50?37 : kg<=100?57 : 100;
 
 function Proformas({packages, flights, extras, user}){
-  const [from,setFrom]=useState("");
-  const [to,setTo]=useState("");
-  const [flightId,setFlightId]=useState("");
+  const getInitialFromDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 90);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const [from,setFrom] = useState(getInitialFromDate());
+  const [to,setTo] = useState("");
+  const [flightId,setFlightId] = useState("");
   const isCourier = user.role === 'COURIER';
 
   const list = flights
-    .filter(f=>!from || f.fecha_salida>=from)
-    .filter(f=>!to || f.fecha_salida<=to);
+    .filter(f => {
+      const code = (f.codigo || "").toUpperCase();
+      return code.startsWith("AIR") || code.startsWith("MAR");
+    })
+    .sort((a, b) => new Date(b.fecha_salida) - new Date(a.fecha_salida));
 
   const flight = flights.find(f=>f.id===flightId);
 
@@ -2124,23 +2178,37 @@ function Proformas({packages, flights, extras, user}){
 
   async function exportX(r){
     if(!flight) return;
-    const proc = r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
-    const canje=canjeGuiaUSD(r.kg_fact);
+
+    let detalle = [];
+    let total = 0;
+    const isMaritimo = flight.codigo.toUpperCase().startsWith("MAR");
     const extrasList = extrasDeCourier(r.courier);
     const extrasMonto = extrasList.reduce((s,e)=>s+parseComma(e.monto),0);
-    const com = 0.04*(proc+fr+fe+extrasMonto);
-    const total = proc+fr+fe+desp+canje+extrasMonto+com;
 
-    const detalle = [
-      ["Procesamiento", Number(r.kg_fact.toFixed(3)), Number(T.proc.toFixed(2)), Number(proc.toFixed(2))],
-      ["Flete peso real", Number(r.kg_real.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))],
-      ["Flete exceso de volumen", Number(r.kg_exc.toFixed(3)), Number(T.fleteExc.toFixed(2)), Number(fe.toFixed(2))],
-      ["Servicio de despacho", Number(r.kg_fact.toFixed(3)), Number(T.despacho.toFixed(2)), Number(desp.toFixed(2))],
-      ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))],
-      ...extrasList.map(e=>[e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))]),
-      ["Comisión por transferencia (4%)", 1, Number(com.toFixed(2)), Number(com.toFixed(2))],
-    ];
+    if(isMaritimo) {
+        const fleteTotal = r.kg_fact * T.fleteMaritimo;
+        total = fleteTotal + extrasMonto;
+        detalle = [
+            ["Envío marítimo España-Paraguay", Number(r.kg_fact.toFixed(3)), Number(T.fleteMaritimo.toFixed(2)), Number(fleteTotal.toFixed(2))],
+            ...extrasList.map(e=>[e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))])
+        ];
+    } else {
+        const proc = r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
+        const canje=canjeGuiaUSD(r.kg_fact);
+        const com = 0.04*(proc+fr+fe+extrasMonto);
+        total = proc+fr+fe+desp+canje+extrasMonto+com;
 
+        detalle = [
+          ["Procesamiento", Number(r.kg_fact.toFixed(3)), Number(T.proc.toFixed(2)), Number(proc.toFixed(2))],
+          ["Flete peso real", Number(r.kg_real.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))],
+          ["Flete exceso de volumen", Number(r.kg_exc.toFixed(3)), Number(T.fleteExc.toFixed(2)), Number(fe.toFixed(2))],
+          ["Servicio de despacho", Number(r.kg_fact.toFixed(3)), Number(T.despacho.toFixed(2)), Number(desp.toFixed(2))],
+          ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))],
+          ...extrasList.map(e=>[e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))]),
+          ["Comisión por transferencia (4%)", 1, Number(com.toFixed(2)), Number(com.toFixed(2))],
+        ];
+    }
+    
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Factura");
 
@@ -2230,7 +2298,10 @@ function Proformas({packages, flights, extras, user}){
           <Field label="Hasta"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field>
           <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
             <option value="">Seleccionar carga…</option>
-            {list.map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
+            {list
+              .filter(f => !from || f.fecha_salida >= from)
+              .filter(f => !to || f.fecha_salida <= to)
+              .map(f=><option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
           </select>
         </div>
       }
@@ -2241,9 +2312,16 @@ function Proformas({packages, flights, extras, user}){
             <thead><tr className="bg-slate-50">{["Courier","Kg facturable","Kg exceso","TOTAL USD","XLSX"].map(h=><th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
             <tbody className="divide-y divide-slate-200">
               {porCourier.map(r=>{
-                const proc=r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
-                const canje=canjeGuiaUSD(r.kg_fact), extrasMonto=extrasDeCourier(r.courier).reduce((s,e)=>s+parseComma(e.monto),0);
-                const com=0.04*(proc+fr+fe+extrasMonto); const tot = proc+fr+fe+desp+canje+extrasMonto+com;
+                let tot;
+                const extrasMonto = extrasDeCourier(r.courier).reduce((s,e)=>s+parseComma(e.monto),0);
+                if (flight.codigo.toUpperCase().startsWith("MAR")) {
+                    tot = (r.kg_fact * T.fleteMaritimo) + extrasMonto;
+                } else {
+                    const proc=r.kg_fact*T.proc, fr=r.kg_real*T.fleteReal, fe=r.kg_exc*T.fleteExc, desp=r.kg_fact*T.despacho;
+                    const canje=canjeGuiaUSD(r.kg_fact);
+                    const com=0.04*(proc+fr+fe+extrasMonto);
+                    tot = proc+fr+fe+desp+canje+extrasMonto+com;
+                }
                 return (
                   <tr key={r.courier} className="hover:bg-slate-50">
                     <td className="px-3 py-2">{r.courier}</td>
@@ -2540,7 +2618,7 @@ function App(){
 
       <main className="overflow-y-auto p-4 sm:p-6 lg:p-8">
         {tab==="Dashboard" && <Dashboard packages={packages} flights={flights} pendientes={pendientes} onTabChange={setTab} currentUser={currentUser} />}
-        {tab==="Recepción" && <Reception currentUser={currentUser} couriers={couriers} setCouriers={couriersHandlers} estados={estados} setEstados={estadosHandlers} flights={flights} onAdd={packagesHandlers.add}/>}
+        {tab==="Recepción" && <Reception currentUser={currentUser} couriers={couriers} setCouriers={couriersHandlers} estados={estados} setEstados={estadosHandlers} flights={flights} packages={packages} onAdd={packagesHandlers.add}/>}
         {tab==="Paquetes sin casilla" && <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} onAdd={sinCasillaHandlers.add} onUpdate={sinCasillaHandlers.update} onRemove={sinCasillaHandlers.remove} onAsignarCasilla={moverPaqueteAPendientes} setItems={setSinCasillaItems} />}
         {tab==="Pendientes" && <Pendientes items={pendientes} onAdd={pendientesHandlers.add} onUpdate={pendientesHandlers.update} onRemove={pendientesHandlers.remove} />}
         {tab==="Paquetes en bodega" && <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={packagesHandlers.update} onDelete={packagesHandlers.remove} onPendiente={pendientesHandlers.add} />}

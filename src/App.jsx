@@ -1,11 +1,9 @@
-/* Europa Envíos – MVP v1.6.0 (Ajuste Final de Etiquetas y Proformas)
+/* Europa Envíos – MVP v1.7.2 (Ajuste Final)
+    - Se permite editar la foto en la pestaña "Paquetes sin casilla".
+    - Se restaura el campo CI/RUC en el modal de edición y exportación de Paquetes en Bodega.
     - Se rediseña la etiqueta de recepción al formato final solicitado.
     - Se añaden los 'extras' al cálculo de las proformas para cargas marítimas.
     - Se ajusta el filtro de la pestaña Proformas para mostrar solo cargas AIR/MAR y con fecha por defecto de 90 días.
-    - Se modifica la lógica de exportación de proformas para cargas "MAR".
-    - Se añade validación para evitar códigos de paquete duplicados por carga.
-    - Se permite la carga de múltiples fotos por paquete.
-    - Se añade el campo opcional "CI/Pasaporte/RUC".
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -846,22 +844,30 @@ const InfoBox=({title,value})=>(
 );
 /* ========== Paquetes sin casilla ========== */
 function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla, setItems }){
-const isAdmin = currentUser?.role === "ADMIN";
+  const isAdmin = currentUser?.role === "ADMIN";
   const [q,setQ] = useState("");
   const [from,setFrom] = useState("");
   const [to,setTo] = useState("");
   const [fecha,setFecha]    = useState(new Date().toISOString().slice(0,10));
   const [nombre,setNombre] = useState("");
   const [tracking,setTracking] = useState("");
+  const [foto, setFoto] = useState(null);
   const [editId,setEditId] = useState(null);
-  const [editRow,setEditRow] = useState({ fecha:"", nombre:"", tracking:"" });
-  const [isAdding, setIsAdding] = useState(false); // <-- NUEVO: Estado para deshabilitar el botón
+  const [editRow,setEditRow] = useState({ fecha:"", nombre:"", tracking:"", foto: null });
+  const [isAdding, setIsAdding] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [camOpen,setCamOpen] = useState(false);
+  const [viewer, setViewer] = useState(null);
+
+  const videoRef=useRef(null); 
+  const streamRef=useRef(null);
+  const fileRef = useRef(null);
 
   const add = async () => {
-    if(!isAdmin || isAdding) return; // Evita doble clic
+    if(!isAdmin || isAdding || isUploading) return;
     if(!fecha || !nombre.trim()){ alert("Completá Fecha y Nombre."); return; }
 
-    setIsAdding(true); // Deshabilita el botón
+    setIsAdding(true);
 
     let finalNumero = 0;
     try {
@@ -879,20 +885,70 @@ const isAdmin = currentUser?.role === "ADMIN";
         }
       });
 
-      const row = { fecha, numero: finalNumero, nombre: nombre.trim(), tracking: tracking.trim() };
-      await onAdd(row); // Guarda en la base de datos
-
-      // YA NO actualizamos el estado manualmente. Dejamos que el listener de Firestore lo haga.
+      const row = { fecha, numero: finalNumero, nombre: nombre.trim(), tracking: tracking.trim(), foto: foto };
+      await onAdd(row);
 
       setNombre("");
       setTracking("");
+      setFoto(null);
     } catch (e) {
       console.error("Error al crear paquete sin casilla: ", e);
       alert(`No se pudo generar el paquete. Error: ${e.message}`);
     } finally {
-      setIsAdding(false); // Vuelve a habilitar el botón, incluso si hay un error
+      setIsAdding(false);
     }
   };
+  
+  // Lógica para cámara y subida de fotos
+  useEffect(()=>{
+    if(!camOpen) return;
+    (async ()=>{
+      try{
+        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode:"environment" } });
+        streamRef.current=s; if(videoRef.current){ videoRef.current.srcObject=s; videoRef.current.play(); }
+      }catch{ alert("No se pudo acceder a la cámara."); setCamOpen(false); }
+    })();
+    return ()=>{ if(streamRef.current){ streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; } };
+  },[camOpen]);
+
+  const handleImageUpload = async (imageDataUrl, target) => {
+    if (!imageDataUrl) return;
+    setIsUploading(true);
+    try {
+      const imageName = `sin-casilla/${uuid()}.jpg`;
+      const storageRef = ref(storage, imageName);
+      const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      if (target === 'new') {
+        setFoto(downloadURL);
+      } else if (target === 'edit') {
+        setEditRow(r => ({ ...r, foto: downloadURL }));
+      }
+    } catch (error) {
+      console.error("Error al subir imagen:", error);
+      alert("Hubo un error al subir la foto.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const tomarFoto = (target) => {
+    const v=videoRef.current; if(!v) return;
+    const canvas=document.createElement("canvas");
+    canvas.width=v.videoWidth; canvas.height=v.videoHeight;
+    const ctx=canvas.getContext("2d"); ctx.drawImage(v,0,0);
+    const data=canvas.toDataURL("image/jpeg",0.85);
+    handleImageUpload(data, target);
+    setCamOpen(false);
+  };
+
+  const onFile = (e, target) => {
+    const file=e.target.files?.[0]; if(!file) return;
+    const r=new FileReader();
+    r.onload=() => handleImageUpload(r.result, target);
+    r.readAsDataURL(file);
+  };
+
 
   const handleAsignarCasilla = (paquete) => {
     if(!isAdmin) return;
@@ -917,7 +973,7 @@ const isAdmin = currentUser?.role === "ADMIN";
   function startEdit(r){
     if(!isAdmin) return;
     setEditId(r.id);
-    setEditRow({ fecha:r.fecha||"", nombre:r.nombre||"", tracking:r.tracking||"" });
+    setEditRow({ fecha:r.fecha||"", nombre:r.nombre||"", tracking:r.tracking||"", foto: r.foto || null });
   }
   function saveEdit(){
     if(!isAdmin) return;
@@ -956,7 +1012,7 @@ const isAdmin = currentUser?.role === "ADMIN";
       right={ isAdmin ? <button onClick={exportXLSX} className={BTN}>Exportar XLSX</button> : null }
     >
       {isAdmin && (
-        <div className="grid md:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg">
+        <div className="grid md:grid-cols-4 gap-4 mb-4 p-4 bg-slate-50 rounded-lg">
           <Field label="Fecha recepción" required>
             <Input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/>
           </Field>
@@ -967,26 +1023,29 @@ const isAdmin = currentUser?.role === "ADMIN";
             <Input value={tracking} onChange={e=>setTracking(e.target.value)} placeholder="1Z999..." />
           </Field>
           <div className="flex items-end">
-            <button onClick={add} disabled={isAdding} className={BTN_PRIMARY + (isAdding ? " opacity-50 cursor-not-allowed" : "")}>{Iconos.add}</button>
+             <button onClick={add} disabled={isAdding || isUploading} className={BTN_PRIMARY + ((isAdding || isUploading) ? " opacity-50 cursor-not-allowed" : "")}>{isUploading ? "Subiendo..." : "Agregar"}</button>
           </div>
+          <div className="md:col-span-4">
+             <Field label="Foto (opcional)">
+                <div className="flex gap-2 items-center">
+                    <input ref={fileRef} type="file" accept="image/*" onChange={(e) => onFile(e, 'new')} className="hidden"/>
+                    <button type="button" onClick={()=>fileRef.current?.click()} className={BTN} disabled={isUploading}>Seleccionar archivo</button>
+                    <button type="button" onClick={()=>setCamOpen('new')} className={BTN} disabled={isUploading}>Tomar foto</button>
+                    {foto && <a href={foto} target="_blank" rel="noopener noreferrer" className="text-green-600 text-sm font-semibold hover:underline">✓ Ver foto</a>}
+                </div>
+            </Field>
+          </div>
+        </div>
+      )}
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
           <Field label="Filtrar desde">
             <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
           </Field>
           <Field label="Hasta">
             <Input type="date" value={to} onChange={e=>setTo(e.target.value)}/>
           </Field>
-        </div>
-      )}
-      {!isAdmin && (
-        <div className="grid md:grid-cols-2 gap-4 mb-4">
-          <Field label="Filtrar desde">
-            <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
-          </Field>
-          <Field label="Hasta">
-            <Input type="date" value={to} onChange={e=>setTo(e.target.value)}/>
-          </Field>
-        </div>
-      )}
+      </div>
+
       <div className="mb-4">
         <Input placeholder={isAdmin ? "Buscar por Nº, Nombre o Tracking…" : "Buscar por Nº o Nombre…"} value={q} onChange={e=>setQ(e.target.value)} />
       </div>
@@ -998,6 +1057,7 @@ const isAdmin = currentUser?.role === "ADMIN";
               <th className="text-left px-3 py-2 font-semibold text-slate-600">Nº paquete</th>
               <th className="text-left px-3 py-2 font-semibold text-slate-600">Nombre y apellido</th>
               {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600">Tracking</th>}
+              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600">Foto</th>}
               {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>}
             </tr>
           </thead>
@@ -1010,6 +1070,15 @@ const isAdmin = currentUser?.role === "ADMIN";
                     <td className="px-3 py-1">{r.numero}</td>
                     <td className="px-3 py-1"><Input value={editRow.nombre} onChange={e=>setEditRow({...editRow,nombre:e.target.value})}/></td>
                     {isAdmin && <td className="px-3 py-1"><Input value={editRow.tracking} onChange={e=>setEditRow({...editRow,tracking:e.target.value})}/></td>}
+                    {isAdmin && <td className="px-3 py-1">
+                      <div className="flex flex-col gap-1">
+                        {editRow.foto && <img src={editRow.foto} className="w-12 h-12 object-cover rounded-md"/>}
+                        <input ref={fileRef} type="file" accept="image/*" onChange={(e) => onFile(e, 'edit')} className="hidden"/>
+                        <button type="button" onClick={()=>fileRef.current?.click()} className="text-xs text-francia-600 hover:underline" disabled={isUploading}>Cambiar</button>
+                        <button type="button" onClick={()=>setCamOpen('edit')} className="text-xs text-francia-600 hover:underline" disabled={isUploading}>Tomar Foto</button>
+                        <button onClick={() => setEditRow(er => ({...er, foto: null}))} className="text-xs text-red-600 hover:underline">Quitar</button>
+                      </div>
+                    </td>}
                     {isAdmin && (
                       <td className="px-3 py-1">
                         <div className="flex gap-2">
@@ -1029,6 +1098,11 @@ const isAdmin = currentUser?.role === "ADMIN";
                     {isAdmin && <td className="px-3 py-2">{r.tracking||"—"}</td>}
                     {isAdmin && (
                       <td className="px-3 py-2">
+                        {r.foto ? <img alt="foto" src={r.foto} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={()=>setViewer([r.foto])} /> : "—"}
+                      </td>
+                    )}
+                    {isAdmin && (
+                      <td className="px-3 py-2">
                         <div className="flex gap-2">
                           <button className="px-3 py-1 text-xs rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors" onClick={()=>handleAsignarCasilla(r)}>Asignar casilla</button>
                           <button className={BTN_ICON} onClick={()=>startEdit(r)}>{Iconos.edit}</button>
@@ -1040,10 +1114,23 @@ const isAdmin = currentUser?.role === "ADMIN";
                 )}
               </tr>
             ))}
-            {filtered.length===0 && <tr><td colSpan={isAdmin?5:3}><EmptyState icon={Iconos.box} title="No hay paquetes sin casilla"/></td></tr>}
+            {filtered.length===0 && <tr><td colSpan={isAdmin?6:3}><EmptyState icon={Iconos.box} title="No hay paquetes sin casilla"/></td></tr>}
           </tbody>
         </table>
       </div>
+       <Modal open={!!camOpen} onClose={()=>setCamOpen(false)} title="Tomar foto">
+        <div className="space-y-3">
+          <video ref={videoRef} playsInline className="w-full rounded-xl bg-black/50" />
+          <div className="flex justify-end"> <button onClick={()=>tomarFoto(camOpen)} className={BTN_PRIMARY}>Capturar</button></div>
+        </div>
+      </Modal>
+      <Modal open={!!viewer} onClose={()=>setViewer(null)} title="Fotos del Paquete">
+        {viewer && (
+          <a href={viewer[0]} target="_blank" rel="noopener noreferrer" title="Abrir en nueva pestaña para hacer zoom">
+            <img src={viewer[0]} alt="Foto" className="max-w-full max-h-[70vh] rounded-xl cursor-zoom-in" />
+          </a>
+        )}
+      </Modal>
     </Section>
   );
 }
@@ -1220,7 +1307,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
       .filter(p => !flightId || p.flight_id === flightId)
       .filter(p => !dateFrom || (p.fecha || "") >= dateFrom)
       .filter(p => !dateTo || (p.fecha || "") <= dateTo)
-      .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier + p.ci_ruc).toLowerCase().includes(q.toLowerCase()))
+      .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()))
       .filter(p => user.role !== "COURIER" || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref)));
   }, [packages, flights, flightId, dateFrom, dateTo, q, user, pref]);
 
@@ -1232,7 +1319,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
       case "casilla": return (p.casilla||"").toLowerCase();
       case "fecha": return p.fecha || "";
       case "nombre": return (p.nombre_apellido||"").toLowerCase();
-      case "ci/ruc": return (p.ci_ruc||"").toLowerCase();
       case "tracking": return (p.tracking||"").toLowerCase();
       case "peso_real": return Number(p.peso_real||0);
       case "medidas": return Number((p.largo||0)*(p.ancho||0)*(p.alto||0));
@@ -1269,6 +1355,11 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
 
   const [open,setOpen]=useState(false);
   const [form,setForm]=useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [camOpen,setCamOpen]=useState(false);
+  const videoRef=useRef(null); const streamRef=useRef(null);
+  const fileRef = useRef(null);
+
   const start=(p)=>{
     setForm({
       ...p,
@@ -1314,6 +1405,56 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
   };
 
   const [viewer,setViewer]=useState(null);
+
+  // --- Lógica de fotos para el modal de edición ---
+  useEffect(()=>{
+    if(!camOpen) return;
+    (async ()=>{
+      try{
+        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode:"environment" } });
+        streamRef.current=s; if(videoRef.current){ videoRef.current.srcObject=s; videoRef.current.play(); }
+      }catch{ alert("No se pudo acceder a la cámara."); setCamOpen(false); }
+    })();
+    return ()=>{ if(streamRef.current){ streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; } };
+  },[camOpen]);
+
+  const handleImageUpload = async (imageDataUrl) => {
+    if (!imageDataUrl || !form) return;
+    setIsUploading(true);
+    try {
+      const imageName = `paquetes/${uuid()}.jpg`;
+      const storageRef = ref(storage, imageName);
+      const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      setForm(f => ({ ...f, fotos: [...f.fotos, downloadURL] }));
+    } catch (error) {
+      console.error("Error al subir imagen:", error);
+      alert("Hubo un error al subir la foto.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+  
+  const removePhoto = (urlToRemove) => {
+    setForm(f => ({ ...f, fotos: f.fotos.filter(url => url !== urlToRemove) }));
+  };
+
+  const tomarFoto=()=>{
+    const v=videoRef.current; if(!v) return;
+    const canvas=document.createElement("canvas");
+    canvas.width=v.videoWidth; canvas.height=v.videoHeight;
+    const ctx=canvas.getContext("2d"); ctx.drawImage(v,0,0);
+    const data=canvas.toDataURL("image/jpeg",0.85);
+    handleImageUpload(data);
+    setCamOpen(false);
+  };
+
+  const onFile = (e)=>{
+    const file=e.target.files?.[0]; if(!file) return;
+    const r=new FileReader();
+    r.onload=() => handleImageUpload(r.result);
+    r.readAsDataURL(file);
+  };
 
   async function exportXLSX(){
     const header = [
@@ -1383,7 +1524,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
         <table className="min-w-full text-sm">
           <thead>
             <tr className="bg-slate-50">
-              {["Carga", "Código", "Casilla", "Fecha", "Nombre", "CI/RUC", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción"].map(h => (
+              {["Carga", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción"].map(h => (
                   <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 cursor-pointer select-none" onClick={()=>toggleSort(h.toLowerCase().replace(" ", "_"))}>{h}<Arrow col={h.toLowerCase().replace(" ", "_")}/></th>
               ))}
               <th className="text-left px-3 py-2 font-semibold text-slate-600">Fotos</th>
@@ -1400,7 +1541,6 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
                   <td className="px-3 py-2 whitespace-nowrap">{p.casilla}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{p.fecha}</td>
                   <td className="px-3 py-2">{p.nombre_apellido}</td>
-                  <td className="px-3 py-2">{p.ci_ruc || "—"}</td>
                   <td className="px-3 py-2 font-mono">{p.tracking}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_real)} kg</td>
                   <td className="px-3 py-2 whitespace-nowrap">{p.largo}x{p.ancho}x{p.alto} cm</td>
@@ -1422,7 +1562,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
                 </tr>
               );
             })}
-            {rows.length===0 && <tr><td colSpan={13}><EmptyState icon={Iconos.box} title="No hay paquetes en bodega" message="Utiliza el filtro para buscar en otras cargas o agrega paquetes en la pestaña de Recepción."/></td></tr>}
+            {rows.length===0 && <tr><td colSpan={12}><EmptyState icon={Iconos.box} title="No hay paquetes en bodega" message="Utiliza el filtro para buscar en otras cargas o agrega paquetes en la pestaña de Recepción."/></td></tr>}
           </tbody>
         </table>
       </div>
@@ -1466,11 +1606,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
       <Modal open={open} onClose={()=>setOpen(false)} title="Editar paquete">
         {form && (
           <div className="grid md:grid-cols-3 gap-4">
-            <Field label="Carga">
-              <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}>
-                {flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
-              </select>
-            </Field>
+            <Field label="Carga"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}><option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}</select></Field>
             <Field label="Courier"><Input value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Estado">
               {(() => {
@@ -1486,7 +1622,7 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
             <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="CI/Pasaporte/RUC"><Input value={form.ci_ruc} onChange={e=>setForm({...form,ci_ruc:e.target.value})} /></Field>
+            <Field label="CI/Pasaporte/RUC"><Input value={form.ci_ruc || ""} onChange={e=>setForm({...form,ci_ruc:e.target.value})} /></Field>
             <Field label="Empresa de envío"><Input value={form.empresa_envio||""} onChange={e=>setForm({...form,empresa_envio:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})} disabled={user.role==="COURIER"}/></Field>
@@ -1497,21 +1633,48 @@ function PaquetesBodega({packages, flights, user, onUpdate, onDelete, onPendient
             <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} /></Field>
             <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} /></Field>
             <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} /></Field>
+            <div className="md:col-span-3">
+              <Field label="Fotos del paquete">
+                  <div className="flex gap-2 items-center">
+                      <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
+                      <button type="button" onClick={()=>fileRef.current?.click()} className={BTN} disabled={isUploading}>Seleccionar archivo</button>
+                      <button type="button" onClick={()=>setCamOpen(true)} className={BTN} disabled={isUploading}>Tomar foto</button>
+                      {isUploading && <span className="text-francia-600 text-sm font-semibold">Subiendo...</span>}
+                  </div>
+              </Field>
+              <div className="flex flex-wrap gap-2 mt-2">
+                  {form.fotos.map((url, index) => (
+                      <div key={index} className="relative">
+                          <a href={url} target="_blank" rel="noopener noreferrer">
+                              <img src={url} alt={`Foto ${index+1}`} className="w-20 h-20 object-cover rounded-md"/>
+                          </a>
+                          <button onClick={() => removePhoto(url)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-xs">X</button>
+                      </div>
+                  ))}
+              </div>
+            </div>
             <div className="md:col-span-3 flex items-center justify-between mt-4">
               <button onClick={()=>printPkgLabel(form)} className={BTN}>Reimprimir etiqueta</button>
               <div className="flex gap-2">
-                <button onClick={save} className={BTN_PRIMARY}>Guardar</button>
+                <button onClick={save} className={BTN_PRIMARY} disabled={isUploading}>{isUploading ? 'Subiendo...' : 'Guardar'}</button>
               </div>
             </div>
           </div>
         )}
       </Modal>
-
+      <Modal open={camOpen} onClose={()=>setCamOpen(false)} title="Tomar foto">
+        <div className="space-y-3">
+          <video ref={videoRef} playsInline className="w-full rounded-xl bg-black/50" />
+          <div className="flex justify-end"> <button onClick={tomarFoto} className={BTN_PRIMARY}>Capturar</button></div>
+        </div>
+      </Modal>
       <Modal open={!!viewer} onClose={()=>setViewer(null)} title="Fotos del Paquete">
         {viewer && (
             <div className="flex flex-wrap gap-4 justify-center">
                 {viewer.map((url, index) => (
-                    <img key={index} src={url} alt={`Foto ${index + 1}`} className="max-w-full max-h-[70vh] rounded-xl" />
+                  <a key={index} href={url} target="_blank" rel="noopener noreferrer" title="Abrir en nueva pestaña para hacer zoom">
+                    <img src={url} alt={`Foto ${index + 1}`} className="max-w-full max-h-[70vh] rounded-xl cursor-zoom-in" />
+                  </a>
                 ))}
             </div>
         )}

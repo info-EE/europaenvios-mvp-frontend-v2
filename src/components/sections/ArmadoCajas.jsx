@@ -1,0 +1,321 @@
+/* eslint-disable react/prop-types */
+import React, { useState, useEffect } from "react";
+import ExcelJS from "exceljs/dist/exceljs.min.js";
+
+import { Section } from "../common/Section";
+import { Input } from "../common/Input";
+import { Field } from "../common/Field";
+import { EmptyState } from "../common/EmptyState";
+import { Button } from "../common/Button";
+
+import {
+  Iconos,
+  uuid,
+  limpiar,
+  fmtPeso,
+  parseComma,
+  parseIntEU,
+  sum,
+  boxLabelHTML,
+  printHTMLInIframe,
+} from "../../utils/helpers.jsx";
+
+export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
+  const [flightId, setFlightId] = useState("");
+  const flight = flights.find(f => f.id === flightId);
+  const [scan, setScan] = useState("");
+  const [activeBoxId, setActiveBoxId] = useState(null);
+
+  const [editingBoxId, setEditingBoxId] = useState(null);
+  const [editingBoxData, setEditingBoxData] = useState(null);
+
+  useEffect(() => {
+    if (flightId) {
+      const currentFlight = flights.find(f => f.id === flightId);
+      if (currentFlight?.cajas?.length > 0) {
+        if (!activeBoxId || !currentFlight.cajas.some(c => c.id === activeBoxId)) {
+          setActiveBoxId(currentFlight.cajas[0].id);
+        }
+      } else {
+        setActiveBoxId(null);
+      }
+      setEditingBoxId(null);
+      setEditingBoxData(null);
+    }
+  }, [flightId, flights, activeBoxId]);
+
+  const startEditing = (box) => {
+    setEditingBoxId(box.id);
+    setEditingBoxData({ ...box });
+  };
+
+  const cancelEditing = () => {
+    setEditingBoxId(null);
+    setEditingBoxData(null);
+  };
+
+  const saveBoxChanges = () => {
+    if (!editingBoxData || !flight) return;
+    const updatedCajas = flight.cajas.map(c => c.id !== editingBoxId ? c : editingBoxData);
+    onUpdateFlight({ ...flight, cajas: updatedCajas });
+    cancelEditing();
+  };
+
+  function addBox() {
+    if (!flightId || !flight) return;
+    const inTxt = window.prompt("Ingresá el peso de la caja de cartón (kg), ej: 0,250", "0,250");
+    if (inTxt === null) return;
+    const peso_carton = fmtPeso(parseComma(inTxt));
+    const n = (flight?.cajas?.length || 0) + 1;
+    const newBox = { id: uuid(), codigo: `Caja ${n}`, paquetes: [], peso: "", L: "", A: "", H: "", peso_carton };
+    const updatedCajas = [...(flight.cajas || []), newBox];
+    onUpdateFlight({ ...flight, cajas: updatedCajas });
+    setActiveBoxId(newBox.id);
+  }
+
+  function assign() {
+    if (!scan || !flight) return;
+    const pkg = packages.find(p => p.flight_id === flightId && String(p.codigo || "").toUpperCase() === scan.toUpperCase());
+    if (!pkg) { alert("No existe ese código en esta carga."); setScan(""); return; }
+    if (flight.cajas.some(c => c.paquetes.includes(pkg.id))) { alert("Ya está en una caja."); setScan(""); return; }
+    const currentActiveId = activeBoxId || flight.cajas[0]?.id;
+    if (!currentActiveId) { alert("Creá una caja primero."); return; }
+
+    const updatedCajas = flight.cajas.map(c =>
+      c.id !== currentActiveId ? c : { ...c, paquetes: [...c.paquetes, pkg.id] }
+    );
+    onUpdateFlight({ ...flight, cajas: updatedCajas });
+    onAssign(pkg.id); setScan("");
+  }
+
+  function move(pid, fromId, toId) {
+    if (!toId || !flight) return;
+    const newCajas = flight.cajas.map(c => {
+      if (c.id === fromId) return { ...c, paquetes: c.paquetes.filter(p => p !== pid) };
+      if (c.id === toId) return { ...c, paquetes: [...c.paquetes, pid] };
+      return c;
+    });
+    onUpdateFlight({ ...flight, cajas: newCajas });
+  }
+
+  function removeBox(id) {
+    if (!flight) return;
+    const ok = window.confirm("¿Seguro que quieres eliminar esta caja? Los paquetes que contiene volverán a la lista de 'Paquetes en Bodega'.");
+    if (!ok) return;
+    const updatedCajas = flight.cajas.filter(c => c.id !== id);
+    onUpdateFlight({ ...flight, cajas: updatedCajas });
+    if (activeBoxId === id) setActiveBoxId(null);
+    if (editingBoxId === id) cancelEditing();
+  }
+
+  function reorderBox(id, dir) {
+    if (!flight) return;
+    const arr = [...flight.cajas];
+    const i = arr.findIndex(c => c.id === id); if (i < 0) return;
+    const j = dir === "up" ? i - 1 : i + 1;
+    if (j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    onUpdateFlight({ ...flight, cajas: arr });
+  }
+
+  function pesoEstimado(caja) {
+    const pesoCarton = parseComma(caja.peso_carton || "0");
+    const ids = caja.paquetes || [];
+    const pesoPkgs = sum(ids.map(pid => {
+      const p = packages.find(x => x.id === pid);
+      return p ? Number(p.peso_real || 0) : 0;
+    }));
+    return Number(pesoCarton + pesoPkgs);
+  }
+
+  async function exportCajasXLSX() {
+    if (!flight) { alert("Seleccioná una carga."); return; }
+    if (!flight.cajas || flight.cajas.length === 0) { alert("No hay cajas en esta carga para exportar."); return; }
+
+    const wb = new ExcelJS.Workbook();
+    const thinBorder = { style: "thin", color: { argb: "FF000000" } };
+    const allBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
+
+    (flight.cajas || []).forEach((caja, idx) => {
+      const ws = wb.addWorksheet(`CAJA ${idx + 1}`);
+      const pkgObjs = (caja.paquetes || []).map(pid => packages.find(p => p.id === pid)).filter(Boolean);
+      const cantPaquetes = pkgObjs.length;
+
+      const byCourier = {};
+      pkgObjs.forEach(p => {
+        if (!byCourier[p.courier]) byCourier[p.courier] = [];
+        byCourier[p.courier].push(p.codigo);
+      });
+
+      const couriers = Object.keys(byCourier).sort();
+      // --- CAMBIO AÑADIDO: Calcular anchos de columna ---
+      const colWidths = {};
+
+      ws.getCell('B2').value = "CONTROL DE PAQUETES";
+      ws.getCell('B2').font = { bold: true, color: { argb: "FFFFFFFF" }, size: 12 };
+      ws.getCell('B2').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F4F4F' } };
+      ws.getCell('B2').alignment = { horizontal: "center", vertical: "center" };
+      ws.mergeCells('B2:L2');
+
+      ws.getCell('B3').value = `CAJA Nº ${idx + 1}`;
+      ws.getCell('B3').font = { bold: true };
+      ws.mergeCells('B3:F3');
+
+      ws.getCell('G3').value = `CANTIDAD DE PAQUETES: ${cantPaquetes}`;
+      ws.getCell('G3').font = { bold: true };
+      ws.mergeCells('G3:L3');
+
+      let col = 2;
+      couriers.forEach(c => {
+        // --- CAMBIO AÑADIDO: Lógica de anchos ---
+        let maxLen = c.length;
+        const cell = ws.getCell(4, col);
+        cell.value = c;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F2F7' } };
+        cell.alignment = { vertical: "center", horizontal: "center" };
+        let row = 5;
+        byCourier[c].forEach(p => {
+          if (p.length > maxLen) maxLen = p.length;
+          const pkgCell = ws.getCell(row, col);
+          pkgCell.value = p;
+          pkgCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBE0' } };
+          row++;
+        });
+        colWidths[col] = maxLen + 2; // Añadir padding
+        col++;
+      });
+      
+      // --- CAMBIO AÑADIDO: Aplicar anchos calculados ---
+      Object.entries(colWidths).forEach(([colIndex, width]) => {
+        ws.getColumn(Number(colIndex)).width = width;
+      });
+
+      for (let r = 2; r < 33; r++) {
+        for (let c = 2; c < 13; c++) {
+          const cell = ws.getCell(r, c);
+          if (!cell.border) {
+            cell.border = allBorders;
+          }
+        }
+      }
+    });
+
+    wb.xlsx.writeBuffer().then(buffer => {
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cajas_${flight.codigo}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    });
+  }
+
+  function handlePrintBoxLabel(caja, index) {
+    if (!flight) return;
+    const couriers = new Set(caja.paquetes.map(pid => packages.find(p => p.id === pid)?.courier).filter(Boolean));
+    const etiqueta = couriers.size === 0 ? flight.codigo : (couriers.size === 1 ? [...couriers][0] : "MULTICOURIER");
+
+    const data = {
+      courier: etiqueta,
+      boxNumber: index + 1,
+      pesoKg: parseComma(caja.peso || "0"),
+      medidasTxt: `${caja.L || 0} x ${caja.A || 0} x ${caja.H || 0}`,
+      fecha: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' }),
+      // --- CAMBIO AÑADIDO ---
+      cargaTxt: flight.codigo,
+    };
+    const html = boxLabelHTML(data);
+    printHTMLInIframe(html);
+  }
+
+  return (
+    <Section title="Armado de cajas">
+      <div className="grid md:grid-cols-3 gap-4">
+        <Field label="Seleccionar carga" required>
+          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => { setFlightId(e.target.value); }}>
+            <option value="">—</option>
+            {flights.filter(f => f.estado === "En bodega").map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
+          </select>
+        </Field>
+        <Field label="Escanear / ingresar código">
+          <Input value={scan} onChange={e => setScan(limpiar(e.target.value))} onKeyDown={e => e.key === "Enter" && assign()} placeholder="BOSSBOX1" />
+        </Field>
+        <div className="flex items-end gap-2">
+          <Button variant="primary" onClick={addBox} disabled={!flightId}>Agregar caja</Button>
+          <Button onClick={exportCajasXLSX} disabled={!flight}>Exportar XLSX</Button>
+        </div>
+        <div className="md:col-span-3">
+          {!flight && <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para empezar a armar las cajas." />}
+          {flight && flight.cajas.map((c, idx) => {
+            const couriers = new Set(c.paquetes.map(pid => packages.find(p => p.id === pid)?.courier).filter(Boolean));
+            const etiqueta = couriers.size === 0 ? "—" : (couriers.size === 1 ? [...couriers][0] : "MULTICOURIER");
+            const isActive = activeBoxId === c.id;
+            const isEditing = editingBoxId === c.id;
+            const peso = parseComma(c.peso || "0");
+            const L = parseIntEU(c.L || 0), A = parseIntEU(c.A || 0), H = parseIntEU(c.H || 0);
+            const est = pesoEstimado(c);
+
+            return (
+              <div key={c.id} className={`border rounded-xl p-4 mb-3 transition-shadow ${isActive ? "ring-2 ring-francia-500 shadow-lg" : "hover:shadow-md"}`} onClick={() => setActiveBoxId(c.id)}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-semibold text-slate-800">
+                    {c.codigo} — {etiqueta} — <span>{fmtPeso(peso)} kg</span> — {L}x{A}x{H} cm
+                    {isActive && <span className="ml-2 text-francia-600 text-xs font-bold">(ACTIVA)</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="icon" onClick={(e) => { e.stopPropagation(); handlePrintBoxLabel(c, idx); }} title="Imprimir etiqueta de caja">{Iconos.print}</Button>
+                    {!isEditing
+                      ? <Button variant="icon" onClick={(e) => { e.stopPropagation(); startEditing(c); }}>{Iconos.edit}</Button>
+                      : <Button variant="icon" className="bg-green-100 text-green-700" onClick={(e) => { e.stopPropagation(); saveBoxChanges(); }}>{Iconos.save}</Button>
+                    }
+                    <Button variant="icon" onClick={(e) => { e.stopPropagation(); reorderBox(c.id, "up") }}>↑</Button>
+                    <Button variant="icon" onClick={(e) => { e.stopPropagation(); reorderBox(c.id, "down") }}>↓</Button>
+                    <Button variant="iconDanger" onClick={(e) => { e.stopPropagation(); removeBox(c.id) }}>{Iconos.delete}</Button>
+                  </div>
+                </div>
+                <div className="text-xs text-slate-600 mb-3">
+                  <b>Peso estimado:</b> {fmtPeso(est)} kg (cartón {fmtPeso(parseComma(c.peso_carton || "0"))} kg + paquetes)
+                </div>
+                {isEditing && editingBoxData && (
+                  <div className="grid md:grid-cols-5 gap-4 mb-3 p-3 bg-slate-50 rounded-lg" onClick={e => e.stopPropagation()}>
+                    <Field label="Nombre"><Input value={editingBoxData.codigo} onChange={e => setEditingBoxData({ ...editingBoxData, codigo: e.target.value })} /></Field>
+                    <Field label="Peso (kg)"><Input value={editingBoxData.peso || ""} onChange={e => setEditingBoxData({ ...editingBoxData, peso: e.target.value })} placeholder="3,128" /></Field>
+                    <Field label="Largo (cm)"><Input value={editingBoxData.L || ""} onChange={e => setEditingBoxData({ ...editingBoxData, L: e.target.value })} /></Field>
+                    <Field label="Ancho (cm)"><Input value={editingBoxData.A || ""} onChange={e => setEditingBoxData({ ...editingBoxData, A: e.target.value })} /></Field>
+                    <Field label="Alto (cm)"><Input value={editingBoxData.H || ""} onChange={e => setEditingBoxData({ ...editingBoxData, H: e.target.value })} /></Field>
+                  </div>
+                )}
+                <ul className="text-sm space-y-2">
+                  {c.paquetes.map(pid => {
+                    const p = packages.find(x => x.id === pid); if (!p) return null;
+                    return (
+                      <li key={pid} className="flex items-center gap-3 p-2 bg-slate-50 rounded-md">
+                        <span className="font-mono text-slate-800">{p.codigo}</span><span className="text-slate-500">{p.courier}</span>
+                        <div className="flex-grow" />
+                        {flight.cajas.length > 1 && (
+                          <select className="text-xs border-slate-300 rounded px-1 py-0.5" defaultValue="" onChange={e => { e.stopPropagation(); move(pid, c.id, e.target.value) }}>
+                            <option value="" disabled>Mover a…</option>
+                            {flight.cajas.filter(x => x.id !== c.id).map(x => <option key={x.id} value={x.id}>{x.codigo}</option>)}
+                          </select>
+                        )}
+                        <Button variant="iconDanger" onClick={(e) => {
+                          e.stopPropagation();
+                          const updatedPaquetes = c.paquetes.filter(z => z !== pid);
+                          const updatedCaja = { ...c, paquetes: updatedPaquetes };
+                          const updatedCajas = flight.cajas.map(cj => cj.id === c.id ? updatedCaja : cj);
+                          onUpdateFlight({ ...flight, cajas: updatedCajas });
+                        }}>{Iconos.delete}</Button>
+                      </li>
+                    );
+                  })}
+                  {c.paquetes.length === 0 && <li className="text-slate-500 text-center py-2 text-xs">Escanea un paquete para agregarlo a esta caja</li>}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </Section>
+  );
+}

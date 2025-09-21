@@ -1,0 +1,193 @@
+/* eslint-disable react/prop-types */
+import React, { useMemo, useState } from "react";
+
+// Componentes
+import { Section } from "../common/Section";
+import { Input } from "../common/Input";
+import { Field } from "../common/Field";
+import { EmptyState } from "../common/EmptyState";
+import { Button } from "../common/Button";
+
+// Helpers & Constantes
+import {
+  Iconos,
+  fmtPeso,
+  sum,
+  ESTADOS_CARGA,
+  limpiar,
+  sheetFromAOAStyled,
+  downloadXLSX,
+  th,
+  td,
+  tdNum,
+  tdInt
+} from "../../utils/helpers.jsx";
+
+export function CargasEnviadas({ packages, flights, user }) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [estado, setEstado] = useState("");
+  const [flightId, setFlightId] = useState("");
+  const isAdmin = user.role === 'ADMIN';
+  const isCourier = user.role === 'COURIER';
+
+  const list = flights
+    .filter(f => f.estado !== "En bodega")
+    .filter(f => !from || f.fecha_salida >= from)
+    .filter(f => !to || f.fecha_salida <= to)
+    .filter(f => !estado || f.estado === estado);
+
+  const flight = flights.find(f => f.id === flightId);
+  const pref = user.role === "COURIER" ? limpiar(user.courier) : null;
+
+  const paquetesDeVuelo = useMemo(() => (flight
+    ? packages.filter(p => p.flight_id === flightId)
+    : []
+  ).filter(p => user.role !== "COURIER" || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref))), [flight, packages, user, pref, flightId]);
+
+  const courierTotals = useMemo(() => {
+    if (!flight || !isCourier) return { facturable: 0, exceso: 0 };
+    const courierPackages = packages.filter(p => p.flight_id === flightId && p.courier === user.courier);
+    return {
+      facturable: sum(courierPackages.map(p => p.peso_facturable)),
+      exceso: sum(courierPackages.map(p => p.exceso_volumen))
+    };
+  }, [flight, packages, isCourier, user.courier, flightId]);
+
+  const resumenCajas = useMemo(() => {
+    if (!flight) return [];
+    return (flight.cajas || []).map((c, i) => {
+      const peso = parseFloat(String(c.peso || "0").replace(",", "."));
+      const L = parseInt(c.L || 0, 10), A = parseInt(c.A || 0, 10), H = parseInt(c.H || 0, 10);
+      const vol = (A * H * L) / 6000 || 0;
+      const visibleIds = new Set(paquetesDeVuelo.map(p => p.id));
+      const idsDeCaja = c.paquetes.filter(pid => visibleIds.has(pid));
+      const couriers = new Set(idsDeCaja.map(pid => packages.find(p => p.id === pid)?.courier).filter(Boolean));
+      const etiqueta = couriers.size === 0 ? "—" : (couriers.size === 1 ? [...couriers][0] : "MULTICOURIER");
+      return { n: i + 1, codigo: c.codigo, courier: etiqueta, peso, L, A, H, vol };
+    });
+  }, [flight, paquetesDeVuelo]);
+
+  const totPeso = sum(resumenCajas.map(r => r.peso));
+  const totVol = sum(resumenCajas.map(r => r.vol));
+
+  function exportFlightXLSX() {
+    if (!flight) { alert("Seleccioná una carga."); return; }
+
+    // --- CAMBIOS EN ESTA SECCIÓN ---
+    const headerPacking = ["Courier", "Casilla", "Código de paquete", "Fecha", "Empresa de envío", "Nombre y apellido", "CI/RUC", "Tracking", "Remitente", "Peso real", "Peso facturable", "Medidas", "Exceso de volumen", "Descripción", "Precio (EUR)"].map(th);
+    const bodyPacking = paquetesDeVuelo.map(p => [
+      td(p.courier), td(p.casilla), td(p.codigo), td(p.fecha), td(p.empresa_envio), td(p.nombre_apellido),
+      td(p.ci_ruc), td(p.tracking), td(p.remitente), tdNum(p.peso_real, "0.000"), tdNum(p.peso_facturable, "0.000"),
+      td(`${p.largo}x${p.ancho}x${p.alto} cm`), tdNum(p.exceso_volumen, "0.000"), td(p.descripcion), tdNum(p.valor_aerolinea, "0.00")
+    ]);
+    const sheetPacking = sheetFromAOAStyled("Packing list", [headerPacking, ...bodyPacking], {
+        cols: [{wch:16},{wch:10},{wch:18},{wch:12},{wch:20},{wch:22},{wch:15},{wch:18},{wch:18},{wch:12},{wch:14},{wch:14},{wch:14},{wch:28},{wch:12}],
+        rows: [{hpt:24}]
+    });
+    // --- FIN DE CAMBIOS ---
+
+    if (isAdmin) {
+      const headerCajas = ["Nº de Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(th);
+      const bodyCajas = resumenCajas.map(c => [
+        td(c.codigo), td(c.courier), tdNum(c.peso, "0.000"), tdInt(c.L), tdInt(c.A), tdInt(c.H), tdNum(c.vol, "0.000")
+      ]);
+      const totalsRow = [
+        td(""), th("Totales"), tdNum(totPeso, "0.000"), td(""), td(""), td(""), tdNum(totVol, "0.000")
+      ];
+      const sheetCajas = sheetFromAOAStyled("Cajas", [headerCajas, ...bodyCajas, totalsRow], {
+        cols: [{ wch: 14 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }],
+        rows: [{ hpt: 24 }]
+      });
+      downloadXLSX(`Carga_${flight.codigo}.xlsx`, [sheetPacking, sheetCajas]);
+    } else {
+      downloadXLSX(`Carga_${flight.codigo}.xlsx`, [sheetPacking]);
+    }
+  }
+
+  return (
+    <Section title="Cargas enviadas">
+      <div className="grid md:grid-cols-6 gap-4 items-end">
+        <Field label="Desde"><Input type="date" value={from} onChange={e => setFrom(e.target.value)} /></Field>
+        <Field label="Hasta"><Input type="date" value={to} onChange={e => setTo(e.target.value)} /></Field>
+        <Field label="Estado">
+          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={estado} onChange={e => setEstado(e.target.value)}>
+            <option value="">Todos</option>
+            {ESTADOS_CARGA.filter(s => s !== 'En bodega').map(s => <option key={s}>{s}</option>)}
+          </select>
+        </Field>
+        <Field label="Carga">
+          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => setFlightId(e.target.value)}>
+            <option value="">Seleccionar…</option>
+            {list.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
+          </select>
+        </Field>
+        <div className="md:col-span-2 flex items-end justify-end">
+          <Button onClick={exportFlightXLSX} disabled={!flight}>
+            Exportar XLSX
+          </Button>
+        </div>
+      </div>
+
+      {!flight ? <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para ver sus paquetes y cajas." /> : (
+        <>
+          <div className="flex justify-between items-center mt-6 mb-2">
+            <h3 className="text-lg font-semibold text-slate-800">Paquetes del vuelo: {flight.codigo}</h3>
+            {isCourier && (
+              <div className="flex gap-4 text-sm">
+                <div><b>Kg Facturables:</b> <span className="font-mono">{fmtPeso(courierTotals.facturable)} kg</span></div>
+                <div><b>Exceso Volumétrico:</b> <span className="font-mono">{fmtPeso(courierTotals.exceso)} kg</span></div>
+              </div>
+            )}
+          </div>
+          <div className="overflow-x-auto mb-6">
+            <table className="min-w-full text-sm">
+              <thead><tr className="bg-slate-50">{["Courier", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-200">
+                {paquetesDeVuelo.map(p => (
+                  <tr key={p.id} className="hover:bg-slate-50">
+                    <td className="px-3 py-2">{p.courier}</td>
+                    <td className="px-3 py-2 font-mono">{p.codigo}</td>
+                    <td className="px-3 py-2">{p.casilla}</td>
+                    <td className="px-3 py-2">{p.fecha}</td>
+                    <td className="px-3 py-2">{p.nombre_apellido}</td>
+                    <td className="px-3 py-2 font-mono">{p.tracking}</td>
+                    <td className="px-3 py-2">{fmtPeso(p.peso_real)}</td>
+                    <td className="px-3 py-2">{p.largo}x{p.ancho}x{p.alto} cm</td>
+                    <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)}</td>
+                    <td className="px-3 py-2">{p.descripcion}</td>
+                  </tr>
+                ))}
+                {paquetesDeVuelo.length === 0 && <tr><td colSpan={10}><EmptyState icon={Iconos.box} title="Sin paquetes" message="No hay paquetes para mostrar para tu usuario en esta carga." /></td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {isAdmin &&
+            <>
+              <h3 className="text-lg font-semibold text-slate-800 mt-6 mb-2">Resumen de Cajas</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead><tr className="bg-slate-50">{["Nº Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {resumenCajas.map(r => (
+                      <tr key={r.n} className="hover:bg-slate-50">
+                        <td className="px-3 py-2">{r.codigo}</td>
+                        <td className="px-3 py-2">{r.courier}</td>
+                        <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
+                        <td className="px-3 py-2">{r.L}</td>
+                        <td className="px-3 py-2">{r.A}</td>
+                        <td className="px-3 py-2">{r.H}</td>
+                        <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-slate-100 font-bold"><td className="px-3 py-2"></td><td className="px-3 py-2">Totales</td><td className="px-3 py-2">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2">{fmtPeso(totVol)}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </>
+          }
+        </>
+      )}
+    </Section>
+  );
+}

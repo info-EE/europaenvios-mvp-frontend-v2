@@ -94,4 +94,4 @@ Sigue estos pasos para ejecutar el proyecto en tu máquina local.
 
 ## ☁️ Despliegue
 
-La aplicación está configurada para un despliegue continuo en **Vercel**. Cualquier cambio que se suba a la rama `main` del repositorio de GitHub activará automáticamente un nuevo despliegue.
+La aplicación está configurada para un despliegue continuo en **Vercel**. Cualquier cambio que se suba a la rama `main` del repositorio de GitHub activará automáticamente un nuevo despliegue

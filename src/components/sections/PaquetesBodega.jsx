@@ -1,12 +1,19 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
-import { Section } from "../common/Section";
-import { Input } from "../common/Input";
-import { Field } from "../common/Field";
-import { Modal } from "../common/Modal";
-import { EmptyState } from "../common/EmptyState";
-import { Button } from "../common/Button";
+
+// Context
+import { useModal } from "../../context/ModalContext.jsx";
+
+// Componentes
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { Modal } from "../common/Modal.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
+
+// Helpers & Constantes
 import {
   Iconos,
   fmtPeso,
@@ -30,7 +37,7 @@ import {
   estadosPermitidosPorCarga
 } from "../../utils/helpers.jsx";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { storage } from "../../firebase";
+import { storage } from "../../firebase.js";
 
 const CustomPieLegend = ({ payload }) => (
     <div className="w-1/3 text-xs overflow-y-auto" style={{maxHeight: '16rem'}}>
@@ -60,8 +67,10 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   const [q, setQ] = useState("");
   const [flightId, setFlightId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateTo, setTo] = useState("");
   const [sort, setSort] = useState({ key: 'fecha', dir: 'desc' });
+
+  const { showAlert, showConfirmation } = useModal();
 
   const toggleSort = (key) => {
     setSort(s => s.key === key ? { key, dir: (s.dir === "asc" ? "desc" : "asc") } : { key, dir: "asc" });
@@ -160,7 +169,6 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                 codigo: form.codigo,
                 oldFlight: oldFlight?.codigo || 'N/A',
                 newFlight: newFlight?.codigo || 'N/A',
-                // --- CAMBIO AÑADIDO ---
                 foto: form.fotos?.[0] || null,
             }
         };
@@ -190,10 +198,13 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       try {
         const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
         streamRef.current = s; if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); }
-      } catch { alert("No se pudo acceder a la cámara."); setCamOpen(false); }
+      } catch { 
+          showAlert("Error de cámara", "No se pudo acceder a la cámara.");
+          setCamOpen(false); 
+      }
     })();
     return () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } };
-  }, [camOpen]);
+  }, [camOpen, showAlert]);
 
   const handleImageUpload = async (imageDataUrl) => {
     if (!imageDataUrl || !form) return;
@@ -206,7 +217,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       setForm(f => ({ ...f, fotos: [...f.fotos, downloadURL] }));
     } catch (error) {
       console.error("Error al subir imagen:", error);
-      alert("Hubo un error al subir la foto.");
+      await showAlert("Error de subida", "Hubo un error al subir la foto.");
     } finally {
       setIsUploading(false);
     }
@@ -262,8 +273,12 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
     downloadXLSX("Paquetes_en_bodega.xlsx", [{ name: "Bodega", ws }]);
   }
 
-  const requestDelete = (p)=>{
-    if (window.confirm(`¿Eliminar el paquete ${p.codigo}? Esta acción no se puede deshacer.`)) {
+  const requestDelete = async (p) => {
+    const confirmed = await showConfirmation(
+        "Confirmar eliminación",
+        `¿Eliminar el paquete ${p.codigo}? Esta acción no se puede deshacer.`
+    );
+    if (confirmed) {
       onDelete(p.id);
     }
   };

@@ -1,8 +1,11 @@
 /* eslint-disable react/prop-types */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { db, storage } from "../../firebase";
+import { db, storage } from "../../firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, getDoc, runTransaction } from "firebase/firestore";
+
+// Context
+import { useModal } from "../../context/ModalContext.jsx";
 
 // Componentes
 import { Section } from "../common/Section.jsx";
@@ -47,6 +50,8 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileRef = useRef(null);
+  
+  const { showAlert } = useModal();
 
   const codigoCargaSel = useMemo(() => flights.find(f => f.id === flightId)?.codigo || "", [flightId, flights]);
   const estadosPermitidos = useMemo(() => estadosPermitidosPorCarga(codigoCargaSel, estados.map(e => e.name)), [codigoCargaSel, estados]);
@@ -111,12 +116,12 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
 
   const submit = async () => {
     if (isUploading) return;
-    if (!flightId) { alert("Seleccioná una Carga."); return; }
-    if (!okCampos()) { alert("Faltan campos."); return; }
+    if (!flightId) { await showAlert("Error de validación", "Seleccioná una Carga."); return; }
+    if (!okCampos()) { await showAlert("Error de validación", "Faltan campos obligatorios."); return; }
 
     const fl = flights.find(f => f.id === flightId);
     if (fl?.codigo.toUpperCase().startsWith("AIR-MULTI") && form.courier === "ParaguayBox") {
-      alert("No se permite cargar paquetes de ParaguayBox en cargas que comiencen con AIR-MULTI.");
+      await showAlert("Validación de Carga", "No se permite cargar paquetes de ParaguayBox en cargas que comiencen con AIR-MULTI.");
       return;
     }
 
@@ -139,12 +144,12 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
       });
     } catch (e) {
       console.error("Error en la transacción del contador: ", e);
-      alert(`No se pudo generar el código del paquete. Error: ${e.message}`);
+      await showAlert("Error de base de datos", `No se pudo generar el código del paquete. Error: ${e.message}`);
       return;
     }
 
     if (packages.some(p => p.flight_id === flightId && p.codigo === finalCode)) {
-      alert(`Error: El código de paquete "${finalCode}" ya existe en esta carga. Intente de nuevo.`);
+      await showAlert("Error de duplicado", `El código de paquete "${finalCode}" ya existe en esta carga. Intente de nuevo.`);
       return;
     }
 
@@ -184,10 +189,13 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
       try {
         const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
         streamRef.current = s; if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); }
-      } catch { alert("No se pudo acceder a la cámara."); setCamOpen(false); }
+      } catch { 
+        showAlert("Error de cámara", "No se pudo acceder a la cámara.");
+        setCamOpen(false); 
+      }
     })();
     return () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } };
-  }, [camOpen]);
+  }, [camOpen, showAlert]);
 
   const handleImageUpload = async (imageDataUrl) => {
     if (!imageDataUrl) return;
@@ -200,7 +208,7 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
       setForm(f => ({ ...f, fotos: [...f.fotos, downloadURL] }));
     } catch (error) {
       console.error("Error al subir imagen:", error);
-      alert("Hubo un error al subir la foto.");
+      await showAlert("Error de subida", "Hubo un error al subir la foto.");
     } finally {
       setIsUploading(false);
     }

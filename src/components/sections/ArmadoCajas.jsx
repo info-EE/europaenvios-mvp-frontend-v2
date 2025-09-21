@@ -1,13 +1,18 @@
 /* eslint-disable react/prop-types */
 import React, { useState, useEffect } from "react";
-import ExcelJS from "exceljs/dist/exceljs.min.js";
+import ExcelJS from "exceljs";
 
-import { Section } from "../common/Section";
-import { Input } from "../common/Input";
-import { Field } from "../common/Field";
-import { EmptyState } from "../common/EmptyState";
-import { Button } from "../common/Button";
+// Context
+import { useModal } from "../../context/ModalContext.jsx";
 
+// Componentes
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
+
+// Helpers & Constantes
 import {
   Iconos,
   uuid,
@@ -25,9 +30,10 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
   const flight = flights.find(f => f.id === flightId);
   const [scan, setScan] = useState("");
   const [activeBoxId, setActiveBoxId] = useState(null);
-
   const [editingBoxId, setEditingBoxId] = useState(null);
   const [editingBoxData, setEditingBoxData] = useState(null);
+
+  const { showPrompt, showConfirmation, showAlert } = useModal();
 
   useEffect(() => {
     if (flightId) {
@@ -61,9 +67,14 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
     cancelEditing();
   };
 
-  function addBox() {
+  const addBox = async () => {
     if (!flightId || !flight) return;
-    const inTxt = window.prompt("Ingresá el peso de la caja de cartón (kg), ej: 0,250", "0,250");
+    const inTxt = await showPrompt({
+        title: "Peso de la caja",
+        message: "Ingresá el peso de la caja de cartón (kg).",
+        inputLabel: "Peso (kg)",
+        initialValue: "0,250"
+    });
     if (inTxt === null) return;
     const peso_carton = fmtPeso(parseComma(inTxt));
     const n = (flight?.cajas?.length || 0) + 1;
@@ -73,13 +84,13 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
     setActiveBoxId(newBox.id);
   }
 
-  function assign() {
+  const assign = async () => {
     if (!scan || !flight) return;
     const pkg = packages.find(p => p.flight_id === flightId && String(p.codigo || "").toUpperCase() === scan.toUpperCase());
-    if (!pkg) { alert("No existe ese código en esta carga."); setScan(""); return; }
-    if (flight.cajas.some(c => c.paquetes.includes(pkg.id))) { alert("Ya está en una caja."); setScan(""); return; }
+    if (!pkg) { await showAlert("Error de código", "No existe ese código en esta carga."); setScan(""); return; }
+    if (flight.cajas.some(c => c.paquetes.includes(pkg.id))) { await showAlert("Paquete ya asignado", "Este paquete ya está en una caja."); setScan(""); return; }
     const currentActiveId = activeBoxId || flight.cajas[0]?.id;
-    if (!currentActiveId) { alert("Creá una caja primero."); return; }
+    if (!currentActiveId) { await showAlert("Sin caja activa", "Creá o seleccioná una caja primero."); return; }
 
     const updatedCajas = flight.cajas.map(c =>
       c.id !== currentActiveId ? c : { ...c, paquetes: [...c.paquetes, pkg.id] }
@@ -98,10 +109,14 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
     onUpdateFlight({ ...flight, cajas: newCajas });
   }
 
-  function removeBox(id) {
+  const removeBox = async (id) => {
     if (!flight) return;
-    const ok = window.confirm("¿Seguro que quieres eliminar esta caja? Los paquetes que contiene volverán a la lista de 'Paquetes en Bodega'.");
+    const ok = await showConfirmation(
+        "Confirmar eliminación",
+        "¿Seguro que quieres eliminar esta caja? Los paquetes que contiene volverán a la lista de 'Paquetes en Bodega'."
+    );
     if (!ok) return;
+
     const updatedCajas = flight.cajas.filter(c => c.id !== id);
     onUpdateFlight({ ...flight, cajas: updatedCajas });
     if (activeBoxId === id) setActiveBoxId(null);
@@ -129,8 +144,8 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
   }
 
   async function exportCajasXLSX() {
-    if (!flight) { alert("Seleccioná una carga."); return; }
-    if (!flight.cajas || flight.cajas.length === 0) { alert("No hay cajas en esta carga para exportar."); return; }
+    if (!flight) { await showAlert("Seleccionar carga", "Seleccioná una carga para exportar."); return; }
+    if (!flight.cajas || flight.cajas.length === 0) { await showAlert("Sin cajas", "No hay cajas en esta carga para exportar."); return; }
 
     const wb = new ExcelJS.Workbook();
     const thinBorder = { style: "thin", color: { argb: "FF000000" } };
@@ -148,7 +163,6 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
       });
 
       const couriers = Object.keys(byCourier).sort();
-      // --- CAMBIO AÑADIDO: Calcular anchos de columna ---
       const colWidths = {};
 
       ws.getCell('B2').value = "CONTROL DE PAQUETES";
@@ -167,7 +181,6 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
 
       let col = 2;
       couriers.forEach(c => {
-        // --- CAMBIO AÑADIDO: Lógica de anchos ---
         let maxLen = c.length;
         const cell = ws.getCell(4, col);
         cell.value = c;
@@ -181,11 +194,10 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
           pkgCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEBE0' } };
           row++;
         });
-        colWidths[col] = maxLen + 2; // Añadir padding
+        colWidths[col] = maxLen + 2;
         col++;
       });
       
-      // --- CAMBIO AÑADIDO: Aplicar anchos calculados ---
       Object.entries(colWidths).forEach(([colIndex, width]) => {
         ws.getColumn(Number(colIndex)).width = width;
       });
@@ -222,7 +234,6 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
       pesoKg: parseComma(caja.peso || "0"),
       medidasTxt: `${caja.L || 0} x ${caja.A || 0} x ${caja.H || 0}`,
       fecha: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' }),
-      // --- CAMBIO AÑADIDO ---
       cargaTxt: flight.codigo,
     };
     const html = boxLabelHTML(data);

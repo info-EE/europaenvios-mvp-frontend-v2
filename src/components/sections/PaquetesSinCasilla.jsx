@@ -1,16 +1,19 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { db, storage } from "../../firebase";
+import { db, storage } from "../../firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, runTransaction } from "firebase/firestore";
 
+// Context
+import { useModal } from "../../context/ModalContext.jsx";
+
 // Componentes
-import { Section } from "../common/Section";
-import { Input } from "../common/Input";
-import { Field } from "../common/Field";
-import { Modal } from "../common/Modal";
-import { EmptyState } from "../common/EmptyState";
-import { Button } from "../common/Button";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { Modal } from "../common/Modal.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
 import {
@@ -38,13 +41,18 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
   const [camOpen, setCamOpen] = useState(false);
   const [viewer, setViewer] = useState(null);
 
+  const { showAlert, showConfirmation, showPrompt } = useModal();
+
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileRef = useRef(null);
 
   const add = async () => {
     if (!isAdmin || isAdding || isUploading) return;
-    if (!fecha || !nombre.trim()) { alert("Completá Fecha y Nombre."); return; }
+    if (!fecha || !nombre.trim()) { 
+      await showAlert("Campos requeridos", "Completá los campos de Fecha y Nombre."); 
+      return; 
+    }
 
     setIsAdding(true);
     let finalNumero = 0;
@@ -69,7 +77,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
       setFoto(null);
     } catch (e) {
       console.error("Error al crear paquete sin casilla: ", e);
-      alert(`No se pudo generar el paquete. Error: ${e.message}`);
+      await showAlert("Error de base de datos", `No se pudo generar el paquete. Error: ${e.message}`);
     } finally {
       setIsAdding(false);
     }
@@ -81,10 +89,13 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
       try {
         const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
         streamRef.current = s; if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); }
-      } catch { alert("No se pudo acceder a la cámara."); setCamOpen(false); }
+      } catch { 
+        showAlert("Error de cámara", "No se pudo acceder a la cámara.");
+        setCamOpen(false); 
+      }
     })();
     return () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } };
-  }, [camOpen]);
+  }, [camOpen, showAlert]);
 
   const handleImageUpload = async (imageDataUrl, target) => {
     if (!imageDataUrl) return;
@@ -101,7 +112,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
       }
     } catch (error) {
       console.error("Error al subir imagen:", error);
-      alert("Hubo un error al subir la foto.");
+      await showAlert("Error de subida", "Hubo un error al subir la foto.");
     } finally {
       setIsUploading(false);
     }
@@ -124,9 +135,13 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
     r.readAsDataURL(file);
   };
 
-  const handleAsignarCasilla = (paquete) => {
+  const handleAsignarCasilla = async (paquete) => {
     if (!isAdmin) return;
-    const casilla = window.prompt(`Asignar casilla para el paquete Nº ${paquete.numero} (${paquete.nombre}):`);
+    const casilla = await showPrompt({
+        title: "Asignar Casilla",
+        message: `Ingresá el número de casilla para el paquete Nº ${paquete.numero} (${paquete.nombre}):`,
+        inputLabel: "Nº de Casilla"
+    });
     if (casilla && casilla.trim()) {
       onAsignarCasilla(paquete, casilla);
     }
@@ -156,11 +171,13 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
     setEditId(null);
   }
   function cancelEdit() { setEditId(null); }
-  function removeRow(r) {
+  
+  const removeRow = async (r) => {
     if (!isAdmin) return;
-    const ok = window.confirm(`¿Eliminar el paquete Nº ${r.numero}?`);
-    if (!ok) return;
-    onRemove(r.id);
+    const confirmed = await showConfirmation("Confirmar eliminación", `¿Seguro que quieres eliminar el paquete Nº ${r.numero}?`);
+    if (confirmed) {
+      onRemove(r.id);
+    }
   }
 
   function exportXLSX() {

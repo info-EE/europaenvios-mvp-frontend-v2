@@ -3,23 +3,25 @@
 import React, { useEffect, useState } from "react";
 
 // Firebase
-import { db, auth, signOut, onAuthStateChanged } from "./firebase";
+import { db, auth, signOut, onAuthStateChanged } from "./firebase.js";
 import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc } from "firebase/firestore";
 
-// Componentes de Secciones
-import { Login } from "./components/sections/Login";
-import { Dashboard } from "./components/sections/Dashboard";
-import { Reception } from "./components/sections/Reception";
-import { PaquetesSinCasilla } from "./components/sections/PaquetesSinCasilla";
-import { Usuarios } from "./components/sections/Usuarios";
-import { Pendientes } from "./components/sections/Pendientes";
-import { PaquetesBodega } from "./components/sections/PaquetesBodega";
-import { ArmadoCajas } from "./components/sections/ArmadoCajas";
-import { CargasEnviadas } from "./components/sections/CargasEnviadas";
-import { CargasAdmin } from "./components/sections/CargasAdmin";
-import { Proformas } from "./components/sections/Proformas";
-import { Extras } from "./components/sections/Extras";
+// Context
+import { useModal } from "./context/ModalContext.jsx";
 
+// Componentes de Secciones
+import { Login } from "./components/sections/Login.jsx";
+import { Dashboard } from "./components/sections/Dashboard.jsx";
+import { Reception } from "./components/sections/Reception.jsx";
+import { PaquetesSinCasilla } from "./components/sections/PaquetesSinCasilla.jsx";
+import { Usuarios } from "./components/sections/Usuarios.jsx";
+import { Pendientes } from "./components/sections/Pendientes.jsx";
+import { PaquetesBodega } from "./components/sections/PaquetesBodega.jsx";
+import { ArmadoCajas } from "./components/sections/ArmadoCajas.jsx";
+import { CargasEnviadas } from "./components/sections/CargasEnviadas.jsx";
+import { CargasAdmin } from "./components/sections/CargasAdmin.jsx";
+import { Proformas } from "./components/sections/Proformas.jsx";
+import { Extras } from "./components/sections/Extras.jsx";
 
 // Helpers y Constantes
 import { Iconos, tabsForRole, COURIERS_INICIALES, ESTADOS_INICIALES } from "./utils/helpers.jsx";
@@ -37,6 +39,8 @@ function App() {
   const [extras, setExtras] = useState([]);
   const [sinCasillaItems, setSinCasillaItems] = useState([]);
   const [pendientes, setPendientes] = useState([]);
+  
+  const { showConfirmation } = useModal();
 
   // Listener de Autenticación
   useEffect(() => {
@@ -117,7 +121,6 @@ function App() {
       data: {
         numero: paquete.numero, nombre: paquete.nombre,
         tracking: paquete.tracking, casilla: casilla.trim().toUpperCase(),
-        // --- CAMBIO AÑADIDO ---
         foto: paquete.foto || null 
       }
     };
@@ -145,7 +148,10 @@ function App() {
   }
   
   const handleLogout = async () => {
-    await signOut(auth);
+    const confirmed = await showConfirmation("Cerrar Sesión", "¿Estás seguro de que quieres cerrar sesión?");
+    if (confirmed) {
+        await signOut(auth);
+    }
   };
 
   const allowedTabs = tabsForRole(currentUser.role);

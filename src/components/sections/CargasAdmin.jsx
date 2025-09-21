@@ -1,12 +1,15 @@
 /* eslint-disable react/prop-types */
 import React, { useState } from "react";
 
+// Context
+import { useModal } from "../../context/ModalContext.jsx";
+
 // Componentes
-import { Section } from "../common/Section";
-import { Input } from "../common/Input";
-import { Field } from "../common/Field";
-import { EmptyState } from "../common/EmptyState";
-import { Button } from "../common/Button";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
 import { Iconos, uuid, ESTADOS_CARGA } from "../../utils/helpers.jsx";
@@ -18,14 +21,16 @@ export function CargasAdmin({ flights, onAdd, onUpdate, onDelete, packages }) {
   const [fac, setFac] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
 
+  const { showAlert, showConfirmation } = useModal();
+
   const today = new Date();
   const thirtyDaysAgo = new Date(new Date().setDate(today.getDate() - 30)).toISOString().slice(0, 10);
   const [from, setFrom] = useState(thirtyDaysAgo);
   const [to, setTo] = useState("");
 
-  function create() {
+  const create = async () => {
     if (!code.trim()) {
-      alert("El código de carga es obligatorio.");
+      await showAlert("Campo requerido", "El código de carga es obligatorio.");
       return;
     }
     onAdd({ codigo: code.trim().toUpperCase(), fecha_salida: date, estado: "En bodega", awb, factura_cacesa: fac, cajas: [], docs: [] });
@@ -39,25 +44,27 @@ export function CargasAdmin({ flights, onAdd, onUpdate, onDelete, packages }) {
     return missingIds.map(id => packages.find(p => p.id === id)?.codigo || 'ID desconocido');
   }
 
-  function updateField(f, field, value) {
+  const updateField = async (f, field, value) => {
     if (field === "estado" && value !== "En bodega" && f.estado === 'En bodega') {
       const missingPackages = getMissingScanPackages(f);
       if (missingPackages.length > 0) {
         const packageList = missingPackages.join(', ');
         const message = `Atención: Faltan escanear ${missingPackages.length} paquete(s) en "Armado de cajas" para la carga ${f.codigo}.\n\nPaquetes faltantes: ${packageList}\n\n¿Deseás continuar igualmente?`;
-        if (!window.confirm(message)) return;
+        const confirmed = await showConfirmation("Paquetes Faltantes", message);
+        if (!confirmed) return;
       }
     }
     onUpdate({ ...f, [field]: value });
   }
 
-  function del(id, codigo) {
+  const del = async (id, codigo) => {
     const tienePaquetes = packages.some(p => p.flight_id === id);
     if (tienePaquetes) {
-      alert(`No se puede eliminar la carga ${codigo || ""} porque tiene paquetes asociados.`);
+      await showAlert("Operación no permitida", `No se puede eliminar la carga ${codigo || ""} porque tiene paquetes asociados.`);
       return;
     }
-    if (window.confirm(`¿Eliminar la carga ${codigo || id}?`)) {
+    const confirmed = await showConfirmation("Confirmar eliminación", `¿Eliminar la carga ${codigo || id}?`);
+    if (confirmed) {
       onDelete(id);
     }
   }

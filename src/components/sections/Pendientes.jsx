@@ -1,12 +1,17 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useState } from "react";
-import { Section } from "../common/Section";
-import { Field } from "../common/Field";
-import { Input } from "../common/Input";
-import { Button } from "../common/Button";
-import { EmptyState } from "../common/EmptyState";
-import { Modal } from "../common/Modal";
-import { Iconos } from "../../utils/helpers";
+
+// Context
+import { useModal } from "../../context/ModalContext.jsx";
+
+// Componentes
+import { Section } from "../common/Section.jsx";
+import { Field } from "../common/Field.jsx";
+import { Input } from "../common/Input.jsx";
+import { Button } from "../common/Button.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Modal } from "../common/Modal.jsx";
+import { Iconos } from "../../utils/helpers.jsx";
 
 export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
   const [editItem, setEditItem] = useState(null);
@@ -18,6 +23,8 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [statusFilter, setStatusFilter] = useState("No realizada");
+
+  const { showAlert, showConfirmation } = useModal();
 
   const filteredItems = useMemo(() => {
     return items
@@ -44,14 +51,21 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
     onUpdate({ ...item, status: item.status === 'Realizada' ? 'No realizada' : 'Realizada' });
   };
 
-  const deleteTask = (id) => {
-    if (window.confirm("¿Seguro que quieres eliminar esta tarea pendiente? Esta acción no se puede deshacer.")) {
+  const deleteTask = async (id) => {
+    const confirmed = await showConfirmation(
+        "Confirmar eliminación",
+        "¿Seguro que quieres eliminar esta tarea pendiente? Esta acción no se puede deshacer."
+    );
+    if (confirmed) {
       onRemove(id);
     }
   };
 
-  const handleCreateTask = () => {
-    if (!newTask.details.trim()) { alert("Por favor, ingresá los detalles de la tarea."); return; }
+  const handleCreateTask = async () => {
+    if (!newTask.details.trim()) { 
+      await showAlert("Campo requerido", "Por favor, ingresá los detalles de la tarea."); 
+      return; 
+    }
     const taskToAdd = {
       type: newTask.type, status: "No realizada", fecha: newTask.fecha,
       data: { details: newTask.details }
@@ -94,7 +108,6 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
               <th className="text-left px-3 py-2 font-semibold text-slate-600">Fecha</th>
               <th className="text-left px-3 py-2 font-semibold text-slate-600">Tipo</th>
               <th className="text-left px-3 py-2 font-semibold text-slate-600">Detalles</th>
-              {/* --- CAMBIO AÑADIDO --- */}
               <th className="text-left px-3 py-2 font-semibold text-slate-600">Foto</th>
               <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>
             </tr>
@@ -105,7 +118,6 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
                 <td className="px-3 py-2">{item.fecha}</td>
                 <td className="px-3 py-2">{item.type === 'ASIGNAR_CASILLA' ? 'Asignar Casilla' : item.type === 'CAMBIO_CARGA' ? 'Cambio Carga' : 'Manual'}</td>
                 <td className="px-3 py-2">{renderTaskDetails(item)}</td>
-                {/* --- CAMBIO AÑADIDO --- */}
                 <td className="px-3 py-2">
                   {item.data?.foto ? (
                     <img src={item.data.foto} alt="Foto de paquete" className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={() => setViewer(item.data.foto)} />
@@ -163,7 +175,6 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
         )}
       </Modal>
       
-      {/* --- CAMBIO AÑADIDO --- */}
       <Modal open={!!viewer} onClose={() => setViewer(null)} title="Foto del Paquete">
         {viewer && (
           <a href={viewer} target="_blank" rel="noopener noreferrer" title="Abrir en nueva pestaña para hacer zoom">

@@ -1,11 +1,14 @@
 /* eslint-disable react/prop-types */
 import React, { useState, useMemo } from "react";
 
+// Context
+import { useModal } from "../../context/ModalContext.jsx";
+
 // Componentes
-import { Section } from "../common/Section";
-import { Input } from "../common/Input";
-import { Field } from "../common/Field";
-import { Button } from "../common/Button";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
 import { Iconos } from "../../utils/helpers.jsx";
@@ -21,7 +24,8 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
     const [to, setTo] = useState("");
     const [statusFilter, setStatusFilter] = useState("Pendiente");
 
-    // --- CAMBIO AÑADIDO ---
+    const { showAlert, showConfirmation } = useModal();
+
     const CargasDisponibles = useMemo(() => {
         return flights.filter(f => {
             const code = (f.codigo || "").toUpperCase();
@@ -29,9 +33,9 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
         });
     }, [flights]);
 
-    const add = () => {
+    const add = async () => {
         if (!(flightId && courier && desc && monto)) {
-            alert("Por favor, completa todos los campos para agregar un extra.");
+            await showAlert("Campos incompletos", "Por favor, completa todos los campos para agregar un extra.");
             return;
         }
         onAdd({ flight_id: flightId, courier, descripcion: desc, monto, estado, fecha });
@@ -45,8 +49,10 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
         .filter(e => statusFilter === 'Todos' || e.estado === statusFilter);
 
     const updateItem = (id, patch) => onUpdate({ id, ...patch });
-    const deleteItem = (id) => {
-        if (window.confirm("¿Seguro que quieres eliminar este extra?")) {
+    
+    const deleteItem = async (id) => {
+        const confirmed = await showConfirmation("Confirmar eliminación", "¿Seguro que quieres eliminar este extra?");
+        if (confirmed) {
             onDelete(id);
         }
     };
@@ -55,7 +61,6 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
         <Section title="Trabajos extras">
             <div className="grid md:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg items-end">
                 <Field label="Carga">
-                    {/* --- CAMBIO AÑADIDO --- */}
                     <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => setFlightId(e.target.value)}>
                         <option value="">Todas</option>
                         {CargasDisponibles.map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)}

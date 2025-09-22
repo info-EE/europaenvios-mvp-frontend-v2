@@ -79,13 +79,12 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   const pref = user.role === "COURIER" ? limpiar(user.courier) : null;
 
   const baseRows = useMemo(() => {
-    const paquetesEnCajaIds = new Set(flights.flatMap(f => f.cajas || []).flatMap(c => c.paquetes || []));
-    
     return packages
       .filter(p => {
         const flight = flights.find(f => f.id === p.flight_id);
         if (!flight) return false;
-        return flight.estado === "En bodega" && !paquetesEnCajaIds.has(p.id);
+        // Muestra todos los paquetes cuya carga esté "En bodega", sin importar si están en una caja.
+        return flight.estado === "En bodega";
       })
       .filter(p => !flightId || p.flight_id === flightId)
       .filter(p => !dateFrom || (p.fecha || "") >= dateFrom)
@@ -388,7 +387,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
         })()}
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Editar paquete">
+      <Modal open={open} onClose={() => setOpen(false)} title="Editar paquete" maxWidth="max-w-4xl">
         {form && (
           <div className="grid md:grid-cols-3 gap-4">
             <Field label="Carga"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}><option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}</select></Field>

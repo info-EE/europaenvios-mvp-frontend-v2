@@ -326,7 +326,7 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
           {isUploading ? "Subiendo foto..." : "Guardar paquete"}
         </Button>
       </div>
-      <Modal open={camOpen} onClose={() => setCamOpen(false)} title="Tomar foto">
+      <Modal open={camOpen} onClose={() => setCamOpen(false)} title="Tomar foto" maxWidth="max-w-2xl">
         <div className="space-y-3">
           <video ref={videoRef} playsInline className="w-full rounded-xl bg-black/50" />
           <div className="flex justify-end"> <Button variant="primary" onClick={tomarFoto}>Capturar</Button></div>

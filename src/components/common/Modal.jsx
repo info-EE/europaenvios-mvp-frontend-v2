@@ -1,8 +1,8 @@
 /* eslint-disable react/prop-types */
 import React from "react";
-import { Button } from "./Button.jsx";
+import { Button } from "./Button";
 
-export function Modal({ open, onClose, title, children }) {
+export function Modal({ open, onClose, title, children, maxWidth = "max-w-lg" }) {
   if (!open) return null;
 
   // Detener la propagación para evitar que el clic dentro del modal lo cierre
@@ -16,7 +16,7 @@ export function Modal({ open, onClose, title, children }) {
       onClick={onClose} // Cierra el modal si se hace clic en el fondo
     >
       <div 
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[92vh] overflow-auto flex flex-col"
+        className={`bg-white rounded-2xl shadow-xl w-full ${maxWidth} max-h-[92vh] overflow-auto flex flex-col`}
         onClick={handleModalContentClick}
       >
         <div className="flex items-center justify-between p-4 border-b border-slate-200 sticky top-0 bg-white z-10">

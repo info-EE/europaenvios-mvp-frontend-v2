@@ -7,6 +7,7 @@ import { Input } from "../common/Input";
 import { Field } from "../common/Field";
 import { EmptyState } from "../common/EmptyState";
 import { Button } from "../common/Button";
+import { Modal } from "../common/Modal";
 
 // Helpers & Constantes
 import {
@@ -28,6 +29,7 @@ export function CargasEnviadas({ packages, flights, user }) {
   const [to, setTo] = useState("");
   const [estado, setEstado] = useState("");
   const [flightId, setFlightId] = useState("");
+  const [viewer, setViewer] = useState(null);
   const isAdmin = user.role === 'ADMIN';
   const isCourier = user.role === 'COURIER';
 
@@ -66,7 +68,7 @@ export function CargasEnviadas({ packages, flights, user }) {
       const etiqueta = couriers.size === 0 ? "—" : (couriers.size === 1 ? [...couriers][0] : "MULTICOURIER");
       return { n: i + 1, codigo: c.codigo, courier: etiqueta, peso, L, A, H, vol };
     });
-  }, [flight, paquetesDeVuelo]);
+  }, [flight, paquetesDeVuelo, packages]);
 
   const totPeso = sum(resumenCajas.map(r => r.peso));
   const totVol = sum(resumenCajas.map(r => r.vol));
@@ -74,7 +76,6 @@ export function CargasEnviadas({ packages, flights, user }) {
   function exportFlightXLSX() {
     if (!flight) { alert("Seleccioná una carga."); return; }
 
-    // --- CAMBIOS EN ESTA SECCIÓN ---
     const headerPacking = ["Courier", "Casilla", "Código de paquete", "Fecha", "Empresa de envío", "Nombre y apellido", "CI/RUC", "Tracking", "Remitente", "Peso real", "Peso facturable", "Medidas", "Exceso de volumen", "Descripción", "Precio (EUR)"].map(th);
     const bodyPacking = paquetesDeVuelo.map(p => [
       td(p.courier), td(p.casilla), td(p.codigo), td(p.fecha), td(p.empresa_envio), td(p.nombre_apellido),
@@ -85,7 +86,6 @@ export function CargasEnviadas({ packages, flights, user }) {
         cols: [{wch:16},{wch:10},{wch:18},{wch:12},{wch:20},{wch:22},{wch:15},{wch:18},{wch:18},{wch:12},{wch:14},{wch:14},{wch:14},{wch:28},{wch:12}],
         rows: [{hpt:24}]
     });
-    // --- FIN DE CAMBIOS ---
 
     if (isAdmin) {
       const headerCajas = ["Nº de Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(th);
@@ -142,7 +142,7 @@ export function CargasEnviadas({ packages, flights, user }) {
           </div>
           <div className="overflow-x-auto mb-6">
             <table className="min-w-full text-sm">
-              <thead><tr className="bg-slate-50">{["Courier", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+              <thead><tr className="bg-slate-50">{["Courier", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción", "Foto"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
               <tbody className="divide-y divide-slate-200">
                 {paquetesDeVuelo.map(p => (
                   <tr key={p.id} className="hover:bg-slate-50">
@@ -156,9 +156,14 @@ export function CargasEnviadas({ packages, flights, user }) {
                     <td className="px-3 py-2">{p.largo}x{p.ancho}x{p.alto} cm</td>
                     <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)}</td>
                     <td className="px-3 py-2">{p.descripcion}</td>
+                    <td className="px-3 py-2">
+                        {(p.fotos && p.fotos.length > 0) ? 
+                            <img alt="foto" src={p.fotos[0]} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={() => setViewer(p.fotos)} /> 
+                            : "—"}
+                    </td>
                   </tr>
                 ))}
-                {paquetesDeVuelo.length === 0 && <tr><td colSpan={10}><EmptyState icon={Iconos.box} title="Sin paquetes" message="No hay paquetes para mostrar para tu usuario en esta carga." /></td></tr>}
+                {paquetesDeVuelo.length === 0 && <tr><td colSpan={11}><EmptyState icon={Iconos.box} title="Sin paquetes" message="No hay paquetes para mostrar para tu usuario en esta carga." /></td></tr>}
               </tbody>
             </table>
           </div>
@@ -188,6 +193,17 @@ export function CargasEnviadas({ packages, flights, user }) {
           }
         </>
       )}
+       <Modal open={!!viewer} onClose={() => setViewer(null)} title="Fotos del Paquete">
+        {viewer && (
+            <div className="flex flex-wrap gap-4 justify-center">
+                {viewer.map((url, index) => (
+                  <a key={index} href={url} target="_blank" rel="noopener noreferrer" title="Abrir en nueva pestaña para hacer zoom">
+                    <img src={url} alt={`Foto ${index + 1}`} className="max-w-full max-h-[70vh] rounded-xl cursor-zoom-in" />
+                  </a>
+                ))}
+            </div>
+        )}
+      </Modal>
     </Section>
   );
 }

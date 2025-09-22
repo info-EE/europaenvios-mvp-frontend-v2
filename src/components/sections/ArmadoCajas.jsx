@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 import React, { useState, useEffect } from "react";
-import ExcelJS from "exceljs";
+import ExcelJS from "exceljs/dist/exceljs.min.js";
 
 // Context
 import { useModal } from "../../context/ModalContext.jsx";
@@ -86,18 +86,49 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
 
   const assign = async () => {
     if (!scan || !flight) return;
-    const pkg = packages.find(p => p.flight_id === flightId && String(p.codigo || "").toUpperCase() === scan.toUpperCase());
-    if (!pkg) { await showAlert("Error de código", "No existe ese código en esta carga."); setScan(""); return; }
-    if (flight.cajas.some(c => c.paquetes.includes(pkg.id))) { await showAlert("Paquete ya asignado", "Este paquete ya está en una caja."); setScan(""); return; }
+    const upperScan = scan.toUpperCase();
+  
+    // Primero, encontrar el paquete en cualquier parte del sistema.
+    const pkg = packages.find(p => String(p.codigo || "").toUpperCase() === upperScan);
+  
+    // Si el paquete no existe en absoluto.
+    if (!pkg) {
+      await showAlert("Error de código", `El paquete con código "${upperScan}" no fue encontrado en el sistema.`);
+      setScan("");
+      return;
+    }
+  
+    // Si el paquete pertenece a un vuelo diferente.
+    if (pkg.flight_id !== flightId) {
+      const cargaDelPaquete = flights.find(f => f.id === pkg.flight_id)?.codigo || 'otra carga';
+      await showAlert("Paquete no pertenece a la carga", `El paquete ${pkg.codigo} pertenece a la carga "${cargaDelPaquete}", no a la carga actual.`);
+      setScan("");
+      return;
+    }
+  
+    // Ahora sabemos que el paquete es correcto. Comprobar si ya está en una caja en el vuelo actual.
+    if (flight.cajas.some(c => c.paquetes.includes(pkg.id))) {
+      await showAlert("Paquete ya asignado", "Este paquete ya está en una caja.");
+      setScan("");
+      return;
+    }
+  
+    // Asignar el paquete a la caja activa.
     const currentActiveId = activeBoxId || flight.cajas[0]?.id;
-    if (!currentActiveId) { await showAlert("Sin caja activa", "Creá o seleccioná una caja primero."); return; }
-
+    if (!currentActiveId) {
+      await showAlert("Sin caja activa", "Creá o seleccioná una caja primero.");
+      return;
+    }
+  
     const updatedCajas = flight.cajas.map(c =>
       c.id !== currentActiveId ? c : { ...c, paquetes: [...c.paquetes, pkg.id] }
     );
+  
     onUpdateFlight({ ...flight, cajas: updatedCajas });
-    onAssign(pkg.id); setScan("");
-  }
+    onAssign(pkg.id);
+    setScan("");
+  };
+
 
   function move(pid, fromId, toId) {
     if (!toId || !flight) return;

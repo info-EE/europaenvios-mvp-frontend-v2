@@ -126,14 +126,14 @@ export function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, c
   return `
     <html><head><meta charset="utf-8"><title>Etiqueta ${codigo}</title>
     <style>
-      @page { size: 100mm 50mm; margin: 3mm; }
-      body { font-family: Arial, sans-serif; margin: 0; padding: 0; font-size: 10pt; line-height: 1.3; }
-      .label-container { display: flex; flex-direction: column; width: 94mm; height: 44mm; }
-      .line { margin-bottom: 1mm; }
+      @page { size: 100mm 50mm; margin: 2mm; }
+      body { font-family: Arial, sans-serif; margin: 0; padding: 0; font-size: 9pt; line-height: 1.25; }
+      .label-container { display: flex; flex-direction: column; width: 96mm; height: 46mm; }
+      .line { margin-bottom: 0.8mm; }
       .b { font-weight: bold; }
-      .header { display: flex; justify-content: space-between; font-size: 11pt; }
-      .barcode { text-align: center; margin: 1mm 0; }
-      .barcode svg { width: 100%; height: 12mm; }
+      .header { display: flex; justify-content: space-between; font-size: 10pt; }
+      .barcode { text-align: center; margin: 0.5mm 0; }
+      .barcode svg { width: 100%; height: 10mm; }
       .desc-line { white-space: normal; word-wrap: break-word; line-height: 1.2; }
     </style></head><body>
       <div class="label-container">

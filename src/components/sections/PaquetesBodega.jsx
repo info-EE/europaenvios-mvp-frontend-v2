@@ -291,7 +291,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
             {flights.filter(f => f.estado === 'En bodega').map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
           </select>
           <Field label="Desde"> <Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /> </Field>
-          <Field label="Hasta"> <Input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} /> </Field>
+          <Field label="Hasta"> <Input type="date" value={dateTo} onChange={e=>setTo(e.target.value)} /> </Field>
           <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
           <Button onClick={exportXLSX}>Exportar XLSX</Button>
         </div>
@@ -390,7 +390,15 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       <Modal open={open} onClose={() => setOpen(false)} title="Editar paquete" maxWidth="max-w-4xl">
         {form && (
           <div className="grid md:grid-cols-3 gap-4">
-            <Field label="Carga"><select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}><option value="">—</option>{flights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}</select></Field>
+            <Field label="Carga">
+              <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}>
+                <option value="">—</option>
+                {flights
+                  .filter(f => f.estado === 'En bodega' || f.id === form.flight_id)
+                  .map(f => <option key={f.id} value={f.id}>{f.codigo}</option>)
+                }
+              </select>
+            </Field>
             <Field label="Courier"><Input value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Estado">
               {(() => {

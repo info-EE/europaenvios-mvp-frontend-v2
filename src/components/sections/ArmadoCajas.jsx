@@ -33,7 +33,8 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
   const [editingBoxId, setEditingBoxId] = useState(null);
   const [editingBoxData, setEditingBoxData] = useState(null);
 
-  const { showPrompt, showConfirmation, showAlert } = useModal();
+  // Mantenemos useModal para showPrompt y showConfirmation que siguen funcionando bien.
+  const { showPrompt, showConfirmation } = useModal();
 
   useEffect(() => {
     if (flightId) {
@@ -84,19 +85,20 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
     setActiveBoxId(newBox.id);
   }
 
-  const assign = async () => {
+  const assign = () => {
+    // Se elimina 'async' porque window.alert no es una promesa
     try {
       if (!flightId) {
-        await showAlert("Error de Carga", "Primero debés seleccionar una carga del menú desplegable.");
+        alert("Error de Carga: Primero debés seleccionar una carga del menú desplegable.");
         return;
       }
       const currentFlight = flights.find(f => f.id === flightId);
       if (!currentFlight) {
-        await showAlert("Error Interno", `No se pudieron encontrar los detalles de la carga seleccionada.`);
+        alert("Error Interno: No se pudieron encontrar los detalles de la carga seleccionada.");
         return;
       }
       if (!scan.trim()) {
-        await showAlert("Campo Vacío", "Por favor, escanea o ingresa un código de paquete.");
+        alert("Campo Vacío: Por favor, escanea o ingresa un código de paquete.");
         return;
       }
   
@@ -104,16 +106,16 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
       const pkg = packages.find(p => String(p.codigo || "").toUpperCase() === upperScan);
   
       if (!pkg) {
-        await showAlert("Paquete no Encontrado", `El paquete con el código "${upperScan}" no existe en el sistema.`);
+        alert(`Paquete no Encontrado: El paquete con el código "${upperScan}" no existe en el sistema.`);
         setScan("");
         return;
       }
   
       if (pkg.flight_id !== flightId) {
         const cargaDelPaquete = flights.find(f => f.id === pkg.flight_id)?.codigo || 'OTRA CARGA';
-        await showAlert(
-          "Paquete en Carga Incorrecta",
-          `El paquete ${pkg.codigo} pertenece a la carga "${cargaDelPaquete}" y no a la carga activa "${currentFlight.codigo}".`
+        // --- CAMBIO PRINCIPAL: Usamos window.alert en lugar de showAlert ---
+        alert(
+          `Paquete en Carga Incorrecta:\n\nEl paquete ${pkg.codigo} pertenece a la carga "${cargaDelPaquete}" y no a la carga activa "${currentFlight.codigo}".`
         );
         setScan("");
         return;
@@ -121,14 +123,14 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
   
       const cajaExistente = currentFlight.cajas.find(c => (c.paquetes || []).includes(pkg.id));
       if (cajaExistente) {
-        await showAlert("Paquete ya Asignado", `El paquete ${pkg.codigo} ya fue agregado a la "${cajaExistente.codigo}".`);
+        alert(`Paquete ya Asignado: El paquete ${pkg.codigo} ya fue agregado a la "${cajaExistente.codigo}".`);
         setScan("");
         return;
       }
       
       const currentActiveId = activeBoxId || currentFlight.cajas[0]?.id;
       if (!currentActiveId) {
-        await showAlert("No hay Caja Activa", "Creá o seleccioná una caja antes de escanear paquetes.");
+        alert("No hay Caja Activa: Creá o seleccioná una caja antes de escanear paquetes.");
         return;
       }
   
@@ -141,11 +143,10 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
 
     } catch (error) {
       console.error("Error inesperado en la función assign:", error);
-      await showAlert("Error Inesperado", `Ocurrió un problema: ${error.message}.`);
+      alert(`Error Inesperado: Ocurrió un problema: ${error.message}.`);
       setScan("");
     }
   };
-
 
   function move(pid, fromId, toId) {
     if (!toId || !flight) return;
@@ -191,9 +192,9 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
     return Number(pesoCarton + pesoPkgs);
   }
 
-  async function exportCajasXLSX() {
-    if (!flight) { await showAlert("Seleccionar carga", "Seleccioná una carga para exportar."); return; }
-    if (!flight.cajas || flight.cajas.length === 0) { await showAlert("Sin cajas", "No hay cajas en esta carga para exportar."); return; }
+  function exportCajasXLSX() {
+    if (!flight) { alert("Seleccioná una carga para exportar."); return; }
+    if (!flight.cajas || flight.cajas.length === 0) { alert("No hay cajas en esta carga para exportar."); return; }
 
     const wb = new ExcelJS.Workbook();
     const thinBorder = { style: "thin", color: { argb: "FF000000" } };

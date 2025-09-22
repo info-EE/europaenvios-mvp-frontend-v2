@@ -175,7 +175,8 @@ function App() {
       case "Paquetes en bodega":
         return <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={packagesHandlers.update} onDelete={packagesHandlers.remove} onPendiente={pendientesHandlers.add} />;
       case "Armado de cajas":
-        return <ArmadoCajas packages={packages} flights={flights} onUpdateFlight={flightsHandlers.update} onAssign={()=>{}}/>;
+        // --- ESTA ES LA LÍNEA CORREGIDA ---
+        return <ArmadoCajas packages={packages} flights={flights} onUpdateFlight={flightsHandlers.update} />;
       case "Cargas enviadas":
         return <CargasEnviadas packages={packages} flights={flights} user={currentUser}/>;
       case "Gestión de cargas":

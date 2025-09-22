@@ -25,7 +25,7 @@ import {
   printHTMLInIframe,
 } from "../../utils/helpers.jsx";
 
-export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
+export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
   const [flightId, setFlightId] = useState("");
   const flight = flights.find(f => f.id === flightId);
   const [scan, setScan] = useState("");
@@ -85,48 +85,65 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight, onAssign }) {
   }
 
   const assign = async () => {
-    if (!scan || !flight) return;
-    const upperScan = scan.toUpperCase();
+    try {
+      if (!flightId) {
+        await showAlert("Error de Carga", "Primero debés seleccionar una carga del menú desplegable.");
+        return;
+      }
+      const currentFlight = flights.find(f => f.id === flightId);
+      if (!currentFlight) {
+        await showAlert("Error Interno", `No se pudieron encontrar los detalles de la carga seleccionada.`);
+        return;
+      }
+      if (!scan.trim()) {
+        await showAlert("Campo Vacío", "Por favor, escanea o ingresa un código de paquete.");
+        return;
+      }
   
-    // Primero, encontrar el paquete en cualquier parte del sistema.
-    const pkg = packages.find(p => String(p.codigo || "").toUpperCase() === upperScan);
+      const upperScan = scan.toUpperCase();
+      const pkg = packages.find(p => String(p.codigo || "").toUpperCase() === upperScan);
   
-    // Si el paquete no existe en absoluto.
-    if (!pkg) {
-      await showAlert("Error de código", `El paquete con código "${upperScan}" no fue encontrado en el sistema.`);
+      if (!pkg) {
+        await showAlert("Paquete no Encontrado", `El paquete con el código "${upperScan}" no existe en el sistema.`);
+        setScan("");
+        return;
+      }
+  
+      if (pkg.flight_id !== flightId) {
+        const cargaDelPaquete = flights.find(f => f.id === pkg.flight_id)?.codigo || 'OTRA CARGA';
+        await showAlert(
+          "Paquete en Carga Incorrecta",
+          `El paquete ${pkg.codigo} pertenece a la carga "${cargaDelPaquete}" y no a la carga activa "${currentFlight.codigo}".`
+        );
+        setScan("");
+        return;
+      }
+  
+      const cajaExistente = currentFlight.cajas.find(c => (c.paquetes || []).includes(pkg.id));
+      if (cajaExistente) {
+        await showAlert("Paquete ya Asignado", `El paquete ${pkg.codigo} ya fue agregado a la "${cajaExistente.codigo}".`);
+        setScan("");
+        return;
+      }
+      
+      const currentActiveId = activeBoxId || currentFlight.cajas[0]?.id;
+      if (!currentActiveId) {
+        await showAlert("No hay Caja Activa", "Creá o seleccioná una caja antes de escanear paquetes.");
+        return;
+      }
+  
+      const updatedCajas = currentFlight.cajas.map(c =>
+        c.id === currentActiveId ? { ...c, paquetes: [...(c.paquetes || []), pkg.id] } : c
+      );
+  
+      onUpdateFlight({ ...currentFlight, cajas: updatedCajas });
       setScan("");
-      return;
-    }
-  
-    // Si el paquete pertenece a un vuelo diferente.
-    if (pkg.flight_id !== flightId) {
-      const cargaDelPaquete = flights.find(f => f.id === pkg.flight_id)?.codigo || 'otra carga';
-      await showAlert("Paquete no pertenece a la carga", `El paquete ${pkg.codigo} pertenece a la carga "${cargaDelPaquete}", no a la carga actual.`);
+
+    } catch (error) {
+      console.error("Error inesperado en la función assign:", error);
+      await showAlert("Error Inesperado", `Ocurrió un problema: ${error.message}.`);
       setScan("");
-      return;
     }
-  
-    // Ahora sabemos que el paquete es correcto. Comprobar si ya está en una caja en el vuelo actual.
-    if (flight.cajas.some(c => c.paquetes.includes(pkg.id))) {
-      await showAlert("Paquete ya asignado", "Este paquete ya está en una caja.");
-      setScan("");
-      return;
-    }
-  
-    // Asignar el paquete a la caja activa.
-    const currentActiveId = activeBoxId || flight.cajas[0]?.id;
-    if (!currentActiveId) {
-      await showAlert("Sin caja activa", "Creá o seleccioná una caja primero.");
-      return;
-    }
-  
-    const updatedCajas = flight.cajas.map(c =>
-      c.id !== currentActiveId ? c : { ...c, paquetes: [...c.paquetes, pkg.id] }
-    );
-  
-    onUpdateFlight({ ...flight, cajas: updatedCajas });
-    onAssign(pkg.id);
-    setScan("");
   };
 
 

@@ -14,52 +14,59 @@ export const useModal = () => {
 };
 
 export const ModalProvider = ({ children }) => {
-  const [modalState, setModalState] = useState(null); // 'alert', 'confirmation', 'prompt', or null
-  const [modalProps, setModalProps] = useState({});
+  const [modalConfig, setModalConfig] = useState(null);
+
+  const closeModal = () => setModalConfig(null);
 
   const showAlert = useCallback((title, message) => {
     return new Promise((resolve) => {
-      setModalProps({
+      setModalConfig({
+        type: 'alert',
         title,
-        children: message,
+        message,
         onClose: () => {
-          setModalState(null);
+          closeModal();
           resolve(true);
         },
       });
-      setModalState('alert');
     });
   }, []);
 
   const showConfirmation = useCallback((title, message) => {
     return new Promise((resolve) => {
-      setModalProps({
+      setModalConfig({
+        type: 'confirmation',
         title,
-        children: message,
-        onConfirm: () => resolve(true),
+        message,
+        onConfirm: () => {
+          closeModal();
+          resolve(true);
+        },
         onClose: () => {
-          setModalState(null);
+          closeModal();
           resolve(false);
         },
       });
-      setModalState('confirmation');
     });
   }, []);
   
   const showPrompt = useCallback(({ title, message, inputLabel, initialValue }) => {
     return new Promise((resolve) => {
-      setModalProps({
+      setModalConfig({
+        type: 'prompt',
         title,
         message,
         inputLabel,
         initialValue,
-        onConfirm: (value) => resolve(value),
+        onConfirm: (value) => {
+          closeModal();
+          resolve(value);
+        },
         onClose: () => {
-          setModalState(null);
-          resolve(null); // Retorna null si se cancela, como window.prompt
+          closeModal();
+          resolve(null);
         },
       });
-      setModalState('prompt');
     });
   }, []);
 
@@ -70,18 +77,36 @@ export const ModalProvider = ({ children }) => {
     <ModalContext.Provider value={value}>
       {children}
       <Fragment>
-        <AlertModal
-          open={modalState === 'alert'}
-          {...modalProps}
-        />
-        <ConfirmationModal
-          open={modalState === 'confirmation'}
-          {...modalProps}
-        />
-        <PromptModal
-          open={modalState === 'prompt'}
-          {...modalProps}
-        />
+        {modalConfig?.type === 'alert' && (
+          <AlertModal
+            open={true}
+            title={modalConfig.title}
+            onClose={modalConfig.onClose}
+          >
+            {modalConfig.message}
+          </AlertModal>
+        )}
+        {modalConfig?.type === 'confirmation' && (
+          <ConfirmationModal
+            open={true}
+            title={modalConfig.title}
+            onConfirm={modalConfig.onConfirm}
+            onClose={modalConfig.onClose}
+          >
+            {modalConfig.message}
+          </ConfirmationModal>
+        )}
+        {modalConfig?.type === 'prompt' && (
+          <PromptModal
+            open={true}
+            title={modalConfig.title}
+            message={modalConfig.message}
+            inputLabel={modalConfig.inputLabel}
+            initialValue={modalConfig.initialValue}
+            onConfirm={modalConfig.onConfirm}
+            onClose={modalConfig.onClose}
+          />
+        )}
       </Fragment>
     </ModalContext.Provider>
   );

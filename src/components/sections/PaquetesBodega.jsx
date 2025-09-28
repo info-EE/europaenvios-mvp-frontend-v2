@@ -3,15 +3,15 @@ import React, { useMemo, useRef, useState, useEffect } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 // Context
-import { useModal } from "../../context/ModalContext";
+import { useModal } from "../../context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section";
-import { Input } from "../common/Input";
-import { Field } from "../common/Field";
-import { Modal } from "../common/Modal";
-import { EmptyState } from "../common/EmptyState";
-import { Button } from "../common/Button";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { Modal } from "../common/Modal.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
 import {
@@ -35,9 +35,9 @@ import {
   tdNum,
   tdInt,
   estadosPermitidosPorCarga
-} from "../../utils/helpers";
+} from "../../utils/helpers.jsx";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { storage } from "../../firebase";
+import { storage } from "../../firebase.js";
 
 const CustomPieLegend = ({ payload }) => (
     <div className="w-1/3 text-xs overflow-y-auto" style={{maxHeight: '16rem'}}>

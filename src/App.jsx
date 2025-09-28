@@ -9,7 +9,7 @@ import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy,
 // Context
 import { useModal } from "./context/ModalContext";
 
-// Componentes de Secciones y Páginas
+// Componentes de Secciones
 import { Login } from "./components/sections/Login";
 import { Dashboard } from "./components/sections/Dashboard";
 import { Reception } from "./components/sections/Reception";
@@ -22,7 +22,6 @@ import { CargasEnviadas } from "./components/sections/CargasEnviadas";
 import { CargasAdmin } from "./components/sections/CargasAdmin";
 import { Proformas } from "./components/sections/Proformas";
 import { Extras } from "./components/sections/Extras";
-import { PhotoUploadPage } from "./components/pages/PhotoUploadPage"; // <- NUEVA IMPORTACIÓN
 
 // Helpers y Constantes
 import { Iconos, tabsForRole, COURIERS_INICIALES, ESTADOS_INICIALES } from "./utils/helpers";
@@ -50,10 +49,6 @@ function App() {
   const [pendientes, setPendientes] = useState([]);
   
   const { showConfirmation } = useModal();
-  
-  // --- NUEVA LÓGICA DE RUTA PARA LA PÁGINA DE SUBIDA ---
-  const urlParams = new URLSearchParams(window.location.search);
-  const uploadSessionId = urlParams.get('uploadSession');
 
   // Listener de Autenticación
   useEffect(() => {
@@ -78,9 +73,6 @@ function App() {
 
   // Listener de Datos de Firestore
   useEffect(() => {
-    // Si estamos en la página de subida, no cargamos todos los datos.
-    if (uploadSessionId) return;
-
     if (!currentUser) {
       setFlights([]); setPackages([]); setCouriers([]); setEstados([]);
       setExtras([]); setSinCasillaItems([]); setPendientes([]);
@@ -112,7 +104,7 @@ function App() {
     ];
 
     return () => unsubscribers.forEach(unsub => unsub());
-  }, [currentUser, uploadSessionId]);
+  }, [currentUser]);
   
   const createCrudHandlers = (collectionName) => ({
     add: async (data) => addDoc(collection(db, collectionName), data),
@@ -150,11 +142,6 @@ function App() {
       if (!allowed.includes(tab)) setTab(allowed[0]);
     }
   }, [currentUser, tab]);
-
-  // --- NUEVA RUTA: MUESTRA LA PÁGINA DE SUBIDA SI EL PARÁMETRO EXISTE ---
-  if (uploadSessionId) {
-    return <PhotoUploadPage sessionId={uploadSessionId} />;
-  }
 
   if (initialising) {
     return (

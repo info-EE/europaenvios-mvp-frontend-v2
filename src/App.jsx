@@ -1,35 +1,43 @@
-/* Europa Envíos – MVP (Refactorizado) */
+/* Europa Envíos – MVP (Refactorizado y Responsivo) */
 
 import React, { useEffect, useState } from "react";
 
 // Firebase
-import { db, auth, signOut, onAuthStateChanged } from "./firebase.js";
+import { db, auth, signOut, onAuthStateChanged } from "./firebase";
 import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "./context/ModalContext.jsx";
+import { useModal } from "./context/ModalContext";
 
 // Componentes de Secciones
-import { Login } from "./components/sections/Login.jsx";
-import { Dashboard } from "./components/sections/Dashboard.jsx";
-import { Reception } from "./components/sections/Reception.jsx";
-import { PaquetesSinCasilla } from "./components/sections/PaquetesSinCasilla.jsx";
-import { Usuarios } from "./components/sections/Usuarios.jsx";
-import { Pendientes } from "./components/sections/Pendientes.jsx";
-import { PaquetesBodega } from "./components/sections/PaquetesBodega.jsx";
-import { ArmadoCajas } from "./components/sections/ArmadoCajas.jsx";
-import { CargasEnviadas } from "./components/sections/CargasEnviadas.jsx";
-import { CargasAdmin } from "./components/sections/CargasAdmin.jsx";
-import { Proformas } from "./components/sections/Proformas.jsx";
-import { Extras } from "./components/sections/Extras.jsx";
+import { Login } from "./components/sections/Login";
+import { Dashboard } from "./components/sections/Dashboard";
+import { Reception } from "./components/sections/Reception";
+import { PaquetesSinCasilla } from "./components/sections/PaquetesSinCasilla";
+import { Usuarios } from "./components/sections/Usuarios";
+import { Pendientes } from "./components/sections/Pendientes";
+import { PaquetesBodega } from "./components/sections/PaquetesBodega";
+import { ArmadoCajas } from "./components/sections/ArmadoCajas";
+import { CargasEnviadas } from "./components/sections/CargasEnviadas";
+import { CargasAdmin } from "./components/sections/CargasAdmin";
+import { Proformas } from "./components/sections/Proformas";
+import { Extras } from "./components/sections/Extras";
 
 // Helpers y Constantes
-import { Iconos, tabsForRole, COURIERS_INICIALES, ESTADOS_INICIALES } from "./utils/helpers.jsx";
+import { Iconos, tabsForRole, COURIERS_INICIALES, ESTADOS_INICIALES } from "./utils/helpers";
+
+// Icono para el menú de hamburguesa en móvil
+const MenuIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+    </svg>
+);
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [initialising, setInitialising] = useState(true);
   const [tab, setTab] = useState("Dashboard");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Estados de datos
   const [couriers, setCouriers] = useState([]);
@@ -175,7 +183,6 @@ function App() {
       case "Paquetes en bodega":
         return <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={packagesHandlers.update} onDelete={packagesHandlers.remove} onPendiente={pendientesHandlers.add} />;
       case "Armado de cajas":
-        // --- ESTA ES LA LÍNEA CORREGIDA ---
         return <ArmadoCajas packages={packages} flights={flights} onUpdateFlight={flightsHandlers.update} />;
       case "Cargas enviadas":
         return <CargasEnviadas packages={packages} flights={flights} user={currentUser}/>;
@@ -193,9 +200,9 @@ function App() {
   };
 
   return (
-    <div className="h-screen w-screen grid grid-cols-[256px_1fr] grid-rows-[auto_1fr] bg-slate-100">
-      <aside className="row-span-2 bg-white border-r border-slate-200 flex flex-col">
-        <div className="p-4 h-32 border-b border-slate-200 flex items-center justify-center">
+    <div className="h-screen w-screen flex bg-slate-100 overflow-hidden">
+      <aside className={`absolute inset-y-0 left-0 z-30 w-64 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="p-4 h-16 lg:h-32 border-b border-slate-200 flex items-center justify-center">
             <img src="/logo.png" alt="Logo Europa Envíos" className="max-w-full max-h-full" />
         </div>
         <nav className="flex-grow p-4 space-y-6 overflow-y-auto">
@@ -212,7 +219,10 @@ function App() {
                   {visibleTabs.map(t => (
                     <li key={t}>
                       <button
-                        onClick={() => setTab(t)}
+                        onClick={() => {
+                            setTab(t);
+                            setIsSidebarOpen(false); // Cierra el menú en móvil al hacer clic
+                        }}
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-colors duration-200 flex items-center gap-3 ${
                           tab === t
                             ? "bg-francia-100 text-francia-700"
@@ -230,21 +240,34 @@ function App() {
         </nav>
       </aside>
 
-      <header className="bg-white border-b border-slate-200 flex items-center justify-end px-6 h-16">
-        <div className="flex items-center gap-4">
-          <div className="text-right">
-            <p className="text-sm font-semibold text-slate-700">{currentUser.email}</p>
-            <p className="text-xs text-slate-500">{currentUser.role}{currentUser.role === 'COURIER' && ` (${currentUser.courier})`}</p>
-          </div>
-          <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-slate-100 transition-colors duration-200 text-slate-500" title="Cerrar sesión">
-            {Iconos.logout}
+      <div className="flex-1 flex flex-col h-screen">
+        <header className="bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 h-16 flex-shrink-0">
+          <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="Abrir menú">
+            <MenuIcon />
           </button>
-        </div>
-      </header>
+          <div className="flex-grow" />
+          <div className="flex items-center gap-4">
+            <div className="text-right hidden sm:block">
+              <p className="text-sm font-semibold text-slate-700">{currentUser.email}</p>
+              <p className="text-xs text-slate-500">{currentUser.role}{currentUser.role === 'COURIER' && ` (${currentUser.courier})`}</p>
+            </div>
+            <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-slate-100 transition-colors duration-200 text-slate-500" title="Cerrar sesión">
+              {Iconos.logout}
+            </button>
+          </div>
+        </header>
 
-      <main className="overflow-y-auto p-4 sm:p-6 lg:p-8">
-        {renderTabContent()}
-      </main>
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          {renderTabContent()}
+        </main>
+      </div>
+
+      {isSidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/50 z-20"
+          onClick={() => setIsSidebarOpen(false)}
+        ></div>
+      )}
     </div>
   );
 }

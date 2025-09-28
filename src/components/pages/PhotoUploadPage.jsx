@@ -1,129 +1,210 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, doc, updateDoc, onSnapshot } from "firebase/firestore";
+import React, { useEffect, useState, useRef } from 'react';
+import { getFirestore, doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
-import { uuid } from '../../utils/helpers'; // Importamos el generador de UUID
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { uuid } from '../../utils/helpers';
 
-// Componente para el icono de cámara
-const CameraIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 mr-2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.174C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.174 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.776 48.776 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+// Configuración de Firebase (debe coincidir con tu archivo firebase.js)
+const firebaseConfig = {
+    apiKey: import.meta.env.VITE_API_KEY,
+    authDomain: import.meta.env.VITE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_APP_ID,
+    measurementId: import.meta.env.VITE_MEASUREMENT_ID
+};
+
+// Inicializa Firebase de forma segura
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const storage = getStorage(app);
+
+// Icono de carga
+const SpinnerIcon = () => (
+    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
     </svg>
 );
 
-export function PhotoUploadPage({ sessionId }) {
-    const [status, setStatus] = useState('idle'); // idle, uploading, success, error
+export function PhotoUploadPage() {
     const [sessionData, setSessionData] = useState(null);
+    const [status, setStatus] = useState('loading'); // loading, idle, preview, uploading, success, error
+    const [error, setError] = useState('');
+    const [files, setFiles] = useState([]); // Almacenará los archivos seleccionados
     const fileInputRef = useRef(null);
 
-    // Inicialización segura de Firebase
-    const firebaseConfig = {
-        apiKey: import.meta.env.VITE_API_KEY,
-        authDomain: import.meta.env.VITE_AUTH_DOMAIN,
-        projectId: import.meta.env.VITE_PROJECT_ID,
-        storageBucket: import.meta.env.VITE_STORAGE_BUCKET,
-        messagingSenderId: import.meta.env.VITE_MESSAGING_SENDER_ID,
-        appId: import.meta.env.VITE_APP_ID,
-        measurementId: import.meta.env.VITE_MEASUREMENT_ID
-    };
-
-    const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    const storage = getStorage(app);
-
     useEffect(() => {
-        if (!sessionId) {
-            setStatus('error');
-            return;
-        }
-        const sessionDocRef = doc(db, "mobileUploadSessions", sessionId);
-        const unsubscribe = onSnapshot(sessionDocRef, (doc) => {
-            if (doc.exists()) {
-                setSessionData(doc.data());
-            } else {
+        const getSession = async () => {
+            try {
+                const pathParts = window.location.pathname.split('/');
+                const sessionId = pathParts[pathParts.length - 1];
+                if (!sessionId) {
+                    throw new Error("ID de sesión no encontrado en la URL.");
+                }
+
+                const sessionRef = doc(db, "mobileUploadSessions", sessionId);
+                const sessionSnap = await getDoc(sessionRef);
+
+                if (sessionSnap.exists()) {
+                    setSessionData(sessionSnap.data());
+                    setStatus('idle');
+                } else {
+                    throw new Error("La sesión de subida no es válida o ha expirado.");
+                }
+            } catch (err) {
+                console.error("Error al obtener la sesión:", err);
+                setError(err.message);
                 setStatus('error');
             }
-        });
-        return () => unsubscribe();
-    }, [sessionId, db]);
+        };
+        getSession();
+    }, []);
 
-    const handleFileChange = (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                handleImageUpload(e.target.result);
-            };
-            reader.readAsDataURL(file);
+    const handleFileSelect = (event) => {
+        const selectedFiles = Array.from(event.target.files);
+        if (selectedFiles.length > 0) {
+            const newFiles = selectedFiles.map(file => ({
+                id: uuid(),
+                file,
+                preview: URL.createObjectURL(file)
+            }));
+            setFiles(prevFiles => [...prevFiles, ...newFiles]);
+            setStatus('preview');
         }
     };
 
-    const handleImageUpload = async (imageDataUrl) => {
-        if (!imageDataUrl || !sessionData) return;
+    const removeFile = (fileId) => {
+        setFiles(prevFiles => {
+            const updatedFiles = prevFiles.filter(f => f.id !== fileId);
+            if (updatedFiles.length === 0) {
+                setStatus('idle');
+            }
+            return updatedFiles;
+        });
+    };
+
+    const handleUpload = async () => {
+        if (files.length === 0) return;
+
         setStatus('uploading');
-
         try {
-            // Usamos la carpeta permitida "mobile-uploads"
-            const imageName = `mobile-uploads/${uuid()}.jpg`;
-            const storageRef = ref(storage, imageName);
-            const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
-            const downloadURL = await getDownloadURL(snapshot.ref);
+            const uploadPromises = files.map(fileObj => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(fileObj.file);
+                    reader.onload = async () => {
+                        try {
+                            const imageDataUrl = reader.result;
+                            const storageRef = ref(storage, `mobile-uploads/${uuid()}.jpg`);
+                            const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
+                            const downloadURL = await getDownloadURL(snapshot.ref);
+                            resolve(downloadURL);
+                        } catch (uploadError) {
+                            reject(uploadError);
+                        }
+                    };
+                    reader.onerror = (error) => reject(error);
+                });
+            });
 
-            const sessionDocRef = doc(db, "mobileUploadSessions", sessionId);
-            await updateDoc(sessionDocRef, {
-                photoURL: downloadURL,
-                uploadedAt: new Date(),
+            const uploadedUrls = await Promise.all(uploadPromises);
+
+            const sessionId = window.location.pathname.split('/').pop();
+            const sessionRef = doc(db, "mobileUploadSessions", sessionId);
+            await updateDoc(sessionRef, {
+                photoUrls: arrayUnion(...uploadedUrls)
             });
 
             setStatus('success');
-        } catch (error) {
-            console.error("Error al subir imagen:", error);
+        } catch (err) {
+            console.error("Error en la subida:", err);
+            setError("Hubo un error al subir las imágenes. Inténtalo de nuevo.");
             setStatus('error');
         }
-    };
-
-    const triggerFileInput = () => {
-        fileInputRef.current?.click();
     };
 
     const renderContent = () => {
         switch (status) {
-            case 'uploading':
-                return <div className="text-center text-slate-600">Subiendo foto...</div>;
-            case 'success':
-                return <div className="text-center text-green-600 font-semibold">¡Foto subida con éxito! Ya puedes cerrar esta ventana.</div>;
+            case 'loading':
+                return <p className="text-slate-500">Verificando sesión...</p>;
+
             case 'error':
                 return (
                     <div className="text-center">
-                        <h2 className="text-xl font-bold text-red-600 mb-2">Error en la subida</h2>
-                        <p className="text-slate-600 mb-4">Hubo un error al subir la imagen. Inténtalo de nuevo.</p>
-                        <button className="text-sm font-semibold text-francia-600 hover:underline" onClick={() => setStatus('idle')}>
-                            Intentar de nuevo
-                        </button>
+                        <h1 className="text-xl font-bold text-red-600 mb-2">Error</h1>
+                        <p className="text-slate-600 mb-4">{error}</p>
                     </div>
                 );
-            case 'idle':
-            default:
+
+            case 'success':
                 return (
                     <div className="text-center">
-                        <h2 className="text-xl font-bold text-slate-800 mb-2">Subir foto del paquete</h2>
-                        <p className="text-slate-600 mb-6">Selecciona una foto o usa la cámara de tu móvil.</p>
+                        <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                        </div>
+                        <h1 className="text-xl font-bold text-slate-800">¡Fotos subidas!</h1>
+                        <p className="text-slate-600 mt-2">Se han subido {files.length} foto(s) correctamente. Ya puedes cerrar esta ventana.</p>
+                    </div>
+                );
+            
+            case 'idle':
+            case 'preview':
+                return (
+                    <>
+                        <h1 className="text-xl font-bold text-slate-800 text-center">Subir foto(s) del paquete</h1>
+                        <p className="text-slate-500 text-center mt-2 mb-6">
+                            Selecciona una o varias fotos de tu galería o usa la cámara de tu móvil.
+                        </p>
+
+                        {files.length > 0 && (
+                            <div className="grid grid-cols-3 gap-2 mb-4">
+                                {files.map(fileObj => (
+                                    <div key={fileObj.id} className="relative">
+                                        <img src={fileObj.preview} alt="Vista previa" className="w-full h-24 object-cover rounded-md" />
+                                        <button onClick={() => removeFile(fileObj.id)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
+                                            &times;
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
                         <input
                             type="file"
                             accept="image/*"
-                            capture="environment"
+                            multiple // Permite seleccionar múltiples archivos
+                            onChange={handleFileSelect}
                             ref={fileInputRef}
-                            onChange={handleFileChange}
                             className="hidden"
                         />
+                        
                         <button
-                            onClick={triggerFileInput}
-                            className="w-full px-4 py-3 rounded-lg bg-francia-600 hover:bg-francia-700 text-white font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
+                            onClick={() => fileInputRef.current.click()}
+                            className="w-full bg-slate-200 text-slate-800 font-semibold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-300 transition-colors mb-2"
                         >
-                            <CameraIcon />
-                            Abrir cámara / Seleccionar foto
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" /></svg>
+                            Añadir más fotos
                         </button>
+                        
+                        {files.length > 0 && (
+                            <button
+                                onClick={handleUpload}
+                                className="w-full bg-francia-600 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-francia-700 transition-colors"
+                            >
+                                Subir {files.length} foto(s)
+                            </button>
+                        )}
+                    </>
+                );
+
+            case 'uploading':
+                return (
+                    <div className="text-center">
+                        <SpinnerIcon />
+                        <h1 className="text-xl font-bold text-slate-800 mt-2">Subiendo...</h1>
+                        <p className="text-slate-600">Por favor, espera.</p>
                     </div>
                 );
         }
@@ -131,8 +212,8 @@ export function PhotoUploadPage({ sessionId }) {
 
     return (
         <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-            <div className="w-full max-w-sm mx-auto bg-white rounded-2xl shadow-lg p-6 sm:p-8">
-                <img src="/logo.png" alt="Logo Europa Envíos" className="w-32 mx-auto mb-6" />
+            <div className="w-full max-w-sm mx-auto bg-white rounded-2xl shadow-lg p-6">
+                <img src="/logo.png" alt="Logo Europa Envíos" className="w-32 mx-auto mb-4" />
                 {renderContent()}
             </div>
         </div>

@@ -203,7 +203,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
       right={isAdmin ? <Button onClick={exportXLSX}>Exportar XLSX</Button> : null}
     >
       {isAdmin && (
-        <div className="grid md:grid-cols-4 gap-4 mb-4 p-4 bg-slate-50 rounded-lg">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 p-4 bg-slate-50 rounded-lg items-end">
           <Field label="Fecha recepción" required>
             <Input type="date" value={fecha} onChange={e => setFecha(e.target.value)} />
           </Field>
@@ -216,9 +216,9 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
           <div className="flex items-end">
             <Button variant="primary" onClick={add} disabled={isAdding || isUploading}>{isUploading ? "Subiendo..." : "Agregar"}</Button>
           </div>
-          <div className="md:col-span-4">
+          <div className="col-span-1 sm:col-span-2 lg:col-span-4">
             <Field label="Foto (opcional)">
-              <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-center flex-wrap">
                 <input ref={fileRef} type="file" accept="image/*" onChange={(e) => onFile(e, 'new')} className="hidden" />
                 <Button onClick={() => fileRef.current?.click()} disabled={isUploading}>Seleccionar archivo</Button>
                 <Button onClick={() => setCamOpen('new')} disabled={isUploading}>Tomar foto</Button>
@@ -228,7 +228,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
           </div>
         </div>
       )}
-      <div className="grid md:grid-cols-2 gap-4 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <Field label="Filtrar desde">
           <Input type="date" value={from} onChange={e => setFrom(e.target.value)} />
         </Field>

@@ -200,7 +200,7 @@ function App() {
   };
 
   return (
-    <div className="h-screen w-screen flex bg-slate-100 overflow-hidden">
+    <div className="h-screen w-screen flex bg-slate-100">
       <aside className={`absolute inset-y-0 left-0 z-30 w-64 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-4 h-16 lg:h-32 border-b border-slate-200 flex items-center justify-center">
             <img src="/logo.png" alt="Logo Europa Envíos" className="max-w-full max-h-full" />
@@ -240,7 +240,7 @@ function App() {
         </nav>
       </aside>
 
-      <div className="flex-1 flex flex-col h-screen">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
         <header className="bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 h-16 flex-shrink-0">
           <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="Abrir menú">
             <MenuIcon />

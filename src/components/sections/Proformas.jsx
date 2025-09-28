@@ -169,13 +169,12 @@ export function Proformas({ packages, flights, extras, user }) {
   }
 
   return (
-    <Section title="Proformas por courier"
-      right={
-        <div className="flex gap-2 flex-wrap items-end">
+    <Section title="Proformas por courier">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 items-end">
           <Field label="Desde"><Input type="date" value={from} onChange={e => setFrom(e.target.value)} /></Field>
           <Field label="Hasta"><Input type="date" value={to} onChange={e => setTo(e.target.value)} /></Field>
           <Field label="Carga">
-            <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => setFlightId(e.target.value)}>
+            <select className="text-sm rounded-lg border-slate-300 px-3 py-2 w-full" value={flightId} onChange={e => setFlightId(e.target.value)}>
               <option value="">Seleccionar carga…</option>
               {list
                 .filter(f => !from || f.fecha_salida >= from)
@@ -183,9 +182,8 @@ export function Proformas({ packages, flights, extras, user }) {
                 .map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
             </select>
           </Field>
-        </div>
-      }
-    >
+      </div>
+
       {!flight ? <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para ver las proformas por courier." /> : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">

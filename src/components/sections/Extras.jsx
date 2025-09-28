@@ -59,7 +59,7 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
 
     return (
         <Section title="Trabajos extras">
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg items-end">
                 <Field label="Carga">
                     <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => setFlightId(e.target.value)}>
                         <option value="">Todas</option>
@@ -81,12 +81,12 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
                     </select>
                 </Field>
                 <Field label="Fecha"><Input type="date" value={fecha} onChange={e => setFecha(e.target.value)} /></Field>
-                <div className="md:col-span-2 lg:col-span-4 xl:col-span-6 flex justify-end">
+                <div className="col-span-1 sm:col-span-2 lg:col-span-4 xl:col-span-6 flex justify-end">
                     <Button variant="primary" onClick={add}>Agregar</Button>
                 </div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                 <Field label="Filtrar desde"><Input type="date" value={from} onChange={e => setFrom(e.target.value)}/></Field>
                 <Field label="Filtrar hasta"><Input type="date" value={to} onChange={e => setTo(e.target.value)}/></Field>
                 <Field label="Filtrar por estado">

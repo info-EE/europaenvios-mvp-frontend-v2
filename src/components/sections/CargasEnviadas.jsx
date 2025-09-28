@@ -107,7 +107,7 @@ export function CargasEnviadas({ packages, flights, user }) {
 
   return (
     <Section title="Cargas enviadas">
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end mb-4">
         <Field label="Desde"><Input type="date" value={from} onChange={e => setFrom(e.target.value)} /></Field>
         <Field label="Hasta"><Input type="date" value={to} onChange={e => setTo(e.target.value)} /></Field>
         <Field label="Estado">
@@ -122,7 +122,7 @@ export function CargasEnviadas({ packages, flights, user }) {
             {list.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
           </select>
         </Field>
-        <div className="md:col-span-2 lg:col-span-4 flex items-end justify-end w-full">
+        <div className="col-span-1 sm:col-span-2 lg:col-span-4 flex justify-end w-full">
           <Button onClick={exportFlightXLSX} disabled={!flight}>
             Exportar XLSX
           </Button>

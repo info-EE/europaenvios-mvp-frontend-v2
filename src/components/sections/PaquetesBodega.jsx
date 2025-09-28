@@ -282,20 +282,26 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   };
   
   return (
-    <Section title="Paquetes en bodega"
-      right={
-        <div className="flex gap-2 flex-wrap items-end">
-          <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e=>setFlightId(e.target.value)}>
-            <option value="">Todas las cargas en Bodega</option>
-            {flights.filter(f => f.estado === 'En bodega').map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
-          </select>
+    <Section title="Paquetes en bodega">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 items-end">
+          <Field label="Carga en Bodega">
+            <select className="text-sm rounded-lg border-slate-300 px-3 py-2 w-full" value={flightId} onChange={e=>setFlightId(e.target.value)}>
+              <option value="">Todas</option>
+              {flights.filter(f => f.estado === 'En bodega').map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
+            </select>
+          </Field>
           <Field label="Desde"> <Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /> </Field>
           <Field label="Hasta"> <Input type="date" value={dateTo} onChange={e=>setTo(e.target.value)} /> </Field>
-          <Input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
-          <Button onClick={exportXLSX}>Exportar XLSX</Button>
-        </div>
-      }
-    >
+          <div className="sm:col-span-2 lg:col-span-3">
+             <Field label="Buscar">
+                <Input placeholder="Buscar por código, casilla, tracking, nombre..." value={q} onChange={e=>setQ(e.target.value)}/>
+            </Field>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3 flex justify-end">
+            <Button onClick={exportXLSX}>Exportar XLSX</Button>
+          </div>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>

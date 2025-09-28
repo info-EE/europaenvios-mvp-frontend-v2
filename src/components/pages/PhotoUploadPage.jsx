@@ -29,30 +29,25 @@ const SpinnerIcon = () => (
 );
 
 export function PhotoUploadPage() {
-    const [sessionData, setSessionData] = useState(null);
     const [status, setStatus] = useState('loading'); // loading, idle, preview, uploading, success, error
     const [error, setError] = useState('');
     const [files, setFiles] = useState([]); // Almacenará los archivos seleccionados
-    const fileInputRef = useRef(null);
+    const galleryInputRef = useRef(null);
+    const cameraInputRef = useRef(null);
 
     useEffect(() => {
         const getSession = async () => {
             try {
                 const pathParts = window.location.pathname.split('/');
                 const sessionId = pathParts[pathParts.length - 1];
-                if (!sessionId) {
-                    throw new Error("ID de sesión no encontrado en la URL.");
-                }
+                if (!sessionId) throw new Error("ID de sesión no encontrado en la URL.");
 
                 const sessionRef = doc(db, "mobileUploadSessions", sessionId);
                 const sessionSnap = await getDoc(sessionRef);
 
-                if (sessionSnap.exists()) {
-                    setSessionData(sessionSnap.data());
-                    setStatus('idle');
-                } else {
-                    throw new Error("La sesión de subida no es válida o ha expirado.");
-                }
+                if (!sessionSnap.exists()) throw new Error("La sesión de subida no es válida o ha expirado.");
+                
+                setStatus('idle');
             } catch (err) {
                 console.error("Error al obtener la sesión:", err);
                 setError(err.message);
@@ -73,21 +68,20 @@ export function PhotoUploadPage() {
             setFiles(prevFiles => [...prevFiles, ...newFiles]);
             setStatus('preview');
         }
+        // Limpiar el valor del input para permitir seleccionar el mismo archivo de nuevo
+        event.target.value = null;
     };
 
     const removeFile = (fileId) => {
         setFiles(prevFiles => {
             const updatedFiles = prevFiles.filter(f => f.id !== fileId);
-            if (updatedFiles.length === 0) {
-                setStatus('idle');
-            }
+            if (updatedFiles.length === 0) setStatus('idle');
             return updatedFiles;
         });
     };
 
     const handleUpload = async () => {
         if (files.length === 0) return;
-
         setStatus('uploading');
         try {
             const uploadPromises = files.map(fileObj => {
@@ -101,22 +95,16 @@ export function PhotoUploadPage() {
                             const snapshot = await uploadString(storageRef, imageDataUrl, 'data_url');
                             const downloadURL = await getDownloadURL(snapshot.ref);
                             resolve(downloadURL);
-                        } catch (uploadError) {
-                            reject(uploadError);
-                        }
+                        } catch (uploadError) { reject(uploadError); }
                     };
                     reader.onerror = (error) => reject(error);
                 });
             });
 
             const uploadedUrls = await Promise.all(uploadPromises);
-
             const sessionId = window.location.pathname.split('/').pop();
             const sessionRef = doc(db, "mobileUploadSessions", sessionId);
-            await updateDoc(sessionRef, {
-                photoUrls: arrayUnion(...uploadedUrls)
-            });
-
+            await updateDoc(sessionRef, { photoUrls: arrayUnion(...uploadedUrls) });
             setStatus('success');
         } catch (err) {
             console.error("Error en la subida:", err);
@@ -127,86 +115,56 @@ export function PhotoUploadPage() {
 
     const renderContent = () => {
         switch (status) {
-            case 'loading':
-                return <p className="text-slate-500">Verificando sesión...</p>;
-
-            case 'error':
-                return (
-                    <div className="text-center">
-                        <h1 className="text-xl font-bold text-red-600 mb-2">Error</h1>
-                        <p className="text-slate-600 mb-4">{error}</p>
+            case 'loading': return <p className="text-slate-500">Verificando sesión...</p>;
+            case 'error': return (
+                <div className="text-center"><h1 className="text-xl font-bold text-red-600 mb-2">Error</h1><p className="text-slate-600 mb-4">{error}</p></div>
+            );
+            case 'success': return (
+                <div className="text-center">
+                    <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                        <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
                     </div>
-                );
-
-            case 'success':
-                return (
-                    <div className="text-center">
-                        <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                        </div>
-                        <h1 className="text-xl font-bold text-slate-800">¡Fotos subidas!</h1>
-                        <p className="text-slate-600 mt-2">Se han subido {files.length} foto(s) correctamente. Ya puedes cerrar esta ventana.</p>
-                    </div>
-                );
-            
+                    <h1 className="text-xl font-bold text-slate-800">¡Fotos subidas!</h1>
+                    <p className="text-slate-600 mt-2">Se han subido {files.length} foto(s) correctamente. Ya puedes cerrar esta ventana.</p>
+                </div>
+            );
             case 'idle':
-            case 'preview':
-                return (
-                    <>
-                        <h1 className="text-xl font-bold text-slate-800 text-center">Subir foto(s) del paquete</h1>
-                        <p className="text-slate-500 text-center mt-2 mb-6">
-                            Selecciona una o varias fotos de tu galería o usa la cámara de tu móvil.
-                        </p>
-
-                        {files.length > 0 && (
-                            <div className="grid grid-cols-3 gap-2 mb-4">
-                                {files.map(fileObj => (
-                                    <div key={fileObj.id} className="relative">
-                                        <img src={fileObj.preview} alt="Vista previa" className="w-full h-24 object-cover rounded-md" />
-                                        <button onClick={() => removeFile(fileObj.id)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
-                                            &times;
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        <input
-                            type="file"
-                            accept="image/*"
-                            multiple // Permite seleccionar múltiples archivos
-                            onChange={handleFileSelect}
-                            ref={fileInputRef}
-                            className="hidden"
-                        />
-                        
-                        <button
-                            onClick={() => fileInputRef.current.click()}
-                            className="w-full bg-slate-200 text-slate-800 font-semibold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-300 transition-colors mb-2"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" /></svg>
-                            Añadir más fotos
+            case 'preview': return (
+                <>
+                    <h1 className="text-xl font-bold text-slate-800 text-center">Subir foto(s) del paquete</h1>
+                    <p className="text-slate-500 text-center mt-2 mb-6">Usa la cámara de tu móvil o selecciona fotos de tu galería.</p>
+                    {files.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2 mb-4">
+                            {files.map(fileObj => (
+                                <div key={fileObj.id} className="relative">
+                                    <img src={fileObj.preview} alt="Vista previa" className="w-full h-24 object-cover rounded-md" />
+                                    <button onClick={() => removeFile(fileObj.id)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">&times;</button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <input type="file" accept="image/*" capture="environment" onChange={handleFileSelect} ref={cameraInputRef} className="hidden" />
+                    <input type="file" accept="image/*" multiple onChange={handleFileSelect} ref={galleryInputRef} className="hidden" />
+                    <div className="space-y-2">
+                        <button onClick={() => cameraInputRef.current.click()} className="w-full bg-slate-200 text-slate-800 font-semibold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-300 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h1.172a2 2 0 011.414.586l.828.828A2 2 0 009.172 6H14a2 2 0 012 2v1a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /><path d="M15 11a1 1 0 11-2 0 1 1 0 012 0z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zm4 8a4 4 0 100-8 4 4 0 000 8z" clipRule="evenodd" /></svg>
+                            Abrir Cámara
                         </button>
-                        
-                        {files.length > 0 && (
-                            <button
-                                onClick={handleUpload}
-                                className="w-full bg-francia-600 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-francia-700 transition-colors"
-                            >
-                                Subir {files.length} foto(s)
-                            </button>
-                        )}
-                    </>
-                );
-
-            case 'uploading':
-                return (
-                    <div className="text-center">
-                        <SpinnerIcon />
-                        <h1 className="text-xl font-bold text-slate-800 mt-2">Subiendo...</h1>
-                        <p className="text-slate-600">Por favor, espera.</p>
+                        <button onClick={() => galleryInputRef.current.click()} className="w-full bg-slate-200 text-slate-800 font-semibold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-300 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" /></svg>
+                            Seleccionar de Galería
+                        </button>
                     </div>
-                );
+                    {files.length > 0 && (
+                        <button onClick={handleUpload} className="w-full bg-francia-600 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-francia-700 transition-colors mt-4">
+                            Subir {files.length} foto(s)
+                        </button>
+                    )}
+                </>
+            );
+            case 'uploading': return (
+                <div className="text-center"><SpinnerIcon /><h1 className="text-xl font-bold text-slate-800 mt-2">Subiendo...</h1><p className="text-slate-600">Por favor, espera.</p></div>
+            );
         }
     };
 

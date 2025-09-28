@@ -29,8 +29,7 @@ import {
   fmtPeso,
   labelHTML,
   printHTMLInIframe,
-  uuid,
-  Iconos
+  uuid
 } from "../../utils/helpers.jsx";
 
 export function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, packages, onAdd }) {
@@ -52,42 +51,35 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileRef = useRef(null);
-
-  const [mobileUploadSessionId, setMobileUploadSessionId] = useState(null);
+  const [uploadSessionId, setUploadSessionId] = useState(null);
   
   const { showAlert } = useModal();
 
-  // Escuchar cambios en la sesión de subida móvil
-  useEffect(() => {
-    if (!mobileUploadSessionId) return;
-
-    const sessionDocRef = doc(db, "mobileUploadSessions", mobileUploadSessionId);
-    const unsubscribe = onSnapshot(sessionDocRef, (doc) => {
-      const data = doc.data();
-      if (data && data.photoURL) {
-        setForm(f => ({ ...f, fotos: [...f.fotos, data.photoURL] }));
-        setMobileUploadSessionId(null); // Cierra el modal
-      }
-    });
-
-    return () => unsubscribe();
-  }, [mobileUploadSessionId, db]);
-
-  const startMobileUploadSession = async () => {
-    try {
-      const sessionId = uuid();
-      const sessionDocRef = doc(db, "mobileUploadSessions", sessionId);
-      await setDoc(sessionDocRef, { createdAt: new Date(), photoURL: null });
-      setMobileUploadSessionId(sessionId);
-    } catch (error) {
-      console.error("Error al iniciar sesión de subida móvil:", error);
-      await showAlert("Error", "No se pudo iniciar la sesión para la subida móvil.");
-    }
-  };
-
-
   const codigoCargaSel = useMemo(() => flights.find(f => f.id === flightId)?.codigo || "", [flightId, flights]);
   const estadosPermitidos = useMemo(() => estadosPermitidosPorCarga(codigoCargaSel, estados.map(e => e.name)), [codigoCargaSel, estados]);
+  
+  // *** NUEVO EFECTO PARA SINCRONIZAR FOTOS ***
+  useEffect(() => {
+    if (!uploadSessionId) return;
+
+    const sessionRef = doc(db, "mobileUploadSessions", uploadSessionId);
+    const unsubscribe = onSnapshot(sessionRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.photoUrls && data.photoUrls.length > 0) {
+                // Usamos una función para asegurar que no haya duplicados
+                setForm(f => ({
+                    ...f,
+                    fotos: [...new Set([...f.fotos, ...data.photoUrls])]
+                }));
+            }
+        }
+    });
+
+    // Limpia el listener cuando el modal se cierra o el componente se desmonta
+    return () => unsubscribe();
+  }, [uploadSessionId]);
+
 
   useEffect(() => {
     if (!form.courier) {
@@ -229,6 +221,20 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
     })();
     return () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } };
   }, [camOpen, showAlert]);
+  
+  const startMobileUploadSession = async () => {
+    const sessionId = uuid();
+    try {
+      const sessionRef = doc(db, "mobileUploadSessions", sessionId);
+      await setDoc(sessionRef, { createdAt: new Date(), photoUrls: [] });
+      setUploadSessionId(sessionId);
+    } catch (error) {
+      console.error("Error al iniciar la sesión de subida:", error);
+      showAlert("Error", "No se pudo iniciar la sesión para la subida móvil.");
+      setUploadSessionId(null);
+    }
+  };
+
 
   const handleImageUpload = async (imageDataUrl) => {
     if (!imageDataUrl) return;
@@ -330,11 +336,11 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
         </Field>
         <div className="md:col-span-3">
           <Field label="Fotos del paquete">
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap">
               <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
               <Button onClick={() => fileRef.current?.click()} disabled={isUploading}>Seleccionar archivo</Button>
-              <Button onClick={() => setCamOpen(true)} disabled={isUploading}>Tomar foto</Button>
-              <Button onClick={startMobileUploadSession} disabled={isUploading}>{Iconos.mobile} Usar cámara del móvil</Button>
+              <Button onClick={() => setCamOpen(true)} disabled={isUploading}>Tomar foto con PC</Button>
+              <Button onClick={startMobileUploadSession} disabled={isUploading}>Usar cámara del móvil</Button>
               {isUploading && <span className="text-francia-600 text-sm font-semibold">Subiendo...</span>}
             </div>
           </Field>
@@ -360,19 +366,15 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
           {isUploading ? "Subiendo foto..." : "Guardar paquete"}
         </Button>
       </div>
+      
+      <QrCodeModal open={!!uploadSessionId} onClose={() => setUploadSessionId(null)} sessionId={uploadSessionId} />
+
       <Modal open={camOpen} onClose={() => setCamOpen(false)} title="Tomar foto" maxWidth="max-w-2xl">
         <div className="space-y-3">
           <video ref={videoRef} playsInline className="w-full rounded-xl bg-black/50" />
           <div className="flex justify-end"> <Button variant="primary" onClick={tomarFoto}>Capturar</Button></div>
         </div>
       </Modal>
-      {mobileUploadSessionId && (
-        <QrCodeModal 
-          open={!!mobileUploadSessionId} 
-          onClose={() => setMobileUploadSessionId(null)}
-          sessionId={mobileUploadSessionId}
-        />
-      )}
     </Section>
   );
 }

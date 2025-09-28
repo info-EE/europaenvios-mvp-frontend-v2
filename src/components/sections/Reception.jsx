@@ -30,7 +30,7 @@ import {
   labelHTML,
   printHTMLInIframe,
   uuid,
-  Iconos,
+  Iconos
 } from "../../utils/helpers.jsx";
 
 export function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, packages, onAdd }) {
@@ -52,13 +52,39 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileRef = useRef(null);
-  
-  // --- Lógica para el QR ---
-  const [qrModalOpen, setQrModalOpen] = useState(false);
-  const [mobileSessionUrl, setMobileSessionUrl] = useState('');
-  const mobileSessionIdRef = useRef(null);
+
+  const [mobileUploadSessionId, setMobileUploadSessionId] = useState(null);
   
   const { showAlert } = useModal();
+
+  // Escuchar cambios en la sesión de subida móvil
+  useEffect(() => {
+    if (!mobileUploadSessionId) return;
+
+    const sessionDocRef = doc(db, "mobileUploadSessions", mobileUploadSessionId);
+    const unsubscribe = onSnapshot(sessionDocRef, (doc) => {
+      const data = doc.data();
+      if (data && data.photoURL) {
+        setForm(f => ({ ...f, fotos: [...f.fotos, data.photoURL] }));
+        setMobileUploadSessionId(null); // Cierra el modal
+      }
+    });
+
+    return () => unsubscribe();
+  }, [mobileUploadSessionId]);
+
+  const startMobileUploadSession = async () => {
+    try {
+      const sessionId = uuid();
+      const sessionDocRef = doc(db, "mobileUploadSessions", sessionId);
+      await setDoc(sessionDocRef, { createdAt: new Date(), photoURL: null });
+      setMobileUploadSessionId(sessionId);
+    } catch (error) {
+      console.error("Error al iniciar sesión de subida móvil:", error);
+      await showAlert("Error", "No se pudo iniciar la sesión para la subida móvil.");
+    }
+  };
+
 
   const codigoCargaSel = useMemo(() => flights.find(f => f.id === flightId)?.codigo || "", [flightId, flights]);
   const estadosPermitidos = useMemo(() => estadosPermitidosPorCarga(codigoCargaSel, estados.map(e => e.name)), [codigoCargaSel, estados]);
@@ -109,25 +135,6 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
       setForm(f => ({ ...f, courier: courierOptions.length === 1 ? courierOptions[0] : "" }));
     }
   }, [courierOptions, form.courier]);
-
-  // --- Listener para las fotos de la sesión móvil ---
-  useEffect(() => {
-    if (!mobileSessionIdRef.current) return;
-
-    const sessionDocRef = doc(db, "mobileUploadSessions", mobileSessionIdRef.current);
-    const unsubscribe = onSnapshot(sessionDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.photoUrl) {
-          setForm(f => ({ ...f, fotos: [...f.fotos, data.photoUrl] }));
-          // Opcional: Cerrar el modal de QR automáticamente
-          setQrModalOpen(false);
-        }
-      }
-    });
-
-    return () => unsubscribe();
-  }, [mobileSessionIdRef.current]);
 
   const peso = parseComma(form.peso_real_txt);
   const L = parseIntEU(form.L_txt), A = parseIntEU(form.A_txt), H = parseIntEU(form.H_txt);
@@ -260,26 +267,6 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
     r.onload = () => handleImageUpload(r.result);
     r.readAsDataURL(file);
   };
-  
-  // --- CORRECCIÓN: Se añade 'async' y 'await' a la función ---
-  const startMobileUploadSession = async () => {
-    const sessionId = uuid();
-    mobileSessionIdRef.current = sessionId;
-    const url = `${window.location.origin}/upload/${sessionId}`;
-    
-    try {
-      // --- CAMBIO CLAVE: Esperar a que el documento se cree en Firestore ---
-      await setDoc(doc(db, "mobileUploadSessions", sessionId), {
-        createdAt: new Date(),
-        photoUrl: null,
-      });
-      setMobileSessionUrl(url);
-      setQrModalOpen(true);
-    } catch (error) {
-      console.error("Error creating mobile session:", error);
-      await showAlert("Error", "No se pudo iniciar la sesión para la subida móvil.");
-    }
-  };
 
   if (currentUser.role === "COURIER") {
     return (<Section title="Recepción de paquete"><div className="text-gray-600">Tu rol no tiene acceso a Recepción.</div></Section>);
@@ -379,7 +366,13 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
           <div className="flex justify-end"> <Button variant="primary" onClick={tomarFoto}>Capturar</Button></div>
         </div>
       </Modal>
-      <QrCodeModal open={qrModalOpen} onClose={() => setQrModalOpen(false)} url={mobileSessionUrl} />
+      {mobileUploadSessionId && (
+        <QrCodeModal 
+          open={!!mobileUploadSessionId} 
+          onClose={() => setMobileUploadSessionId(null)}
+          sessionId={mobileUploadSessionId}
+        />
+      )}
     </Section>
   );
 }

@@ -71,7 +71,7 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
     });
 
     return () => unsubscribe();
-  }, [mobileUploadSessionId]);
+  }, [mobileUploadSessionId, db]);
 
   const startMobileUploadSession = async () => {
     try {

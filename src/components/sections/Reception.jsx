@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { db, storage } from "../../firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
-import { doc, getDoc, runTransaction } from "firebase/firestore";
+import { doc, getDoc, runTransaction, setDoc, onSnapshot } from "firebase/firestore";
 
 // Context
 import { useModal } from "../../context/ModalContext.jsx";
@@ -15,6 +15,7 @@ import { Input } from "../common/Input.jsx";
 import { Modal } from "../common/Modal.jsx";
 import { InfoBox } from "../common/InfoBox.jsx";
 import { ManageList } from "../common/ManageList.jsx";
+import { QrCodeModal } from "../common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -28,7 +29,8 @@ import {
   fmtPeso,
   labelHTML,
   printHTMLInIframe,
-  uuid
+  uuid,
+  Iconos,
 } from "../../utils/helpers.jsx";
 
 export function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, packages, onAdd }) {
@@ -50,6 +52,11 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileRef = useRef(null);
+  
+  // --- Lógica para el QR ---
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [mobileSessionUrl, setMobileSessionUrl] = useState('');
+  const mobileSessionIdRef = useRef(null);
   
   const { showAlert } = useModal();
 
@@ -102,6 +109,25 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
       setForm(f => ({ ...f, courier: courierOptions.length === 1 ? courierOptions[0] : "" }));
     }
   }, [courierOptions, form.courier]);
+
+  // --- Listener para las fotos de la sesión móvil ---
+  useEffect(() => {
+    if (!mobileSessionIdRef.current) return;
+
+    const sessionDocRef = doc(db, "mobileUploadSessions", mobileSessionIdRef.current);
+    const unsubscribe = onSnapshot(sessionDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.photoUrl) {
+          setForm(f => ({ ...f, fotos: [...f.fotos, data.photoUrl] }));
+          // Opcional: Cerrar el modal de QR automáticamente
+          setQrModalOpen(false);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [mobileSessionIdRef.current]);
 
   const peso = parseComma(form.peso_real_txt);
   const L = parseIntEU(form.L_txt), A = parseIntEU(form.A_txt), H = parseIntEU(form.H_txt);
@@ -234,6 +260,26 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
     r.onload = () => handleImageUpload(r.result);
     r.readAsDataURL(file);
   };
+  
+  // --- CORRECCIÓN: Se añade 'async' y 'await' a la función ---
+  const startMobileUploadSession = async () => {
+    const sessionId = uuid();
+    mobileSessionIdRef.current = sessionId;
+    const url = `${window.location.origin}/upload/${sessionId}`;
+    
+    try {
+      // --- CAMBIO CLAVE: Esperar a que el documento se cree en Firestore ---
+      await setDoc(doc(db, "mobileUploadSessions", sessionId), {
+        createdAt: new Date(),
+        photoUrl: null,
+      });
+      setMobileSessionUrl(url);
+      setQrModalOpen(true);
+    } catch (error) {
+      console.error("Error creating mobile session:", error);
+      await showAlert("Error", "No se pudo iniciar la sesión para la subida móvil.");
+    }
+  };
 
   if (currentUser.role === "COURIER") {
     return (<Section title="Recepción de paquete"><div className="text-gray-600">Tu rol no tiene acceso a Recepción.</div></Section>);
@@ -301,6 +347,7 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
               <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
               <Button onClick={() => fileRef.current?.click()} disabled={isUploading}>Seleccionar archivo</Button>
               <Button onClick={() => setCamOpen(true)} disabled={isUploading}>Tomar foto</Button>
+              <Button onClick={startMobileUploadSession} disabled={isUploading}>{Iconos.mobile} Usar cámara del móvil</Button>
               {isUploading && <span className="text-francia-600 text-sm font-semibold">Subiendo...</span>}
             </div>
           </Field>
@@ -332,6 +379,7 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
           <div className="flex justify-end"> <Button variant="primary" onClick={tomarFoto}>Capturar</Button></div>
         </div>
       </Modal>
+      <QrCodeModal open={qrModalOpen} onClose={() => setQrModalOpen(false)} url={mobileSessionUrl} />
     </Section>
   );
 }

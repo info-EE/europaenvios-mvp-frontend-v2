@@ -3,11 +3,11 @@ import React, { useMemo, useState } from "react";
 import ExcelJS from "exceljs/dist/exceljs.min.js";
 
 // Componentes
-import { Section } from "../common/Section";
-import { Input } from "../common/Input";
-import { Field } from "../common/Field";
-import { EmptyState } from "../common/EmptyState";
-import { Button } from "../common/Button";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
 import {
@@ -171,23 +171,25 @@ export function Proformas({ packages, flights, extras, user }) {
   return (
     <Section title="Proformas por courier"
       right={
-        <div className="flex gap-2 items-end">
+        <div className="flex gap-2 flex-wrap items-end">
           <Field label="Desde"><Input type="date" value={from} onChange={e => setFrom(e.target.value)} /></Field>
           <Field label="Hasta"><Input type="date" value={to} onChange={e => setTo(e.target.value)} /></Field>
-          <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => setFlightId(e.target.value)}>
-            <option value="">Seleccionar carga…</option>
-            {list
-              .filter(f => !from || f.fecha_salida >= from)
-              .filter(f => !to || f.fecha_salida <= to)
-              .map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
-          </select>
+          <Field label="Carga">
+            <select className="text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => setFlightId(e.target.value)}>
+              <option value="">Seleccionar carga…</option>
+              {list
+                .filter(f => !from || f.fecha_salida >= from)
+                .filter(f => !to || f.fecha_salida <= to)
+                .map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
+            </select>
+          </Field>
         </div>
       }
     >
       {!flight ? <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para ver las proformas por courier." /> : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead><tr className="bg-slate-50">{["Courier", "Kg facturable", "Kg exceso", "TOTAL USD", "XLSX"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+            <thead><tr className="bg-slate-50">{["Courier", "Kg facturable", "Kg exceso", "TOTAL USD", "XLSX"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
             <tbody className="divide-y divide-slate-200">
               {porCourier.map(r => {
                 let tot;
@@ -202,11 +204,11 @@ export function Proformas({ packages, flights, extras, user }) {
                 }
                 return (
                   <tr key={r.courier} className="hover:bg-slate-50">
-                    <td className="px-3 py-2">{r.courier}</td>
-                    <td className="px-3 py-2">{fmtPeso(r.kg_fact)} kg</td>
-                    <td className="px-3 py-2">{fmtPeso(r.kg_exc)} kg</td>
-                    <td className="px-3 py-2 font-semibold text-slate-800">{fmtMoney(tot)}</td>
-                    <td className="px-3 py-2"><Button onClick={() => exportX(r)}>Descargar</Button></td>
+                    <td className="px-3 py-2 whitespace-nowrap">{r.courier}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(r.kg_fact)} kg</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(r.kg_exc)} kg</td>
+                    <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{fmtMoney(tot)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap"><Button onClick={() => exportX(r)}>Descargar</Button></td>
                   </tr>
                 );
               })}

@@ -243,12 +243,12 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
         <table className="min-w-full text-sm">
           <thead>
             <tr className="bg-slate-50">
-              <th className="text-left px-3 py-2 font-semibold text-slate-600">Fecha recepción</th>
-              <th className="text-left px-3 py-2 font-semibold text-slate-600">Nº paquete</th>
-              <th className="text-left px-3 py-2 font-semibold text-slate-600">Nombre y apellido</th>
-              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600">Tracking</th>}
-              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600">Foto</th>}
-              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>}
+              <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Fecha recepción</th>
+              <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Nº paquete</th>
+              <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Nombre y apellido</th>
+              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Tracking</th>}
+              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Foto</th>}
+              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Acciones</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -256,11 +256,11 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
               <tr key={r.id} className="hover:bg-slate-50">
                 {editId === r.id ? (
                   <>
-                    <td className="px-3 py-1"><Input type="date" value={editRow.fecha} onChange={e => setEditRow({ ...editRow, fecha: e.target.value })} /></td>
-                    <td className="px-3 py-1">{r.numero}</td>
-                    <td className="px-3 py-1"><Input value={editRow.nombre} onChange={e => setEditRow({ ...editRow, nombre: e.target.value })} /></td>
-                    {isAdmin && <td className="px-3 py-1"><Input value={editRow.tracking} onChange={e => setEditRow({ ...editRow, tracking: e.target.value })} /></td>}
-                    {isAdmin && <td className="px-3 py-1">
+                    <td className="px-3 py-1 whitespace-nowrap"><Input type="date" value={editRow.fecha} onChange={e => setEditRow({ ...editRow, fecha: e.target.value })} /></td>
+                    <td className="px-3 py-1 whitespace-nowrap">{r.numero}</td>
+                    <td className="px-3 py-1 whitespace-nowrap"><Input value={editRow.nombre} onChange={e => setEditRow({ ...editRow, nombre: e.target.value })} /></td>
+                    {isAdmin && <td className="px-3 py-1 whitespace-nowrap"><Input value={editRow.tracking} onChange={e => setEditRow({ ...editRow, tracking: e.target.value })} /></td>}
+                    {isAdmin && <td className="px-3 py-1 whitespace-nowrap">
                       <div className="flex flex-col gap-1">
                         {editRow.foto && <img src={editRow.foto} className="w-12 h-12 object-cover rounded-md" alt="Paquete" />}
                         <input ref={fileRef} type="file" accept="image/*" onChange={(e) => onFile(e, 'edit')} className="hidden" />
@@ -270,7 +270,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
                       </div>
                     </td>}
                     {isAdmin && (
-                      <td className="px-3 py-1">
+                      <td className="px-3 py-1 whitespace-nowrap">
                         <div className="flex gap-2">
                           <Button variant="icon" className="bg-green-100 text-green-700" onClick={saveEdit}>{Iconos.save}</Button>
                           <Button variant="icon" onClick={cancelEdit}>
@@ -282,19 +282,19 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
                   </>
                 ) : (
                   <>
-                    <td className="px-3 py-2">{r.fecha || ""}</td>
-                    <td className="px-3 py-2">{r.numero}</td>
-                    <td className="px-3 py-2">{r.nombre || ""}</td>
-                    {isAdmin && <td className="px-3 py-2">{r.tracking || "—"}</td>}
+                    <td className="px-3 py-2 whitespace-nowrap">{r.fecha || ""}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{r.numero}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{r.nombre || ""}</td>
+                    {isAdmin && <td className="px-3 py-2 whitespace-nowrap">{r.tracking || "—"}</td>}
                     {isAdmin && (
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2 whitespace-nowrap">
                         {r.foto ? <img alt="foto" src={r.foto} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={() => setViewer([r.foto])} /> : "—"}
                       </td>
                     )}
                     {isAdmin && (
-                      <td className="px-3 py-2">
-                        <div className="flex gap-2">
-                          <Button onClick={() => handleAsignarCasilla(r)} className="px-3 py-1 text-xs rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors">Asignar casilla</Button>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <div className="flex gap-2 items-center">
+                          <Button onClick={() => handleAsignarCasilla(r)} className="px-3 py-1 text-xs whitespace-nowrap rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors">Asignar casilla</Button>
                           <Button variant="icon" onClick={() => startEdit(r)}>{Iconos.edit}</Button>
                           <Button variant="iconDanger" onClick={() => removeRow(r)}>{Iconos.delete}</Button>
                         </div>

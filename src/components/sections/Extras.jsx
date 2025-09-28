@@ -59,7 +59,7 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
 
     return (
         <Section title="Trabajos extras">
-            <div className="grid md:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg items-end">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-4 p-4 bg-slate-50 rounded-lg items-end">
                 <Field label="Carga">
                     <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => setFlightId(e.target.value)}>
                         <option value="">Todas</option>
@@ -81,7 +81,7 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
                     </select>
                 </Field>
                 <Field label="Fecha"><Input type="date" value={fecha} onChange={e => setFecha(e.target.value)} /></Field>
-                <div className="md:col-span-6 flex justify-end">
+                <div className="md:col-span-2 lg:col-span-4 xl:col-span-6 flex justify-end">
                     <Button variant="primary" onClick={add}>Agregar</Button>
                 </div>
             </div>
@@ -103,7 +103,7 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
                     <thead>
                         <tr className="bg-slate-50">
                             {["Fecha", "Carga", "Courier", "Descripción", "Monto (USD)", "Estado", "Acciones"].map(h => 
-                                <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>
+                                <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>
                             )}
                         </tr>
                     </thead>
@@ -112,18 +112,18 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
                             const carga = flights.find(f => f.id === e.flight_id)?.codigo || "";
                             return (
                                 <tr key={e.id} className="hover:bg-slate-50">
-                                    <td className="px-3 py-1">{e.fecha || flights.find(f => f.id === e.flight_id)?.fecha_salida || ""}</td>
-                                    <td className="px-3 py-1">{carga}</td>
-                                    <td className="px-3 py-1">{e.courier}</td>
-                                    <td className="px-3 py-1"><Input value={e.descripcion} onChange={ev => updateItem(e.id, { descripcion: ev.target.value })} /></td>
-                                    <td className="px-3 py-1"><Input value={e.monto} onChange={ev => updateItem(e.id, { monto: ev.target.value })} /></td>
-                                    <td className="px-3 py-1">
+                                    <td className="px-3 py-1 whitespace-nowrap">{e.fecha || flights.find(f => f.id === e.flight_id)?.fecha_salida || ""}</td>
+                                    <td className="px-3 py-1 whitespace-nowrap">{carga}</td>
+                                    <td className="px-3 py-1 whitespace-nowrap">{e.courier}</td>
+                                    <td className="px-3 py-1"><Input className="min-w-[200px]" value={e.descripcion} onChange={ev => updateItem(e.id, { descripcion: ev.target.value })} /></td>
+                                    <td className="px-3 py-1"><Input className="min-w-[100px]" value={e.monto} onChange={ev => updateItem(e.id, { monto: ev.target.value })} /></td>
+                                    <td className="px-3 py-1 whitespace-nowrap">
                                         <select className="w-full text-sm rounded-lg border-slate-300 px-2 py-1" value={e.estado} onChange={ev => updateItem(e.id, { estado: ev.target.value })}>
                                             <option>Pendiente</option>
                                             <option>Cobrado</option>
                                         </select>
                                     </td>
-                                    <td className="px-3 py-1">
+                                    <td className="px-3 py-1 whitespace-nowrap">
                                         <Button variant="iconDanger" onClick={() => deleteItem(e.id)}>{Iconos.delete}</Button>
                                     </td>
                                 </tr>

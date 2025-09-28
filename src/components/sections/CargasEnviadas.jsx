@@ -2,12 +2,12 @@
 import React, { useMemo, useState } from "react";
 
 // Componentes
-import { Section } from "../common/Section";
-import { Input } from "../common/Input";
-import { Field } from "../common/Field";
-import { EmptyState } from "../common/EmptyState";
-import { Button } from "../common/Button";
-import { Modal } from "../common/Modal";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
+import { Modal } from "../common/Modal.jsx";
 
 // Helpers & Constantes
 import {
@@ -107,7 +107,7 @@ export function CargasEnviadas({ packages, flights, user }) {
 
   return (
     <Section title="Cargas enviadas">
-      <div className="grid md:grid-cols-6 gap-4 items-end">
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
         <Field label="Desde"><Input type="date" value={from} onChange={e => setFrom(e.target.value)} /></Field>
         <Field label="Hasta"><Input type="date" value={to} onChange={e => setTo(e.target.value)} /></Field>
         <Field label="Estado">
@@ -122,7 +122,7 @@ export function CargasEnviadas({ packages, flights, user }) {
             {list.map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida} · {f.estado}</option>)}
           </select>
         </Field>
-        <div className="md:col-span-2 flex items-end justify-end">
+        <div className="md:col-span-2 lg:col-span-4 flex items-end justify-end w-full">
           <Button onClick={exportFlightXLSX} disabled={!flight}>
             Exportar XLSX
           </Button>
@@ -131,10 +131,10 @@ export function CargasEnviadas({ packages, flights, user }) {
 
       {!flight ? <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para ver sus paquetes y cajas." /> : (
         <>
-          <div className="flex justify-between items-center mt-6 mb-2">
-            <h3 className="text-lg font-semibold text-slate-800">Paquetes del vuelo: {flight.codigo}</h3>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-6 mb-2">
+            <h3 className="text-lg font-semibold text-slate-800 mb-2 sm:mb-0">Paquetes del vuelo: {flight.codigo}</h3>
             {isCourier && (
-              <div className="flex gap-4 text-sm">
+              <div className="flex flex-col sm:flex-row gap-x-4 gap-y-1 text-sm">
                 <div><b>Kg Facturables:</b> <span className="font-mono">{fmtPeso(courierTotals.facturable)} kg</span></div>
                 <div><b>Exceso Volumétrico:</b> <span className="font-mono">{fmtPeso(courierTotals.exceso)} kg</span></div>
               </div>
@@ -142,19 +142,19 @@ export function CargasEnviadas({ packages, flights, user }) {
           </div>
           <div className="overflow-x-auto mb-6">
             <table className="min-w-full text-sm">
-              <thead><tr className="bg-slate-50">{["Courier", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción", "Foto"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+              <thead><tr className="bg-slate-50">{["Courier", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción", "Foto"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
               <tbody className="divide-y divide-slate-200">
                 {paquetesDeVuelo.map(p => (
                   <tr key={p.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2">{p.courier}</td>
-                    <td className="px-3 py-2 font-mono">{p.codigo}</td>
-                    <td className="px-3 py-2">{p.casilla}</td>
-                    <td className="px-3 py-2">{p.fecha}</td>
-                    <td className="px-3 py-2">{p.nombre_apellido}</td>
-                    <td className="px-3 py-2 font-mono">{p.tracking}</td>
-                    <td className="px-3 py-2">{fmtPeso(p.peso_real)}</td>
-                    <td className="px-3 py-2">{p.largo}x{p.ancho}x{p.alto} cm</td>
-                    <td className="px-3 py-2">{fmtPeso(p.exceso_volumen)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{p.courier}</td>
+                    <td className="px-3 py-2 font-mono whitespace-nowrap">{p.codigo}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{p.casilla}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{p.fecha}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{p.nombre_apellido}</td>
+                    <td className="px-3 py-2 font-mono whitespace-nowrap">{p.tracking}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_real)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{p.largo}x{p.ancho}x{p.alto} cm</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.exceso_volumen)}</td>
                     <td className="px-3 py-2">{p.descripcion}</td>
                     <td className="px-3 py-2">
                         {(p.fotos && p.fotos.length > 0) ? 
@@ -172,20 +172,20 @@ export function CargasEnviadas({ packages, flights, user }) {
               <h3 className="text-lg font-semibold text-slate-800 mt-6 mb-2">Resumen de Cajas</h3>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
-                  <thead><tr className="bg-slate-50">{["Nº Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600">{h}</th>)}</tr></thead>
+                  <thead><tr className="bg-slate-50">{["Nº Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
                   <tbody className="divide-y divide-slate-200">
                     {resumenCajas.map(r => (
                       <tr key={r.n} className="hover:bg-slate-50">
-                        <td className="px-3 py-2">{r.codigo}</td>
-                        <td className="px-3 py-2">{r.courier}</td>
-                        <td className="px-3 py-2">{fmtPeso(r.peso)}</td>
-                        <td className="px-3 py-2">{r.L}</td>
-                        <td className="px-3 py-2">{r.A}</td>
-                        <td className="px-3 py-2">{r.H}</td>
-                        <td className="px-3 py-2">{fmtPeso(r.vol)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{r.codigo}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{r.courier}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(r.peso)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{r.L}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{r.A}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{r.H}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(r.vol)}</td>
                       </tr>
                     ))}
-                    <tr className="bg-slate-100 font-bold"><td className="px-3 py-2"></td><td className="px-3 py-2">Totales</td><td className="px-3 py-2">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2">{fmtPeso(totVol)}</td></tr>
+                    <tr className="bg-slate-100 font-bold"><td className="px-3 py-2"></td><td className="px-3 py-2">Totales</td><td className="px-3 py-2 whitespace-nowrap">{fmtPeso(totPeso)}</td><td></td><td></td><td></td><td className="px-3 py-2 whitespace-nowrap">{fmtPeso(totVol)}</td></tr>
                   </tbody>
                 </table>
               </div>

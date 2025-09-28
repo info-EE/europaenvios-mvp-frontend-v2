@@ -3,15 +3,15 @@ import React, { useMemo, useRef, useState, useEffect } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "../../context/ModalContext";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
+import { Section } from "../common/Section";
+import { Input } from "../common/Input";
+import { Field } from "../common/Field";
+import { Modal } from "../common/Modal";
+import { EmptyState } from "../common/EmptyState";
+import { Button } from "../common/Button";
 
 // Helpers & Constantes
 import {
@@ -35,9 +35,9 @@ import {
   tdNum,
   tdInt,
   estadosPermitidosPorCarga
-} from "../../utils/helpers.jsx";
+} from "../../utils/helpers";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { storage } from "../../firebase.js";
+import { storage } from "../../firebase";
 
 const CustomPieLegend = ({ payload }) => (
     <div className="w-1/3 text-xs overflow-y-auto" style={{maxHeight: '16rem'}}>
@@ -56,7 +56,7 @@ const SortableHeader = ({ children, col, sort, toggleSort }) => {
     const isSorted = sort.key === col;
     const arrow = isSorted ? (sort.dir === "asc" ? "▲" : "▼") : <span className="text-slate-400">↕</span>;
     return (
-        <th className="text-left px-3 py-2 font-semibold text-slate-600 cursor-pointer select-none" onClick={() => toggleSort(col)}>
+        <th className="text-left px-3 py-2 font-semibold text-slate-600 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort(col)}>
             {children}
             <span className="ml-1">{arrow}</span>
         </th>
@@ -83,7 +83,6 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       .filter(p => {
         const flight = flights.find(f => f.id === p.flight_id);
         if (!flight) return false;
-        // Muestra todos los paquetes cuya carga esté "En bodega", sin importar si están en una caja.
         return flight.estado === "En bodega";
       })
       .filter(p => !flightId || p.flight_id === flightId)

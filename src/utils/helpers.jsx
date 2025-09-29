@@ -46,6 +46,12 @@ export const COURIERS_INICIALES = [
     "FastBox", "Fixo Cargo", "Fox Box", "Global Box", "Home Box", "Inflight Box", "Inter Couriers",
     "MC Group", "Miami Express", "One Box", "ParaguayBox", "Royal Box"
 ];
+export const EMPRESAS_ENVIO_INICIALES = [
+    "AMAZON", "ASENDIA", "CHINA POST", "COLISSIMO", "CORREOS", "CORREOS EXPRESS", "CTT EXPRESS",
+    "DEUTSCHE POST", "DHL", "DPD", "ECO SCOOTING", "FEDEX", "GLS", "LIETUVOS PASTAS", "MRW",
+    "NACEX", "ONTIME", "PAACK", "POSTE ITALIANE", "POSTNL", "ROYAL MAIL", "TIPSA", "TRANSAHER",
+    "SENDING", "SEUR", "UPS", "ZELERIS"
+];
 export const ESTADOS_CARGA = ["En bodega", "En tránsito", "Arribada", "Entregada", "Cobrada"];
 export const CASILLA_PREFIX_MAP = {
     "Aero Box": ["ABH", "ABC", "AB", "ABL", "ABK", "ACD"], "Aladín": ["ALD"], "Boss Box": ["BBC"],

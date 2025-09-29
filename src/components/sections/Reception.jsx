@@ -32,7 +32,7 @@ import {
   uuid
 } from "../../utils/helpers.jsx";
 
-export function Reception({ currentUser, couriers, setCouriers, estados, setEstados, flights, packages, onAdd }) {
+export function Reception({ currentUser, couriers, setCouriers, estados, setEstados, empresasEnvio, setEmpresasEnvio, flights, packages, onAdd }) {
   const vuelosBodega = flights.filter(f => f.estado === "En bodega");
   const [flightId, setFlightId] = useState("");
   const [form, setForm] = useState({
@@ -284,9 +284,10 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
       right={<Button onClick={() => setShowMgr(s => !s)}>Gestionar listas</Button>}
     >
       {showMgr && (
-        <div className="grid md:grid-cols-2 gap-4 my-4 p-4 bg-slate-50 rounded-lg">
+        <div className="grid md:grid-cols-3 gap-4 my-4 p-4 bg-slate-50 rounded-lg">
           <ManageList label="Couriers" items={couriers} onAdd={setCouriers.add} onRemove={setCouriers.remove} />
           <ManageList label="Estados" items={estados} onAdd={setEstados.add} onRemove={setEstados.remove} />
+          <ManageList label="Empresas de envío" items={empresasEnvio} onAdd={setEmpresasEnvio.add} onRemove={setEmpresasEnvio.remove} />
         </div>
       )}
 
@@ -322,7 +323,16 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
           <Input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} />
         </Field>
         <Field label="CI/Pasaporte/RUC"><Input value={form.ci_ruc} onChange={e => setForm({ ...form, ci_ruc: e.target.value })} /></Field>
-        <Field label="Empresa de envío" required><Input value={form.empresa} onChange={e => setForm({ ...form, empresa: e.target.value })} /></Field>
+        <Field label="Empresa de envío" required>
+            <select 
+                className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" 
+                value={form.empresa} 
+                onChange={e => setForm({ ...form, empresa: e.target.value })}
+            >
+                <option value="">Seleccionar…</option>
+                {[...empresasEnvio].sort((a, b) => a.name.localeCompare(b.name)).map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+            </select>
+        </Field>
         <Field label="Nombre y apellido" required><Input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} /></Field>
         <Field label="Tracking" required><Input value={form.tracking} onChange={e => setForm({ ...form, tracking: e.target.value })} /></Field>
         <Field label="Remitente" required><Input value={form.remitente} onChange={e => setForm({ ...form, remitente: e.target.value })} /></Field>

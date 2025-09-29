@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 
 // Firebase
 import { db, auth, signOut, onAuthStateChanged } from "./firebase";
-import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc } from "firebase/firestore";
+import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc, writeBatch, getDocs } from "firebase/firestore";
 
 // Context
 import { useModal } from "./context/ModalContext";
@@ -24,7 +24,13 @@ import { Proformas } from "./components/sections/Proformas";
 import { Extras } from "./components/sections/Extras";
 
 // Helpers y Constantes
-import { Iconos, tabsForRole, COURIERS_INICIALES, ESTADOS_INICIALES } from "./utils/helpers";
+import {
+  Iconos,
+  tabsForRole,
+  COURIERS_INICIALES,
+  ESTADOS_INICIALES,
+  EMPRESAS_ENVIO_INICIALES
+} from "./utils/helpers";
 
 // Icono para el menú de hamburguesa en móvil
 const MenuIcon = () => (
@@ -42,6 +48,7 @@ function App() {
   // Estados de datos
   const [couriers, setCouriers] = useState([]);
   const [estados, setEstados] = useState([]);
+  const [empresasEnvio, setEmpresasEnvio] = useState([]);
   const [flights, setFlights] = useState([]);
   const [packages, setPackages] = useState([]);
   const [extras, setExtras] = useState([]);
@@ -74,36 +81,75 @@ function App() {
   // Listener de Datos de Firestore
   useEffect(() => {
     if (!currentUser) {
-      setFlights([]); setPackages([]); setCouriers([]); setEstados([]);
-      setExtras([]); setSinCasillaItems([]); setPendientes([]);
-      return;
+        setCouriers([]);
+        setEstados([]);
+        setEmpresasEnvio([]);
+        setFlights([]);
+        setPackages([]);
+        setExtras([]);
+        setSinCasillaItems([]);
+        setPendientes([]);
+        return;
     }
 
-    const createListener = (collectionName, setter, initialData, orderByField = null) => {
-      const collRef = orderByField
-        ? query(collection(db, collectionName), orderBy(orderByField, "desc"))
-        : collection(db, collectionName);
-
-      return onSnapshot(collRef, (snapshot) => {
+    const setupListener = (collectionName, setter, orderByField = null) => {
+      const collRef = collection(db, collectionName);
+      const q = orderByField ? query(collRef, orderBy(orderByField, "desc")) : query(collRef, orderBy("name"));
+      
+      return onSnapshot(q, (snapshot) => {
         const items = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-        if (items.length === 0 && initialData) {
-          initialData.forEach(item => addDoc(collection(db, collectionName), { name: item }));
-        }
         setter(items);
+      }, (error) => {
+        console.error(`Error on snapshot for ${collectionName}:`, error);
       });
     };
 
-    const unsubscribers = [
-      createListener("couriers", setCouriers, COURIERS_INICIALES),
-      createListener("estados", setEstados, ESTADOS_INICIALES),
-      createListener("flights", setFlights, null, "fecha_salida"),
-      createListener("packages", setPackages, null, "fecha"),
-      createListener("extras", setExtras, null, "fecha"),
-      createListener("sinCasilla", setSinCasillaItems, null, "fecha"),
-      createListener("pendientes", setPendientes, null, "fecha"),
-    ];
+    const seedInitialData = async (collectionName, initialData) => {
+      if (!initialData) return;
+      const collRef = collection(db, collectionName);
+      try {
+        const snapshot = await getDocs(collRef);
+        if (snapshot.empty) {
+          console.log(`Seeding initial data for ${collectionName}...`);
+          const batch = writeBatch(db);
+          initialData.forEach(item => {
+            const newDocRef = doc(collRef);
+            batch.set(newDocRef, { name: item });
+          });
+          await batch.commit();
+        }
+      } catch (error) {
+        console.error(`Error seeding collection ${collectionName}:`, error);
+      }
+    };
+    
+    const initializeData = async () => {
+      await Promise.all([
+        seedInitialData("couriers", COURIERS_INICIALES),
+        seedInitialData("estados", ESTADOS_INICIALES),
+        seedInitialData("empresasEnvio", EMPRESAS_ENVIO_INICIALES),
+      ]);
 
-    return () => unsubscribers.forEach(unsub => unsub());
+      const unsubscribers = [
+        setupListener("couriers", setCouriers),
+        setupListener("estados", setEstados),
+        setupListener("empresasEnvio", setEmpresasEnvio),
+        setupListener("flights", setFlights, "fecha_salida"),
+        setupListener("packages", setPackages, "fecha"),
+        setupListener("extras", setExtras, "fecha"),
+        setupListener("sinCasilla", setSinCasillaItems, "fecha"),
+        setupListener("pendientes", setPendientes, "fecha"),
+      ];
+
+      return () => unsubscribers.forEach(unsub => unsub());
+    };
+
+    const cleanupPromise = initializeData();
+
+    return () => {
+      cleanupPromise.then(cleanup => cleanup && cleanup());
+    };
+
   }, [currentUser]);
   
   const createCrudHandlers = (collectionName) => ({
@@ -117,6 +163,7 @@ function App() {
 
   const couriersHandlers = createCrudHandlers("couriers");
   const estadosHandlers = createCrudHandlers("estados");
+  const empresasEnvioHandlers = createCrudHandlers("empresasEnvio");
   const flightsHandlers = createCrudHandlers("flights");
   const packagesHandlers = createCrudHandlers("packages");
   const extrasHandlers = createCrudHandlers("extras");
@@ -175,7 +222,7 @@ function App() {
       case "Dashboard":
         return <Dashboard packages={packages} flights={flights} pendientes={pendientes} onTabChange={setTab} currentUser={currentUser} />;
       case "Recepción":
-        return <Reception currentUser={currentUser} couriers={couriers} setCouriers={couriersHandlers} estados={estados} setEstados={estadosHandlers} flights={flights} packages={packages} onAdd={packagesHandlers.add}/>;
+        return <Reception currentUser={currentUser} couriers={couriers} setCouriers={couriersHandlers} estados={estados} setEstados={estadosHandlers} empresasEnvio={empresasEnvio} setEmpresasEnvio={empresasEnvioHandlers} flights={flights} packages={packages} onAdd={packagesHandlers.add}/>;
       case "Paquetes sin casilla":
         return <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} onAdd={sinCasillaHandlers.add} onUpdate={sinCasillaHandlers.update} onRemove={sinCasillaHandlers.remove} onAsignarCasilla={moverPaqueteAPendientes} />;
       case "Pendientes":

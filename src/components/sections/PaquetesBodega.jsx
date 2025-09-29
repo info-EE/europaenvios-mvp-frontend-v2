@@ -1,6 +1,7 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
 import { useModal } from "../../context/ModalContext.jsx";
@@ -12,6 +13,7 @@ import { Field } from "../common/Field.jsx";
 import { Modal } from "../common/Modal.jsx";
 import { EmptyState } from "../common/EmptyState.jsx";
 import { Button } from "../common/Button.jsx";
+import { QrCodeModal } from "../common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -37,7 +39,7 @@ import {
   estadosPermitidosPorCarga
 } from "../../utils/helpers.jsx";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { storage } from "../../firebase.js";
+import { db, storage } from "../../firebase.js";
 
 const CustomPieLegend = ({ payload }) => (
     <div className="w-1/3 text-xs overflow-y-auto" style={{maxHeight: '16rem'}}>
@@ -141,6 +143,26 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   const streamRef = useRef(null);
   const fileRef = useRef(null);
   const [viewer, setViewer] = useState(null);
+  
+  const [uploadSessionId, setUploadSessionId] = useState(null);
+
+  useEffect(() => {
+    if (!uploadSessionId) return;
+
+    const sessionRef = doc(db, "mobileUploadSessions", uploadSessionId);
+    const unsubscribe = onSnapshot(sessionRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.photoUrls && data.photoUrls.length > 0) {
+                setForm(f => ({
+                    ...f,
+                    fotos: [...new Set([...f.fotos, ...data.photoUrls])]
+                }));
+            }
+        }
+    });
+    return () => unsubscribe();
+  }, [uploadSessionId]);
 
   const startEdit = (p) => {
     setForm({
@@ -220,6 +242,20 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       setIsUploading(false);
     }
   };
+  
+  const startMobileUploadSession = async () => {
+    const sessionId = uuid();
+    try {
+      const sessionRef = doc(db, "mobileUploadSessions", sessionId);
+      await setDoc(sessionRef, { createdAt: new Date(), photoUrls: [] });
+      setUploadSessionId(sessionId);
+    } catch (error) {
+      console.error("Error al iniciar la sesión de subida:", error);
+      showAlert("Error", "No se pudo iniciar la sesión para la subida móvil.");
+      setUploadSessionId(null);
+    }
+  };
+
 
   const removePhoto = (urlToRemove) => {
     setForm(f => ({ ...f, fotos: f.fotos.filter(url => url !== urlToRemove) }));
@@ -337,7 +373,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                   <td className="px-3 py-2">{p.descripcion}</td>
                   <td className="px-3 py-2">
                     {(p.fotos && p.fotos.length > 0) ? 
-                        <img alt="foto" src={p.fotos[0]} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={() => setViewer(p.fotos)} /> 
+                        <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer(p.fotos)}>Ver foto ({p.fotos.length})</Button>
                         : "—"}
                   </td>
                   {user.role === 'ADMIN' &&
@@ -432,10 +468,11 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
             <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} /></Field>
             <div className="md:col-span-3">
               <Field label="Fotos del paquete">
-                  <div className="flex gap-2 items-center">
+                  <div className="flex gap-2 items-center flex-wrap">
                       <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden"/>
                       <Button onClick={()=>fileRef.current?.click()} disabled={isUploading}>Seleccionar archivo</Button>
                       <Button onClick={()=>setCamOpen(true)} disabled={isUploading}>Tomar foto</Button>
+                      <Button onClick={startMobileUploadSession} disabled={isUploading}>Usar cámara del móvil</Button>
                       {isUploading && <span className="text-francia-600 text-sm font-semibold">Subiendo...</span>}
                   </div>
               </Field>
@@ -478,6 +515,9 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
             </div>
         )}
       </Modal>
+
+      <QrCodeModal open={!!uploadSessionId} onClose={() => setUploadSessionId(null)} sessionId={uploadSessionId} />
+
     </Section>
   );
 }

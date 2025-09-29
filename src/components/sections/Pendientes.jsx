@@ -120,7 +120,7 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
                 <td className="px-3 py-2">{renderTaskDetails(item)}</td>
                 <td className="px-3 py-2">
                   {item.data?.foto ? (
-                    <img src={item.data.foto} alt="Foto de paquete" className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={() => setViewer(item.data.foto)} />
+                    <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer(item.data.foto)}>Ver foto</Button>
                   ) : '—'}
                 </td>
                 <td className="px-3 py-2">

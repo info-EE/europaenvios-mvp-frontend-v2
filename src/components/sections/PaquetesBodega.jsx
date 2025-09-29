@@ -373,7 +373,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                   <td className="px-3 py-2">{p.descripcion}</td>
                   <td className="px-3 py-2">
                     {(p.fotos && p.fotos.length > 0) ? 
-                        <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer(p.fotos)}>Ver foto ({p.fotos.length})</Button>
+                        <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer(p.fotos)}>Ver foto</Button>
                         : "—"}
                   </td>
                   {user.role === 'ADMIN' &&

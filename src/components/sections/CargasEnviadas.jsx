@@ -2,12 +2,12 @@
 import React, { useMemo, useState } from "react";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
-import { Modal } from "../common/Modal.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
 
 // Helpers & Constantes
 import {
@@ -22,7 +22,7 @@ import {
   td,
   tdNum,
   tdInt
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 
 export function CargasEnviadas({ packages, flights, user }) {
   const [from, setFrom] = useState("");
@@ -157,9 +157,9 @@ export function CargasEnviadas({ packages, flights, user }) {
                     <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.exceso_volumen)}</td>
                     <td className="px-3 py-2">{p.descripcion}</td>
                     <td className="px-3 py-2">
-                        {(p.fotos && p.fotos.length > 0) ? 
-                            <img alt="foto" src={p.fotos[0]} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={() => setViewer(p.fotos)} /> 
-                            : "—"}
+                      {(p.fotos && p.fotos.length > 0) ? 
+                          <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer(p.fotos)}>Ver foto ({p.fotos.length})</Button> 
+                          : "—"}
                     </td>
                   </tr>
                 ))}

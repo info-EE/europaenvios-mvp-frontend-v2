@@ -1,19 +1,20 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { db, storage } from "../../firebase.js";
+import { db, storage } from "/src/firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
-import { doc, runTransaction } from "firebase/firestore";
+import { doc, runTransaction, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -23,7 +24,7 @@ import {
   downloadXLSX,
   th,
   td
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 
 export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }) {
   const isAdmin = currentUser?.role === "ADMIN";
@@ -40,12 +41,30 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
   const [isUploading, setIsUploading] = useState(false);
   const [camOpen, setCamOpen] = useState(false);
   const [viewer, setViewer] = useState(null);
+  const [uploadSessionId, setUploadSessionId] = useState(null);
 
   const { showAlert, showConfirmation, showPrompt } = useModal();
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (!uploadSessionId) return;
+
+    const sessionRef = doc(db, "mobileUploadSessions", uploadSessionId);
+    const unsubscribe = onSnapshot(sessionRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.photoUrls && data.photoUrls.length > 0) {
+                // This component handles a single photo, so we take the most recent one.
+                setFoto(data.photoUrls[data.photoUrls.length - 1]);
+            }
+        }
+    });
+
+    return () => unsubscribe();
+  }, [uploadSessionId]);
 
   const add = async () => {
     if (!isAdmin || isAdding || isUploading) return;
@@ -96,6 +115,19 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
     })();
     return () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } };
   }, [camOpen, showAlert]);
+
+  const startMobileUploadSession = async () => {
+    const sessionId = uuid();
+    try {
+      const sessionRef = doc(db, "mobileUploadSessions", sessionId);
+      await setDoc(sessionRef, { createdAt: new Date(), photoUrls: [] });
+      setUploadSessionId(sessionId);
+    } catch (error) {
+      console.error("Error al iniciar la sesión de subida:", error);
+      showAlert("Error", "No se pudo iniciar la sesión para la subida móvil.");
+      setUploadSessionId(null);
+    }
+  };
 
   const handleImageUpload = async (imageDataUrl, target) => {
     if (!imageDataUrl) return;
@@ -222,6 +254,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
                 <input ref={fileRef} type="file" accept="image/*" onChange={(e) => onFile(e, 'new')} className="hidden" />
                 <Button onClick={() => fileRef.current?.click()} disabled={isUploading}>Seleccionar archivo</Button>
                 <Button onClick={() => setCamOpen('new')} disabled={isUploading}>Tomar foto</Button>
+                <Button onClick={startMobileUploadSession} disabled={isUploading}>Usar cámara del móvil</Button>
                 {foto && <a href={foto} target="_blank" rel="noopener noreferrer" className="text-green-600 text-sm font-semibold hover:underline">✓ Ver foto</a>}
               </div>
             </Field>
@@ -288,7 +321,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
                     {isAdmin && <td className="px-3 py-2 whitespace-nowrap">{r.tracking || "—"}</td>}
                     {isAdmin && (
                       <td className="px-3 py-2 whitespace-nowrap">
-                        {r.foto ? <img alt="foto" src={r.foto} className="w-12 h-12 object-cover rounded-md cursor-pointer" onClick={() => setViewer([r.foto])} /> : "—"}
+                        {r.foto ? <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer([r.foto])}>Ver foto</Button> : "—"}
                       </td>
                     )}
                     {isAdmin && (
@@ -321,6 +354,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
           </a>
         )}
       </Modal>
+      <QrCodeModal open={!!uploadSessionId} onClose={() => setUploadSessionId(null)} sessionId={uploadSessionId} />
     </Section>
   );
 }

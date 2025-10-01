@@ -2,16 +2,16 @@
 import React, { useMemo, useState } from "react";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Field } from "../common/Field.jsx";
-import { Input } from "../common/Input.jsx";
-import { Button } from "../common/Button.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { Iconos } from "../../utils/helpers.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
+import { Iconos } from "/src/utils/helpers.jsx";
 
 export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
   const [editItem, setEditItem] = useState(null);
@@ -34,16 +34,43 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
       .filter(item => {
         if (!q) return true;
         const query = q.toLowerCase();
-        const dataString = JSON.stringify(item.data).toLowerCase();
-        return dataString.includes(query);
+        // Improved search: check details for manual tasks, and stringify data for others
+        const detailsString = item.type === 'MANUAL' 
+            ? (item.data?.details || "").toLowerCase()
+            : JSON.stringify(item.data).toLowerCase();
+        return detailsString.includes(query);
       });
   }, [items, statusFilter, from, to, q]);
+  
+  const renderTaskDetailsAsString = (item) => {
+    const { type, data } = item;
+    switch (type) {
+      case 'ASIGNAR_CASILLA': return `Mover paquete Nº ${data.numero} (${data.nombre}) a la casilla ${data.casilla}.`;
+      case 'CAMBIO_CARGA': return `Cambiar paquete ${data.codigo} de la carga ${data.oldFlight} a la carga ${data.newFlight}.`;
+      case 'MANUAL': return data.details || '';
+      default: return JSON.stringify(data);
+    }
+  };
 
-  const startEdit = (item) => setEditItem({ ...item });
+
+  const startEdit = (item) => {
+    const detailsAsString = renderTaskDetailsAsString(item);
+    setEditItem({ 
+        ...item, 
+        data: { ...item.data, details: detailsAsString } 
+    });
+  };
+
   const cancelEdit = () => setEditItem(null);
 
   const saveEdit = () => {
-    onUpdate(editItem);
+    if(!editItem) return;
+    const itemToSave = {
+        ...editItem,
+        type: 'MANUAL', // Always save as manual after editing
+        data: { details: editItem.data.details }
+    };
+    onUpdate(itemToSave);
     setEditItem(null);
   };
 
@@ -159,11 +186,13 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
           <div className="space-y-4">
             <Field label="Fecha" required><Input type="date" value={editItem.fecha} onChange={e => setEditItem({ ...editItem, fecha: e.target.value })} /></Field>
             <Field label="Detalles de la Tarea" required>
-              <textarea className="w-full text-sm rounded-lg border-slate-300 p-3" rows="4"
-                defaultValue={renderTaskDetails(editItem)}
+              <textarea 
+                className="w-full text-sm rounded-lg border-slate-300 p-3" 
+                rows="4"
+                value={editItem.data.details}
                 onChange={e => {
                   const newData = { ...editItem.data, details: e.target.value };
-                  setEditItem({ ...editItem, data: newData, type: 'MANUAL' });
+                  setEditItem({ ...editItem, data: newData });
                 }}
               />
             </Field>

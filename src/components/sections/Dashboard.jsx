@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 
 // Componentes
@@ -20,14 +20,29 @@ const KpiCard = ({ title, value, icon, color }) => (
 
 export function Dashboard({ packages, flights, pendientes, onTabChange, currentUser }) {
   const isAdmin = currentUser.role === 'ADMIN';
+  const [cargaFilter, setCargaFilter] = useState('Todas');
 
   const paquetesEnBodega = useMemo(() => {
-    let filteredPackages = packages.filter(p => flights.find(f => f.id === p.flight_id)?.estado === "En bodega");
+    const cargasEnBodegaIds = new Set(
+        flights
+            .filter(f => {
+                if (f.estado !== "En bodega") return false;
+                const code = (f.codigo || "").toUpperCase();
+                if (cargaFilter === 'Aéreas') return code.startsWith('AIR');
+                if (cargaFilter === 'Marítimas') return code.startsWith('MAR');
+                // Para "Todas", incluimos AIR y MAR
+                return code.startsWith('AIR') || code.startsWith('MAR');
+            })
+            .map(f => f.id)
+    );
+
+    let filteredPackages = packages.filter(p => cargasEnBodegaIds.has(p.flight_id));
+    
     if (!isAdmin) {
       filteredPackages = filteredPackages.filter(p => p.courier === currentUser.courier);
     }
     return filteredPackages;
-  }, [packages, flights, isAdmin, currentUser.courier]);
+  }, [packages, flights, isAdmin, currentUser.courier, cargaFilter]);
 
   const cargasEnTransito = useMemo(() => flights.filter(f => f.estado === "En tránsito"), [flights]);
   const tareasPendientes = useMemo(() => pendientes.filter(t => t.status === "No realizada"), [pendientes]);
@@ -66,7 +81,8 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
     });
     return Object.entries(agg)
         .filter(([, kg]) => kg > 0)
-        .map(([name, value]) => ({ name, value }));
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value); // Ordenar de mayor a menor
   }, [paquetesEnBodega, isAdmin, currentUser.courier]);
 
   const totalKgBodega = useMemo(() => sum(kgPorCourier.map(c => c.value)), [kgPorCourier]);
@@ -107,7 +123,18 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-md flex flex-col">
-           <h3 className="font-semibold text-slate-700 mb-4">Kg Reales por Courier (en bodega)</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-semibold text-slate-700">Resumen de kg en bodega</h3>
+            <select 
+              className="text-sm rounded-lg border-slate-300 px-2 py-1"
+              value={cargaFilter}
+              onChange={(e) => setCargaFilter(e.target.value)}
+            >
+              <option value="Todas">Todas las cargas</option>
+              <option value="Aéreas">Cargas Aéreas</option>
+              <option value="Marítimas">Cargas Marítimas</option>
+            </select>
+          </div>
            <div className="flex-grow flex items-center">
             {kgPorCourier.length > 0 ? (
                 <>
@@ -136,7 +163,7 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                     </ul>
                 </div>
                 </>
-            ) : <div className="flex items-center justify-center h-full w-full text-slate-500">No hay paquetes en bodega</div> }
+            ) : <div className="flex items-center justify-center h-full w-full text-slate-500">No hay paquetes en bodega para el filtro seleccionado</div> }
             </div>
         </div>
       </div>

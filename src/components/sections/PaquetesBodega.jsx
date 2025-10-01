@@ -4,16 +4,16 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
-import { QrCodeModal } from "../common/QrCodeModal.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -37,9 +37,9 @@ import {
   tdNum,
   tdInt,
   estadosPermitidosPorCarga
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { db, storage } from "../../firebase.js";
+import { db, storage } from "/src/firebase.js";
 
 const CustomPieLegend = ({ payload }) => (
     <div className="w-1/3 text-xs overflow-y-auto" style={{maxHeight: '16rem'}}>
@@ -429,7 +429,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
         })()}
       </div>
 
-      <Modal open={open} onClose={() => {}} title="Editar paquete" maxWidth="max-w-4xl">
+      <Modal open={open} onClose={() => setOpen(false)} title="Editar paquete" maxWidth="max-w-4xl">
         {form && (
           <div className="grid md:grid-cols-3 gap-4">
             <Field label="Carga">

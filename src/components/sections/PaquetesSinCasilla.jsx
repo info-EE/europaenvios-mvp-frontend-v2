@@ -1,20 +1,20 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { db, storage } from "/src/firebase.js";
+import { db, storage } from "../../firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, runTransaction, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "/src/context/ModalContext.jsx";
+import { useModal } from "../../context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { Field } from "/src/components/common/Field.jsx";
-import { Modal } from "/src/components/common/Modal.jsx";
-import { EmptyState } from "/src/components/common/EmptyState.jsx";
-import { Button } from "/src/components/common/Button.jsx";
-import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { Modal } from "../common/Modal.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
+import { QrCodeModal } from "../common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -24,7 +24,7 @@ import {
   downloadXLSX,
   th,
   td
-} from "/src/utils/helpers.jsx";
+} from "../../utils/helpers.jsx";
 
 export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }) {
   const isAdmin = currentUser?.role === "ADMIN";
@@ -35,8 +35,11 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
   const [nombre, setNombre] = useState("");
   const [tracking, setTracking] = useState("");
   const [foto, setFoto] = useState(null);
-  const [editId, setEditId] = useState(null);
-  const [editRow, setEditRow] = useState({ fecha: "", nombre: "", tracking: "", foto: null });
+  
+  // State for editing modal
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editRow, setEditRow] = useState(null); // Will hold the item being edited
+
   const [isAdding, setIsAdding] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [camOpen, setCamOpen] = useState(false);
@@ -57,14 +60,18 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
         if (docSnap.exists()) {
             const data = docSnap.data();
             if (data.photoUrls && data.photoUrls.length > 0) {
-                // This component handles a single photo, so we take the most recent one.
-                setFoto(data.photoUrls[data.photoUrls.length - 1]);
+                const latestPhoto = data.photoUrls[data.photoUrls.length - 1];
+                if (isEditModalOpen && editRow) {
+                  setEditRow(r => ({ ...r, foto: latestPhoto }));
+                } else {
+                  setFoto(latestPhoto);
+                }
             }
         }
     });
 
     return () => unsubscribe();
-  }, [uploadSessionId]);
+  }, [uploadSessionId, isEditModalOpen, editRow]);
 
   const add = async () => {
     if (!isAdmin || isAdding || isUploading) return;
@@ -193,16 +200,19 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
 
   function startEdit(r) {
     if (!isAdmin) return;
-    setEditId(r.id);
-    setEditRow({ fecha: r.fecha || "", nombre: r.nombre || "", tracking: r.tracking || "", foto: r.foto || null });
+    setEditRow({ ...r, foto: r.foto || null });
+    setIsEditModalOpen(true);
   }
+
   function saveEdit() {
-    if (!isAdmin) return;
-    if (!editId) return;
-    onUpdate({ id: editId, ...editRow });
-    setEditId(null);
+    if (!isAdmin || !editRow) return;
+    onUpdate({ id: editRow.id, fecha: editRow.fecha, nombre: editRow.nombre, tracking: editRow.tracking, foto: editRow.foto });
+    setIsEditModalOpen(false);
   }
-  function cancelEdit() { setEditId(null); }
+  function cancelEdit() { 
+    setIsEditModalOpen(false);
+    setEditRow(null);
+  }
   
   const removeRow = async (r) => {
     if (!isAdmin) return;
@@ -287,53 +297,23 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
           <tbody className="divide-y divide-slate-200">
             {filtered.map(r => (
               <tr key={r.id} className="hover:bg-slate-50">
-                {editId === r.id ? (
-                  <>
-                    <td className="px-3 py-1 whitespace-nowrap"><Input type="date" value={editRow.fecha} onChange={e => setEditRow({ ...editRow, fecha: e.target.value })} /></td>
-                    <td className="px-3 py-1 whitespace-nowrap">{r.numero}</td>
-                    <td className="px-3 py-1 whitespace-nowrap"><Input value={editRow.nombre} onChange={e => setEditRow({ ...editRow, nombre: e.target.value })} /></td>
-                    {isAdmin && <td className="px-3 py-1 whitespace-nowrap"><Input value={editRow.tracking} onChange={e => setEditRow({ ...editRow, tracking: e.target.value })} /></td>}
-                    {isAdmin && <td className="px-3 py-1 whitespace-nowrap">
-                      <div className="flex flex-col gap-1">
-                        {editRow.foto && <img src={editRow.foto} className="w-12 h-12 object-cover rounded-md" alt="Paquete" />}
-                        <input ref={fileRef} type="file" accept="image/*" onChange={(e) => onFile(e, 'edit')} className="hidden" />
-                        <button type="button" onClick={() => fileRef.current?.click()} className="text-xs text-francia-600 hover:underline" disabled={isUploading}>Cambiar</button>
-                        <button type="button" onClick={() => setCamOpen('edit')} className="text-xs text-francia-600 hover:underline" disabled={isUploading}>Tomar Foto</button>
-                        <button onClick={() => setEditRow(er => ({ ...er, foto: null }))} className="text-xs text-red-600 hover:underline">Quitar</button>
-                      </div>
-                    </td>}
-                    {isAdmin && (
-                      <td className="px-3 py-1 whitespace-nowrap">
-                        <div className="flex gap-2">
-                          <Button variant="icon" className="bg-green-100 text-green-700" onClick={saveEdit}>{Iconos.save}</Button>
-                          <Button variant="icon" onClick={cancelEdit}>
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                          </Button>
-                        </div>
-                      </td>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <td className="px-3 py-2 whitespace-nowrap">{r.fecha || ""}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{r.numero}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{r.nombre || ""}</td>
-                    {isAdmin && <td className="px-3 py-2 whitespace-nowrap">{r.tracking || "—"}</td>}
-                    {isAdmin && (
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {r.foto ? <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer([r.foto])}>Ver foto</Button> : "—"}
-                      </td>
-                    )}
-                    {isAdmin && (
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <div className="flex gap-2 items-center">
-                          <Button onClick={() => handleAsignarCasilla(r)} className="px-3 py-1 text-xs whitespace-nowrap rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors">Asignar casilla</Button>
-                          <Button variant="icon" onClick={() => startEdit(r)}>{Iconos.edit}</Button>
-                          <Button variant="iconDanger" onClick={() => removeRow(r)}>{Iconos.delete}</Button>
-                        </div>
-                      </td>
-                    )}
-                  </>
+                <td className="px-3 py-2 whitespace-nowrap">{r.fecha || ""}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{r.numero}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{r.nombre || ""}</td>
+                {isAdmin && <td className="px-3 py-2 whitespace-nowrap">{r.tracking || "—"}</td>}
+                {isAdmin && (
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {r.foto ? <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer([r.foto])}>Ver foto</Button> : "—"}
+                  </td>
+                )}
+                {isAdmin && (
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <div className="flex gap-2 items-center">
+                      <Button onClick={() => handleAsignarCasilla(r)} className="px-3 py-1 text-xs whitespace-nowrap rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors">Asignar casilla</Button>
+                      <Button variant="icon" onClick={() => startEdit(r)}>{Iconos.edit}</Button>
+                      <Button variant="iconDanger" onClick={() => removeRow(r)}>{Iconos.delete}</Button>
+                    </div>
+                  </td>
                 )}
               </tr>
             ))}
@@ -341,12 +321,52 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
           </tbody>
         </table>
       </div>
+      
+      {/* Edit Modal */}
+      <Modal open={isEditModalOpen} onClose={cancelEdit} title="Editar Paquete Sin Casilla">
+        {editRow && (
+          <div className="space-y-4">
+            <Field label="Fecha" required>
+              <Input type="date" value={editRow.fecha} onChange={e => setEditRow({ ...editRow, fecha: e.target.value })} />
+            </Field>
+            <Field label="Nombre y apellido" required>
+              <Input value={editRow.nombre} onChange={e => setEditRow({ ...editRow, nombre: e.target.value })} />
+            </Field>
+            <Field label="Tracking">
+              <Input value={editRow.tracking} onChange={e => setEditRow({ ...editRow, tracking: e.target.value })} />
+            </Field>
+            <Field label="Foto">
+              <div className="flex gap-2 items-center flex-wrap">
+                <input ref={fileRef} type="file" accept="image/*" onChange={(e) => onFile(e, 'edit')} className="hidden" />
+                <Button onClick={() => fileRef.current?.click()} disabled={isUploading}>Seleccionar archivo</Button>
+                <Button onClick={() => setCamOpen('edit')} disabled={isUploading}>Tomar foto</Button>
+                <Button onClick={startMobileUploadSession} disabled={isUploading}>Usar cámara del móvil</Button>
+                {isUploading && <span className="text-francia-600 text-sm font-semibold">Subiendo...</span>}
+              </div>
+            </Field>
+            {editRow.foto && (
+              <div className="relative w-24 h-24">
+                <a href={editRow.foto} target="_blank" rel="noopener noreferrer">
+                    <img src={editRow.foto} alt="Foto" className="w-24 h-24 object-cover rounded-md"/>
+                </a>
+                <button onClick={() => setEditRow(er => ({ ...er, foto: null }))} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-xs">X</button>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 mt-6">
+              <Button variant="secondary" onClick={cancelEdit}>Cancelar</Button>
+              <Button variant="primary" onClick={saveEdit}>Guardar Cambios</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <Modal open={!!camOpen} onClose={() => setCamOpen(false)} title="Tomar foto">
         <div className="space-y-3">
           <video ref={videoRef} playsInline className="w-full rounded-xl bg-black/50" />
           <div className="flex justify-end"> <Button variant="primary" onClick={() => tomarFoto(camOpen)}>Capturar</Button></div>
         </div>
       </Modal>
+
       <Modal open={!!viewer} onClose={() => setViewer(null)} title="Fotos del Paquete">
         {viewer && (
           <a href={viewer[0]} target="_blank" rel="noopener noreferrer" title="Abrir en nueva pestaña para hacer zoom">
@@ -354,7 +374,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
           </a>
         )}
       </Modal>
-      <QrCodeModal open={!!uploadSessionId} onClose={() => setUploadSessionId(null)} sessionId={uploadSessionId} />
+      <QrCodeModal open={!!uploadSessionId} onClose={() => { setUploadSessionId(null); }} sessionId={uploadSessionId} />
     </Section>
   );
 }

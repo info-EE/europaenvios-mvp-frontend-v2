@@ -127,21 +127,40 @@ function barcodeSVG(text){
   return new XMLSerializer().serializeToString(svg);
 }
 
-export function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt, fecha }){
+export function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, cargaTxt, fecha, courier }){
   const svgHtml = barcodeSVG(codigo);
   const fechaFmt = fecha ? new Date(fecha + 'T00:00:00').toLocaleDateString('es-ES') : '';
   return `
     <html><head><meta charset="utf-8"><title>Etiqueta ${codigo}</title>
     <style>
-      @page { size: 100mm 50mm; margin: 2mm; }
-      body { font-family: Arial, sans-serif; margin: 0; padding: 0; font-size: 9pt; line-height: 1.25; }
-      .label-container { display: flex; flex-direction: column; width: 96mm; height: 46mm; }
-      .line { margin-bottom: 0.8mm; }
+      @page { size: 100mm 50mm; margin: 1.5mm; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.15; }
+      .label-container { display: flex; flex-direction: column; width: 97mm; height: 47mm; overflow: hidden; }
+      .line { margin-bottom: 0.5mm; }
       .b { font-weight: bold; }
-      .header { display: flex; justify-content: space-between; font-size: 10pt; }
-      .barcode { text-align: center; margin: 0.5mm 0; }
+      .header { display: flex; justify-content: space-between; font-size: 9.5pt; }
+      .barcode { text-align: center; margin: 0.2mm 0; }
       .barcode svg { width: 100%; height: 10mm; }
-      .desc-line { white-space: normal; word-wrap: break-word; line-height: 1.2; }
+      .desc-line { 
+        white-space: normal; 
+        word-wrap: break-word; 
+        overflow: hidden;
+        max-height: 8mm; 
+      }
+      .footer { 
+        margin-top: auto; 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: flex-end; 
+        padding-top: 0.5mm;
+        border-top: 0.5mm solid black;
+      }
+      .courier-text { 
+        font-weight: bold; 
+        font-size: 16pt;
+        line-height: 1;
+      }
     </style></head><body>
       <div class="label-container">
         <div class="header line">
@@ -152,9 +171,12 @@ export function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, c
         <div class="line">Cliente: <span class="b">${deaccent(nombre ?? "")}</span></div>
         <div class="line">Casilla: <span class="b">${deaccent(casilla ?? "")}</span></div>
         <div class="line">Peso: <span class="b">${fmtPeso(pesoKg)} kg</span></div>
-        <div class="line">Medidas: ${deaccent(medidasTxt ?? "")}</div>
-        <div class="line desc-line">Desc: ${deaccent(desc ?? "")}</div>
-        <div class="line" style="margin-top: auto;">Carga: <span class="b">${deaccent(cargaTxt ?? "-")}</span></div>
+        <div class="line">Medidas: <span class="b">${deaccent(medidasTxt ?? "")}</span></div>
+        <div class="line desc-line">Desc: <span class="b">${deaccent(desc ?? "")}</span></div>
+        <div class="footer">
+          <span>Carga: <span class="b">${deaccent(cargaTxt ?? "-")}</span></span>
+          <span class="courier-text">${deaccent(courier ?? "").toUpperCase()}</span>
+        </div>
       </div>
     </body></html>`;
 }

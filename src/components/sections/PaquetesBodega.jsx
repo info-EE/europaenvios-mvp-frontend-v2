@@ -130,7 +130,8 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       codigo: p.codigo, nombre: p.nombre_apellido, casilla: p.casilla,
       pesoKg: p.peso_real, medidasTxt: medidas, desc: p.descripcion,
       cargaTxt: flights.find(f => f.id === p.flight_id)?.codigo || "-",
-      fecha: p.fecha
+      fecha: p.fecha,
+      courier: p.courier
     });
     printHTMLInIframe(html);
   };
@@ -428,7 +429,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
         })()}
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Editar paquete" maxWidth="max-w-4xl">
+      <Modal open={open} onClose={() => {}} title="Editar paquete" maxWidth="max-w-4xl">
         {form && (
           <div className="grid md:grid-cols-3 gap-4">
             <Field label="Carga">
@@ -490,6 +491,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
             <div className="md:col-span-3 flex items-center justify-between mt-4">
               <Button onClick={() => printPkgLabel(form)}>Reimprimir etiqueta</Button>
               <div className="flex gap-2">
+                <Button variant="secondary" onClick={() => setOpen(false)}>Cancelar</Button>
                 <Button variant="primary" onClick={saveEdit} disabled={isUploading}>{isUploading ? 'Subiendo...' : 'Guardar'}</Button>
               </div>
             </div>

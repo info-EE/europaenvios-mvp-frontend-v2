@@ -195,7 +195,8 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
     const medidas = `${L}x${A}x${H} cm`;
     const html = labelHTML({
       codigo: finalCode, nombre: form.nombre, casilla: form.casilla,
-      pesoKg: peso, medidasTxt: medidas, desc: form.desc, cargaTxt: fl?.codigo || "-", fecha: form.fecha
+      pesoKg: peso, medidasTxt: medidas, desc: form.desc, cargaTxt: fl?.codigo || "-", fecha: form.fecha,
+      courier: form.courier
     });
 
     await onAdd(newPackage);

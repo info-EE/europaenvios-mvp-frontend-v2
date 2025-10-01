@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 import React from "react";
-import { Button } from "./Button";
+import { Button } from "./Button.jsx";
 
 export function Modal({ open, onClose, title, children, maxWidth = "max-w-lg" }) {
   if (!open) return null;
@@ -10,10 +10,10 @@ export function Modal({ open, onClose, title, children, maxWidth = "max-w-lg" })
     e.stopPropagation();
   };
 
+  // Se elimina el evento onClick del div principal para evitar que el modal se cierre al hacer clic fuera de él.
   return (
     <div 
       className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      onClick={onClose} // Cierra el modal si se hace clic en el fondo
     >
       <div 
         className={`bg-white rounded-2xl shadow-xl w-full ${maxWidth} max-h-[92vh] overflow-auto flex flex-col`}

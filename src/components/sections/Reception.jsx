@@ -1,21 +1,21 @@
 /* eslint-disable react/prop-types */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { db, storage } from "../../firebase.js";
+import { db, storage } from "/src/firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, getDoc, runTransaction, setDoc, onSnapshot } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Button } from "../common/Button.jsx";
-import { Field } from "../common/Field.jsx";
-import { Input } from "../common/Input.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { InfoBox } from "../common/InfoBox.jsx";
-import { ManageList } from "../common/ManageList.jsx";
-import { QrCodeModal } from "../common/QrCodeModal.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
+import { InfoBox } from "/src/components/common/InfoBox.jsx";
+import { ManageList } from "/src/components/common/ManageList.jsx";
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -30,7 +30,7 @@ import {
   labelHTML,
   printHTMLInIframe,
   uuid
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 
 export function Reception({ currentUser, couriers, setCouriers, estados, setEstados, empresasEnvio, setEmpresasEnvio, flights, packages, onAdd }) {
   const vuelosBodega = flights.filter(f => f.estado === "En bodega");
@@ -325,7 +325,7 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
         <Field label="CI/Pasaporte/RUC"><Input value={form.ci_ruc} onChange={e => setForm({ ...form, ci_ruc: e.target.value })} /></Field>
         <Field label="Empresa de envío" required>
             <select 
-                className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" 
+                className="w-full text-sm rounded-lg border-slate-300 px-3 py-2 uppercase"
                 value={form.empresa} 
                 onChange={e => setForm({ ...form, empresa: e.target.value })}
             >
@@ -336,13 +336,13 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
         <Field label="Nombre y apellido" required><Input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} /></Field>
         <Field label="Tracking" required><Input value={form.tracking} onChange={e => setForm({ ...form, tracking: e.target.value })} /></Field>
         <Field label="Remitente" required><Input value={form.remitente} onChange={e => setForm({ ...form, remitente: e.target.value })} /></Field>
-        <Field label="Peso real (kg)" required><Input value={form.peso_real_txt} onChange={e => setForm({ ...form, peso_real_txt: e.target.value })} placeholder="3,128" /></Field>
+        <Field label="Peso real (kg)" required><Input value={form.peso_real_txt} onChange={e => setForm({ ...form, peso_real_txt: e.target.value.replace('.', ',') })} placeholder="3,128" /></Field>
         <Field label="Largo (cm)" required><Input value={form.L_txt} onChange={e => setForm({ ...form, L_txt: e.target.value })} placeholder="50" /></Field>
         <Field label="Ancho (cm)" required><Input value={form.A_txt} onChange={e => setForm({ ...form, A_txt: e.target.value })} placeholder="30" /></Field>
         <Field label="Alto (cm)" required><Input value={form.H_txt} onChange={e => setForm({ ...form, H_txt: e.target.value })} placeholder="20" /></Field>
         <Field label="Descripción" required><Input value={form.desc} onChange={e => setForm({ ...form, desc: e.target.value })} /></Field>
         <Field label="Precio (EUR)" required>
-          <Input value={form.valor_txt} onChange={e => setForm({ ...form, valor_txt: e.target.value })} placeholder="10,00" />
+          <Input value={form.valor_txt} onChange={e => setForm({ ...form, valor_txt: e.target.value.replace('.', ',') })} placeholder="10,00" />
         </Field>
         <div className="md:col-span-3">
           <Field label="Fotos del paquete">

@@ -65,7 +65,7 @@ const SortableHeader = ({ children, col, sort, toggleSort }) => {
     );
 };
 
-export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, onPendiente }) {
+export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, onPendiente, couriers, empresasEnvio }) {
   const [q, setQ] = useState("");
   const [flightId, setFlightId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -441,7 +441,12 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                 }
               </select>
             </Field>
-            <Field label="Courier"><Input value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Courier">
+                <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})} disabled={user.role==="COURIER"}>
+                    <option value="">Seleccionar...</option>
+                    {couriers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+            </Field>
             <Field label="Estado">
               {(() => {
                 const codigo = flights.find(f=>f.id===form.flight_id)?.codigo || "";
@@ -457,16 +462,21 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
             <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="CI/Pasaporte/RUC"><Input value={form.ci_ruc || ""} onChange={e=>setForm({...form,ci_ruc:e.target.value})} /></Field>
-            <Field label="Empresa de envío"><Input value={form.empresa_envio||""} onChange={e=>setForm({...form,empresa_envio:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Empresa de envío">
+                <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.empresa_envio || ""} onChange={e=>setForm({...form,empresa_envio:e.target.value})} disabled={user.role==="COURIER"}>
+                    <option value="">Seleccionar...</option>
+                    {[...empresasEnvio].sort((a, b) => a.name.localeCompare(b.name)).map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+                </select>
+            </Field>
             <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})} disabled={user.role==="COURIER"}/></Field>
             <Field label="Remitente"><Input value={form.remitente||""} onChange={e=>setForm({...form,remitente:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Peso real (kg)"><Input value={form.peso_real_txt} onChange={e=>setForm({...form,peso_real_txt:e.target.value})} /></Field>
+            <Field label="Peso real (kg)"><Input value={form.peso_real_txt} onChange={e=>setForm({...form,peso_real_txt:e.target.value.replace('.', ',')})} /></Field>
             <Field label="Largo (cm)"><Input value={form.L_txt} onChange={e=>setForm({...form,L_txt:e.target.value})} /></Field>
             <Field label="Ancho (cm)"><Input value={form.A_txt} onChange={e=>setForm({...form,A_txt:e.target.value})} /></Field>
             <Field label="Alto (cm)"><Input value={form.H_txt} onChange={e=>setForm({...form,H_txt:e.target.value})} /></Field>
             <Field label="Descripción"><Input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} /></Field>
-            <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value})} /></Field>
+            <Field label="Precio (EUR)"><Input value={form.valor_txt} onChange={e=>setForm({...form,valor_txt:e.target.value.replace('.', ',')})} /></Field>
             <div className="md:col-span-3">
               <Field label="Fotos del paquete">
                   <div className="flex gap-2 items-center flex-wrap">

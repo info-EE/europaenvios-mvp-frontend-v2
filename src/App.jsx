@@ -3,25 +3,25 @@
 import React, { useEffect, useState } from "react";
 
 // Firebase
-import { db, auth, signOut, onAuthStateChanged } from "./firebase";
+import { db, auth, signOut, onAuthStateChanged } from "/src/firebase.js";
 import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc, writeBatch, getDocs } from "firebase/firestore";
 
 // Context
-import { useModal } from "./context/ModalContext";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes de Secciones
-import { Login } from "./components/sections/Login";
-import { Dashboard } from "./components/sections/Dashboard";
-import { Reception } from "./components/sections/Reception";
-import { PaquetesSinCasilla } from "./components/sections/PaquetesSinCasilla";
-import { Usuarios } from "./components/sections/Usuarios";
-import { Pendientes } from "./components/sections/Pendientes";
-import { PaquetesBodega } from "./components/sections/PaquetesBodega";
-import { ArmadoCajas } from "./components/sections/ArmadoCajas";
-import { CargasEnviadas } from "./components/sections/CargasEnviadas";
-import { CargasAdmin } from "./components/sections/CargasAdmin";
-import { Proformas } from "./components/sections/Proformas";
-import { Extras } from "./components/sections/Extras";
+import { Login } from "/src/components/sections/Login.jsx";
+import { Dashboard } from "/src/components/sections/Dashboard.jsx";
+import { Reception } from "/src/components/sections/Reception.jsx";
+import { PaquetesSinCasilla } from "/src/components/sections/PaquetesSinCasilla.jsx";
+import { Usuarios } from "/src/components/sections/Usuarios.jsx";
+import { Pendientes } from "/src/components/sections/Pendientes.jsx";
+import { PaquetesBodega } from "/src/components/sections/PaquetesBodega.jsx";
+import { ArmadoCajas } from "/src/components/sections/ArmadoCajas.jsx";
+import { CargasEnviadas } from "/src/components/sections/CargasEnviadas.jsx";
+import { CargasAdmin } from "/src/components/sections/CargasAdmin.jsx";
+import { Proformas } from "/src/components/sections/Proformas.jsx";
+import { Extras } from "/src/components/sections/Extras.jsx";
 
 // Helpers y Constantes
 import {
@@ -30,7 +30,7 @@ import {
   COURIERS_INICIALES,
   ESTADOS_INICIALES,
   EMPRESAS_ENVIO_INICIALES
-} from "./utils/helpers";
+} from "/src/utils/helpers.jsx";
 
 // Icono para el menú de hamburguesa en móvil
 const MenuIcon = () => (
@@ -228,7 +228,7 @@ function App() {
       case "Pendientes":
         return <Pendientes items={pendientes} onAdd={pendientesHandlers.add} onUpdate={pendientesHandlers.update} onRemove={pendientesHandlers.remove} />;
       case "Paquetes en bodega":
-        return <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={packagesHandlers.update} onDelete={packagesHandlers.remove} onPendiente={pendientesHandlers.add} />;
+        return <PaquetesBodega packages={packages} flights={flights} user={currentUser} onUpdate={packagesHandlers.update} onDelete={packagesHandlers.remove} onPendiente={pendientesHandlers.add} couriers={couriers} empresasEnvio={empresasEnvio} />;
       case "Armado de cajas":
         return <ArmadoCajas packages={packages} flights={flights} onUpdateFlight={flightsHandlers.update} />;
       case "Cargas enviadas":

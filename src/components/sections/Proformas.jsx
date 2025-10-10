@@ -1,13 +1,13 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useState } from "react";
-import ExcelJS from "exceljs/dist/exceljs.min.js";
+import ExcelJS from "exceljs";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
 
 // Helpers & Constantes
 import {
@@ -16,7 +16,7 @@ import {
   fmtMoney,
   sum,
   parseComma
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 
 // Constantes de cálculo de la lógica de negocio original
 const T = { proc: 5, fleteReal: 9, fleteExc: 9, despacho: 10, fleteMaritimo: 12 };
@@ -78,22 +78,34 @@ export function Proformas({ packages, flights, extras, user }) {
       ];
     } else {
       const proc = r.kg_fact * T.proc;
-      const fr = r.kg_real * T.fleteReal;
+      const fr = r.kg_fact * T.fleteReal; // MODIFICADO: Se usa peso facturable
       const fe = r.kg_exc * T.fleteExc;
       const desp = r.kg_fact * T.despacho;
-      const canje = canjeGuiaUSD(r.kg_fact);
-      const com = 0.04 * (proc + fr + fe + extrasMonto);
+
+      // MODIFICADO: No se cobra canje de guía a Global Box
+      const canje = r.courier !== 'Global Box' ? canjeGuiaUSD(r.kg_fact) : 0;
+      
+      // MODIFICADO: No se cobra comisión por transferencia a InflightBox
+      const com = r.courier !== 'InflightBox' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
+      
       total = proc + fr + fe + desp + canje + extrasMonto + com;
 
       detalle = [
         ["Procesamiento", Number(r.kg_fact.toFixed(3)), Number(T.proc.toFixed(2)), Number(proc.toFixed(2))],
-        ["Flete peso real", Number(r.kg_real.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))],
+        ["Flete peso real", Number(r.kg_fact.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))], // MODIFICADO: Se muestra el peso facturable
         ["Flete exceso de volumen", Number(r.kg_exc.toFixed(3)), Number(T.fleteExc.toFixed(2)), Number(fe.toFixed(2))],
         ["Servicio de despacho", Number(r.kg_fact.toFixed(3)), Number(T.despacho.toFixed(2)), Number(desp.toFixed(2))],
-        ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))],
+        // Se añaden los extras aquí para mantener el orden
         ...extrasList.map(e => [e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))]),
-        ["Comisión por transferencia (4%)", 1, Number(com.toFixed(2)), Number(com.toFixed(2))],
       ];
+
+      // Se añaden condicionalmente las comisiones
+      if (canje > 0) {
+        detalle.splice(4, 0, ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))]);
+      }
+      if (com > 0) {
+        detalle.push(["Comisión por transferencia (4%)", 1, Number(com.toFixed(2)), Number(com.toFixed(2))]);
+      }
     }
 
     const wb = new ExcelJS.Workbook();
@@ -195,9 +207,14 @@ export function Proformas({ packages, flights, extras, user }) {
                 if (flight.codigo.toUpperCase().startsWith("MAR")) {
                   tot = (r.kg_fact * T.fleteMaritimo) + extrasMonto;
                 } else {
-                  const proc = r.kg_fact * T.proc, fr = r.kg_real * T.fleteReal, fe = r.kg_exc * T.fleteExc, desp = r.kg_fact * T.despacho;
-                  const canje = canjeGuiaUSD(r.kg_fact);
-                  const com = 0.04 * (proc + fr + fe + extrasMonto);
+                  const proc = r.kg_fact * T.proc;
+                  const fr = r.kg_fact * T.fleteReal; // MODIFICADO: Se usa peso facturable
+                  const fe = r.kg_exc * T.fleteExc;
+                  const desp = r.kg_fact * T.despacho;
+                  // MODIFICADO: No se cobra canje de guía a Global Box
+                  const canje = r.courier !== 'Global Box' ? canjeGuiaUSD(r.kg_fact) : 0;
+                  // MODIFICADO: No se cobra comisión por transferencia a InflightBox
+                  const com = r.courier !== 'InflightBox' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
                   tot = proc + fr + fe + desp + canje + extrasMonto + com;
                 }
                 return (

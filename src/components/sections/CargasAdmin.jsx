@@ -1,5 +1,7 @@
 /* eslint-disable react/prop-types */
 import React, { useState } from "react";
+import { storage } from "../../firebase.js";
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 
 // Context
 import { useModal } from "../../context/ModalContext.jsx";
@@ -20,6 +22,7 @@ export function CargasAdmin({ flights, onAdd, onUpdate, onDelete, packages }) {
   const [awb, setAwb] = useState("");
   const [fac, setFac] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
+  const [uploading, setUploading] = useState({ id: null, progress: 0 });
 
   const { showAlert, showConfirmation } = useModal();
 
@@ -73,20 +76,64 @@ export function CargasAdmin({ flights, onAdd, onUpdate, onDelete, packages }) {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const newDoc = {
-        id: uuid(),
-        name: file.name,
-        data: event.target.result,
-      };
-      onUpdate({ ...flight, docs: [...(flight.docs || []), newDoc] });
-    };
-    reader.readAsDataURL(file);
+    if (file.size > 4.5 * 1024 * 1024) { // Límite de 4.5MB
+      showAlert("Archivo demasiado grande", "El archivo no puede superar los 4.5 MB.");
+      return;
+    }
+
+    const docId = uuid();
+    const storagePath = `cargas/${flight.id}/${docId}_${file.name}`;
+    const storageRef = ref(storage, storagePath);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    setUploading({ id: flight.id, progress: 0 });
+
+    uploadTask.on('state_changed',
+      (snapshot) => {
+        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        setUploading({ id: flight.id, progress: Math.round(progress) });
+      },
+      (error) => {
+        console.error("Error al subir el archivo:", error);
+        showAlert("Error de subida", "Hubo un problema al subir el documento. Inténtalo de nuevo.");
+        setUploading({ id: null, progress: 0 });
+      },
+      async () => {
+        try {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          const newDoc = {
+            id: docId,
+            name: file.name,
+            url: downloadURL,
+            path: storagePath, // Guardar ruta para poder borrarlo
+          };
+          await onUpdate({ ...flight, docs: [...(flight.docs || []), newDoc] });
+        } catch (error) {
+           console.error("Error al obtener URL o actualizar documento:", error);
+           showAlert("Error de guardado", "El archivo se subió pero no se pudo guardar la referencia. Por favor, recarga la página.");
+        } finally {
+          setUploading({ id: null, progress: 0 });
+        }
+      }
+    );
   };
 
-  const deleteDocument = (flight, docId) => {
-    onUpdate({ ...flight, docs: flight.docs.filter(d => d.id !== docId) });
+  const deleteDocument = async (flight, docToDelete) => {
+    const confirmed = await showConfirmation("Confirmar eliminación", `¿Seguro que quieres eliminar el documento "${docToDelete.name}"?`);
+    if (!confirmed) return;
+
+    const updatedDocs = flight.docs.filter(d => d.id !== docToDelete.id);
+    await onUpdate({ ...flight, docs: updatedDocs });
+
+    if (docToDelete.path) {
+      const fileRef = ref(storage, docToDelete.path);
+      try {
+        await deleteObject(fileRef);
+      } catch (error) {
+        console.error("Error al eliminar el archivo de Storage:", error);
+        // Error no crítico si el doc ya se quitó de Firestore.
+      }
+    }
   };
 
   const list = flights
@@ -122,7 +169,7 @@ export function CargasAdmin({ flights, onAdd, onUpdate, onDelete, packages }) {
             <div className="p-4 border-b border-slate-200 flex justify-between items-center">
               <Input className="text-lg font-bold !border-0 !p-0 !ring-0" value={f.codigo} onChange={e => updateField(f, "codigo", e.target.value)} />
               <div className="flex gap-2">
-                <Button variant="icon" onClick={() => document.getElementById(`file-input-${f.id}`).click()}>{Iconos.upload}</Button>
+                <Button variant="icon" onClick={() => document.getElementById(`file-input-${f.id}`).click()} disabled={uploading.id === f.id}>{Iconos.upload}</Button>
                 <input type="file" id={`file-input-${f.id}`} className="hidden" onChange={(e) => handleFileUpload(e, f)} />
                 <Button variant="iconDanger" onClick={() => del(f.id, f.codigo)}>{Iconos.delete}</Button>
               </div>
@@ -151,21 +198,32 @@ export function CargasAdmin({ flights, onAdd, onUpdate, onDelete, packages }) {
                 <span className="text-sm font-bold text-slate-800">{f.cajas?.length || 0}</span>
               </div>
             </div>
-            {(f.docs && f.docs.length > 0) && (
+            {(f.docs && f.docs.length > 0) || uploading.id === f.id ? (
               <div className="p-4 border-t border-slate-200">
                 <h4 className="text-sm font-semibold text-slate-600 mb-2">Documentos Adjuntos</h4>
                 <ul className="space-y-2">
-                  {f.docs.map(doc => (
+                  {f.docs && f.docs.map(doc => (
                     <li key={doc.id} className="flex items-center justify-between text-sm bg-slate-50 p-2 rounded-md">
-                      <a href={doc.data} download={doc.name} className="text-francia-600 hover:underline flex items-center gap-2">
-                        {Iconos.file} {doc.name}
+                      <a href={doc.url} download={doc.name} target="_blank" rel="noopener noreferrer" className="text-francia-600 hover:underline flex items-center gap-2 truncate" title={doc.name}>
+                        {Iconos.file} <span className="truncate">{doc.name}</span>
                       </a>
-                      <Button variant="iconDanger" onClick={() => deleteDocument(f, doc.id)}>{Iconos.delete}</Button>
+                      <Button variant="iconDanger" className="!p-1" onClick={() => deleteDocument(f, doc)}>{Iconos.delete}</Button>
                     </li>
                   ))}
+                   {uploading.id === f.id && (
+                    <li className="text-sm bg-blue-50 p-2 rounded-md">
+                        <div className="flex items-center justify-between">
+                            <span className="text-blue-700 font-medium truncate">Subiendo archivo...</span>
+                            <span className="text-blue-700 font-bold">{uploading.progress}%</span>
+                        </div>
+                        <div className="w-full bg-blue-200 rounded-full h-1.5 mt-1">
+                            <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${uploading.progress}%` }}></div>
+                        </div>
+                    </li>
+                  )}
                 </ul>
               </div>
-            )}
+            ) : null}
           </div>
         )) : (
           <div className="lg:col-span-3">

@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import ExcelJS from "exceljs/dist/exceljs.min.js";
 
 // Context
@@ -25,6 +25,20 @@ import {
   printHTMLInIframe,
 } from "../../utils/helpers.jsx";
 
+// --- Iconos para Plegar/Desplegar ---
+const ChevronDownIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 transition-transform">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+    </svg>
+);
+  
+const ChevronUpIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 transition-transform">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+    </svg>
+);
+
+
 export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
   const [flightId, setFlightId] = useState("");
   const flight = flights.find(f => f.id === flightId);
@@ -33,7 +47,6 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
   const [editingBoxId, setEditingBoxId] = useState(null);
   const [editingBoxData, setEditingBoxData] = useState(null);
 
-  // Mantenemos useModal para showPrompt y showConfirmation que siguen funcionando bien.
   const { showPrompt, showConfirmation } = useModal();
 
   useEffect(() => {
@@ -50,6 +63,22 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
       setEditingBoxData(null);
     }
   }, [flightId, flights, activeBoxId]);
+
+  // --- Memo para ordenar las cajas, poniendo la activa siempre primero ---
+  const sortedCajas = useMemo(() => {
+    if (!flight || !flight.cajas) return [];
+    const cajas = [...flight.cajas];
+    if (activeBoxId) {
+        const activeIndex = cajas.findIndex(c => c.id === activeBoxId);
+        if (activeIndex > 0) {
+            // Mueve la caja activa al principio de la lista
+            const [activeItem] = cajas.splice(activeIndex, 1);
+            cajas.unshift(activeItem);
+        }
+    }
+    return cajas;
+  }, [flight, activeBoxId]);
+
 
   const startEditing = (box) => {
     setEditingBoxId(box.id);
@@ -86,7 +115,6 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
   }
 
   const assign = () => {
-    // Se elimina 'async' porque window.alert no es una promesa
     try {
       if (!flightId) {
         alert("Error de Carga: Primero debés seleccionar una carga del menú desplegable.");
@@ -113,7 +141,6 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
   
       if (pkg.flight_id !== flightId) {
         const cargaDelPaquete = flights.find(f => f.id === pkg.flight_id)?.codigo || 'OTRA CARGA';
-        // --- CAMBIO PRINCIPAL: Usamos window.alert en lugar de showAlert ---
         alert(
           `Paquete en Carga Incorrecta:\n\nEl paquete ${pkg.codigo} pertenece a la carga "${cargaDelPaquete}" y no a la carga activa "${currentFlight.codigo}".`
         );
@@ -272,14 +299,16 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
     });
   }
 
-  function handlePrintBoxLabel(caja, index) {
+  function handlePrintBoxLabel(caja) {
     if (!flight) return;
     const couriers = new Set(caja.paquetes.map(pid => packages.find(p => p.id === pid)?.courier).filter(Boolean));
     const etiqueta = couriers.size === 0 ? flight.codigo : (couriers.size === 1 ? [...couriers][0] : "MULTICOURIER");
 
+    const boxNumber = (caja.codigo || "").replace(/[^0-9]/g, "") || 'S/N';
+
     const data = {
       courier: etiqueta,
-      boxNumber: index + 1,
+      boxNumber: boxNumber,
       pesoKg: parseComma(caja.peso || "0"),
       medidasTxt: `${caja.L || 0} x ${caja.A || 0} x ${caja.H || 0}`,
       fecha: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' }),
@@ -291,23 +320,28 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
 
   return (
     <Section title="Armado de cajas">
-      <div className="grid md:grid-cols-3 gap-4">
-        <Field label="Seleccionar carga" required>
-          <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => { setFlightId(e.target.value); }}>
-            <option value="">—</option>
-            {flights.filter(f => f.estado === "En bodega").map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
-          </select>
-        </Field>
-        <Field label="Escanear / ingresar código">
-          <Input value={scan} onChange={e => setScan(limpiar(e.target.value))} onKeyDown={e => e.key === "Enter" && assign()} placeholder="BOSSBOX1" />
-        </Field>
-        <div className="flex items-end gap-2">
-          <Button variant="primary" onClick={addBox} disabled={!flightId}>Agregar caja</Button>
-          <Button onClick={exportCajasXLSX} disabled={!flight}>Exportar XLSX</Button>
+      {/* --- Contenedor 'pegajoso' para el formulario de escaneo --- */}
+      <div className="sticky top-0 bg-white/80 backdrop-blur-sm py-4 z-10">
+        <div className="grid md:grid-cols-3 gap-4">
+            <Field label="Seleccionar carga" required>
+            <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={flightId} onChange={e => { setFlightId(e.target.value); }}>
+                <option value="">—</option>
+                {flights.filter(f => f.estado === "En bodega").map(f => <option key={f.id} value={f.id}>{f.codigo} · {f.fecha_salida}</option>)}
+            </select>
+            </Field>
+            <Field label="Escanear / ingresar código">
+            <Input value={scan} onChange={e => setScan(limpiar(e.target.value))} onKeyDown={e => e.key === "Enter" && assign()} placeholder="BOSSBOX1" />
+            </Field>
+            <div className="flex items-end gap-2">
+            <Button variant="primary" onClick={addBox} disabled={!flightId}>Agregar caja</Button>
+            <Button onClick={exportCajasXLSX} disabled={!flight}>Exportar XLSX</Button>
+            </div>
         </div>
-        <div className="md:col-span-3">
+      </div>
+      
+      <div className="md:col-span-3 mt-4">
           {!flight && <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para empezar a armar las cajas." />}
-          {flight && flight.cajas.map((c, idx) => {
+          {flight && sortedCajas.map((c, idx) => {
             const couriers = new Set(c.paquetes.map(pid => packages.find(p => p.id === pid)?.courier).filter(Boolean));
             const etiqueta = couriers.size === 0 ? "—" : (couriers.size === 1 ? [...couriers][0] : "MULTICOURIER");
             const isActive = activeBoxId === c.id;
@@ -317,65 +351,88 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
             const est = pesoEstimado(c);
 
             return (
-              <div key={c.id} className={`border rounded-xl p-4 mb-3 transition-shadow ${isActive ? "ring-2 ring-francia-500 shadow-lg" : "hover:shadow-md"}`} onClick={() => setActiveBoxId(c.id)}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-semibold text-slate-800">
-                    {c.codigo} — {etiqueta} — <span>{fmtPeso(peso)} kg</span> — {L}x{A}x{H} cm
-                    {isActive && <span className="ml-2 text-francia-600 text-xs font-bold">(ACTIVA)</span>}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="icon" onClick={(e) => { e.stopPropagation(); handlePrintBoxLabel(c, idx); }} title="Imprimir etiqueta de caja">{Iconos.print}</Button>
-                    {!isEditing
-                      ? <Button variant="icon" onClick={(e) => { e.stopPropagation(); startEditing(c); }}>{Iconos.edit}</Button>
-                      : <Button variant="icon" className="bg-green-100 text-green-700" onClick={(e) => { e.stopPropagation(); saveBoxChanges(); }}>{Iconos.save}</Button>
+              <div key={c.id} className={`border rounded-xl mb-3 transition-all duration-300 ${isActive ? "ring-2 ring-francia-500 shadow-lg" : "hover:shadow-md bg-slate-50"}`}>
+                {/* --- Cabecera Clickeable --- */}
+                <div className="p-4 cursor-pointer" onClick={() => setActiveBoxId(c.id)}>
+                    <div className="flex items-center justify-between">
+                        <div className="font-semibold text-slate-800">
+                            {c.codigo} — {etiqueta} — <span>{fmtPeso(peso)} kg</span> — {L}x{A}x{H} cm
+                            {isActive && <span className="ml-2 text-francia-600 text-xs font-bold">(ACTIVA)</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                           {isActive ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                        </div>
+                    </div>
+                    {!isActive && 
+                        <div className="text-xs text-slate-500 mt-1">
+                            {c.paquetes.length} paquete(s) dentro. Haz clic para ver detalles.
+                        </div>
                     }
-                    <Button variant="icon" onClick={(e) => { e.stopPropagation(); reorderBox(c.id, "up") }}>↑</Button>
-                    <Button variant="icon" onClick={(e) => { e.stopPropagation(); reorderBox(c.id, "down") }}>↓</Button>
-                    <Button variant="iconDanger" onClick={(e) => { e.stopPropagation(); removeBox(c.id) }}>{Iconos.delete}</Button>
-                  </div>
                 </div>
-                <div className="text-xs text-slate-600 mb-3">
-                  <b>Peso estimado:</b> {fmtPeso(est)} kg (cartón {fmtPeso(parseComma(c.peso_carton || "0"))} kg + paquetes)
-                </div>
-                {isEditing && editingBoxData && (
-                  <div className="grid md:grid-cols-5 gap-4 mb-3 p-3 bg-slate-50 rounded-lg" onClick={e => e.stopPropagation()}>
-                    <Field label="Nombre"><Input value={editingBoxData.codigo} onChange={e => setEditingBoxData({ ...editingBoxData, codigo: e.target.value })} /></Field>
-                    <Field label="Peso (kg)"><Input value={editingBoxData.peso || ""} onChange={e => setEditingBoxData({ ...editingBoxData, peso: e.target.value })} placeholder="3,128" /></Field>
-                    <Field label="Largo (cm)"><Input value={editingBoxData.L || ""} onChange={e => setEditingBoxData({ ...editingBoxData, L: e.target.value })} /></Field>
-                    <Field label="Ancho (cm)"><Input value={editingBoxData.A || ""} onChange={e => setEditingBoxData({ ...editingBoxData, A: e.target.value })} /></Field>
-                    <Field label="Alto (cm)"><Input value={editingBoxData.H || ""} onChange={e => setEditingBoxData({ ...editingBoxData, H: e.target.value })} /></Field>
-                  </div>
-                )}
-                <ul className="text-sm space-y-2">
-                  {c.paquetes.map(pid => {
-                    const p = packages.find(x => x.id === pid); if (!p) return null;
-                    return (
-                      <li key={pid} className="flex items-center gap-3 p-2 bg-slate-50 rounded-md">
-                        <span className="font-mono text-slate-800">{p.codigo}</span><span className="text-slate-500">{p.courier}</span>
-                        <div className="flex-grow" />
-                        {flight.cajas.length > 1 && (
-                          <select className="text-xs border-slate-300 rounded px-1 py-0.5" defaultValue="" onChange={e => { e.stopPropagation(); move(pid, c.id, e.target.value) }}>
-                            <option value="" disabled>Mover a…</option>
-                            {flight.cajas.filter(x => x.id !== c.id).map(x => <option key={x.id} value={x.id}>{x.codigo}</option>)}
-                          </select>
+                
+                {/* --- Contenido Plegable --- */}
+                {isActive && (
+                    <div className="px-4 pb-4">
+                        <div className="flex items-center justify-between mb-3 border-t pt-3">
+                            <div className="text-xs text-slate-600">
+                                <b>Peso estimado:</b> {fmtPeso(est)} kg (cartón {fmtPeso(parseComma(c.peso_carton || "0"))} kg + paquetes)
+                            </div>
+                            <div className="flex gap-2">
+                                <Button variant="icon" onClick={(e) => { e.stopPropagation(); handlePrintBoxLabel(c); }} title="Imprimir etiqueta de caja">{Iconos.print}</Button>
+                                {!isEditing
+                                ? <Button variant="icon" onClick={(e) => { e.stopPropagation(); startEditing(c); }}>{Iconos.edit}</Button>
+                                : <Button variant="icon" className="bg-green-100 text-green-700" onClick={(e) => { e.stopPropagation(); saveBoxChanges(); }}>{Iconos.save}</Button>
+                                }
+                                <Button variant="icon" onClick={(e) => { e.stopPropagation(); reorderBox(c.id, "up") }}>↑</Button>
+                                <Button variant="icon" onClick={(e) => { e.stopPropagation(); reorderBox(c.id, "down") }}>↓</Button>
+                                <Button variant="iconDanger" onClick={(e) => { e.stopPropagation(); removeBox(c.id) }}>{Iconos.delete}</Button>
+                            </div>
+                        </div>
+
+                        {isEditing && editingBoxData && (
+                        <div className="grid md:grid-cols-5 gap-4 mb-3 p-3 bg-slate-50 rounded-lg" onClick={e => e.stopPropagation()}>
+                            <Field label="Nombre"><Input value={editingBoxData.codigo} onChange={e => setEditingBoxData({ ...editingBoxData, codigo: e.target.value })} /></Field>
+                            <Field label="Peso (kg)"><Input value={editingBoxData.peso || ""} onChange={e => setEditingBoxData({ ...editingBoxData, peso: e.target.value })} placeholder="3,128" /></Field>
+                            <Field label="Largo (cm)"><Input value={editingBoxData.L || ""} onChange={e => setEditingBoxData({ ...editingBoxData, L: e.target.value })} /></Field>
+                            <Field label="Ancho (cm)"><Input value={editingBoxData.A || ""} onChange={e => setEditingBoxData({ ...editingBoxData, A: e.target.value })} /></Field>
+                            <Field label="Alto (cm)"><Input value={editingBoxData.H || ""} onChange={e => setEditingBoxData({ ...editingBoxData, H: e.target.value })} /></Field>
+                        </div>
                         )}
-                        <Button variant="iconDanger" onClick={(e) => {
-                          e.stopPropagation();
-                          const updatedPaquetes = c.paquetes.filter(z => z !== pid);
-                          const updatedCaja = { ...c, paquetes: updatedPaquetes };
-                          const updatedCajas = flight.cajas.map(cj => cj.id === c.id ? updatedCaja : cj);
-                          onUpdateFlight({ ...flight, cajas: updatedCajas });
-                        }}>{Iconos.delete}</Button>
-                      </li>
-                    );
-                  })}
-                  {c.paquetes.length === 0 && <li className="text-slate-500 text-center py-2 text-xs">Escanea un paquete para agregarlo a esta caja</li>}
-                </ul>
+                        
+                        {/* --- Lista de paquetes horizontal --- */}
+                        <ul className="flex flex-wrap gap-2">
+                        {c.paquetes.map(pid => {
+                            const p = packages.find(x => x.id === pid); if (!p) return null;
+                            return (
+                            <li key={pid} className="flex items-center gap-2 p-2 bg-slate-100 rounded-md text-sm shadow-sm">
+                                <span className="font-mono text-slate-800 font-medium">{p.codigo}</span>
+                                <span className="text-slate-500 text-xs">({p.courier})</span>
+                                
+                                {flight.cajas.length > 1 && (
+                                <select className="text-xs border-slate-300 rounded px-1 py-0.5 ml-2" defaultValue="" onChange={e => { e.stopPropagation(); move(pid, c.id, e.target.value) }}>
+                                    <option value="" disabled>Mover a…</option>
+                                    {flight.cajas.filter(x => x.id !== c.id).map(x => <option key={x.id} value={x.id}>{x.codigo}</option>)}
+                                </select>
+                                )}
+                                <Button variant="iconDanger" className="!p-1" onClick={(e) => {
+                                e.stopPropagation();
+                                const updatedPaquetes = c.paquetes.filter(z => z !== pid);
+                                const updatedCaja = { ...c, paquetes: updatedPaquetes };
+                                const updatedCajas = flight.cajas.map(cj => cj.id === c.id ? updatedCaja : cj);
+                                onUpdateFlight({ ...flight, cajas: updatedCajas });
+                                }}>{Iconos.delete}</Button>
+                            </li>
+                            );
+                        })}
+                        {c.paquetes.length === 0 && <li className="text-slate-500 text-center py-2 text-xs w-full">Escanea un paquete para agregarlo a esta caja</li>}
+                        </ul>
+                    </div>
+                )}
+
               </div>
             );
           })}
         </div>
-      </div>
     </Section>
   );
 }

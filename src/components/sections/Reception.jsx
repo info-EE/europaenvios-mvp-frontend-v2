@@ -1,21 +1,21 @@
 /* eslint-disable react/prop-types */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { db, storage } from "../../firebase.js";
+import { db, storage } from "/src/firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, getDoc, runTransaction, setDoc, onSnapshot } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Button } from "../common/Button.jsx";
-import { Field } from "../common/Field.jsx";
-import { Input } from "../common/Input.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { InfoBox } from "../common/InfoBox.jsx";
-import { ManageList } from "../common/ManageList.jsx";
-import { QrCodeModal } from "../common/QrCodeModal.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
+import { InfoBox } from "/src/components/common/InfoBox.jsx";
+import { ManageList } from "/src/components/common/ManageList.jsx";
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -30,7 +30,7 @@ import {
   labelHTML,
   printHTMLInIframe,
   uuid
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 
 export function Reception({ currentUser, couriers, setCouriers, estados, setEstados, empresasEnvio, setEmpresasEnvio, flights, packages, onAdd }) {
   const vuelosBodega = flights.filter(f => f.estado === "En bodega");
@@ -179,6 +179,7 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
     }
 
     const newPackage = {
+      createdAt: new Date().toISOString(),
       flight_id: flightId,
       courier: form.courier, estado: form.estado, casilla: form.casilla,
       codigo: finalCode,

@@ -4,16 +4,16 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section";
-import { Input } from "../common/Input";
-import { Field } from "../common/Field";
-import { Modal } from "../common/Modal";
-import { EmptyState } from "../common/EmptyState";
-import { Button } from "../common/Button";
-import { QrCodeModal } from "../common/QrCodeModal";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -37,9 +37,9 @@ import {
   tdNum,
   tdInt,
   estadosPermitidosPorCarga
-} from "../../utils/helpers";
+} from "/src/utils/helpers.jsx";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { db, storage } from "../../firebase";
+import { db, storage } from "/src/firebase.js";
 
 const SortableHeader = ({ children, col, sort, toggleSort }) => {
     const isSorted = sort.key === col;
@@ -86,7 +86,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       case "carga": return (flights.find(f=>f.id===p.flight_id)?.codigo || "").toLowerCase();
       case "codigo": return (p.codigo||"").toLowerCase();
       case "casilla": return (p.casilla||"").toLowerCase();
-      case "fecha": return p.fecha || "";
+      case "fecha": return p.createdAt || p.fecha || "";
       case "nombre": return (p.nombre_apellido||"").toLowerCase();
       case "tracking": return (p.tracking||"").toLowerCase();
       case "peso_real": return Number(p.peso_real||0);

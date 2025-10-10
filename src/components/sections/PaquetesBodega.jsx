@@ -57,7 +57,8 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   const [flightId, setFlightId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setTo] = useState("");
-  const [sort, setSort] = useState({ key: 'fecha', dir: 'desc' });
+  // MODIFICACIÓN: El orden por defecto ahora usa `createdAt` para mayor precisión.
+  const [sort, setSort] = useState({ key: 'createdAt', dir: 'desc' });
 
   const { showAlert, showConfirmation } = useModal();
 
@@ -86,7 +87,9 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       case "carga": return (flights.find(f=>f.id===p.flight_id)?.codigo || "").toLowerCase();
       case "codigo": return (p.codigo||"").toLowerCase();
       case "casilla": return (p.casilla||"").toLowerCase();
-      case "fecha": return p.createdAt || p.fecha || "";
+      // MODIFICACIÓN: Se usa `createdAt` como clave principal para el orden de subida.
+      case "createdAt": return p.createdAt || p.fecha || "";
+      case "fecha": return p.fecha || "";
       case "nombre": return (p.nombre_apellido||"").toLowerCase();
       case "tracking": return (p.tracking||"").toLowerCase();
       case "peso_real": return Number(p.peso_real||0);
@@ -333,7 +336,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                 <SortableHeader col="carga" sort={sort} toggleSort={toggleSort}>Carga</SortableHeader>
                 <SortableHeader col="codigo" sort={sort} toggleSort={toggleSort}>Código</SortableHeader>
                 <SortableHeader col="casilla" sort={sort} toggleSort={toggleSort}>Casilla</SortableHeader>
-                <SortableHeader col="fecha" sort={sort} toggleSort={toggleSort}>Fecha</SortableHeader>
+                <SortableHeader col="createdAt" sort={sort} toggleSort={toggleSort}>Fecha</SortableHeader>
                 <SortableHeader col="nombre" sort={sort} toggleSort={toggleSort}>Nombre</SortableHeader>
                 <SortableHeader col="tracking" sort={sort} toggleSort={toggleSort}>Tracking</SortableHeader>
                 <SortableHeader col="peso_real" sort={sort} toggleSort={toggleSort}>Peso real</SortableHeader>

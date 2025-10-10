@@ -94,7 +94,11 @@ function App() {
 
     const setupListener = (collectionName, setter, orderByField = null) => {
       const collRef = collection(db, collectionName);
-      const q = orderByField ? query(collRef, orderBy(orderByField, "desc")) : query(collRef, orderBy("name"));
+      // MODIFICACIÓN: Se elimina el ordenamiento por defecto para 'packages' en la consulta
+      // para asegurar que el ordenamiento del lado del cliente sea la única fuente de verdad.
+      const q = orderByField && collectionName !== 'packages'
+        ? query(collRef, orderBy(orderByField, "desc")) 
+        : (collectionName === 'packages' ? query(collRef) : query(collRef, orderBy("name")));
       
       return onSnapshot(q, (snapshot) => {
         const items = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
@@ -135,7 +139,7 @@ function App() {
         setupListener("estados", setEstados),
         setupListener("empresasEnvio", setEmpresasEnvio),
         setupListener("flights", setFlights, "fecha_salida"),
-        setupListener("packages", setPackages, "fecha"),
+        setupListener("packages", setPackages), // Ordenamiento eliminado de la consulta
         setupListener("extras", setExtras, "fecha"),
         setupListener("sinCasilla", setSinCasillaItems, "fecha"),
         setupListener("pendientes", setPendientes, "fecha"),

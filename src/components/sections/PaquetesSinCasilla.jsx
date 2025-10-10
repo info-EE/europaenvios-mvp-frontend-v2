@@ -23,7 +23,8 @@ import {
   sheetFromAOAStyled,
   downloadXLSX,
   th,
-  td
+  td,
+  getColumnWidths // <-- IMPORTAMOS LA NUEVA FUNCIÓN
 } from "../../utils/helpers.jsx";
 
 export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }) {
@@ -229,11 +230,14 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
       : [th("Fecha recepción"), th("Nº paquete"), th("Nombre y apellido")];
     const body = filtered.map(r => {
       const row = [td(r.fecha || ""), td(String(r.numero)), td(r.nombre || "")];
-      if (isAdmin) row.push(td(r.tracking || ""));
+      if (isAdmin) row.push(td(r.tracking || "—"));
       return row;
     });
+    
+    const columnWidths = getColumnWidths(header, body);
+
     const { ws } = sheetFromAOAStyled("Sin casilla", [header, ...body], {
-      cols: isAdmin ? [{ wch: 14 }, { wch: 12 }, { wch: 28 }, { wch: 24 }] : [{ wch: 14 }, { wch: 12 }, { wch: 28 }],
+      cols: columnWidths,
       rows: [{ hpt: 24 }]
     });
     downloadXLSX("Paquetes_sin_casilla.xlsx", [{ name: "Sin casilla", ws }]);

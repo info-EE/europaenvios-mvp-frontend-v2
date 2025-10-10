@@ -21,7 +21,8 @@ import {
   th,
   td,
   tdNum,
-  tdInt
+  tdInt,
+  getColumnWidths // <-- IMPORTAMOS LA NUEVA FUNCIÓN
 } from "/src/utils/helpers.jsx";
 
 export function CargasEnviadas({ packages, flights, user }) {
@@ -82,8 +83,11 @@ export function CargasEnviadas({ packages, flights, user }) {
       td(p.ci_ruc), td(p.tracking), td(p.remitente), tdNum(p.peso_real, "0.000"), tdNum(p.peso_facturable, "0.000"),
       td(`${p.largo}x${p.ancho}x${p.alto} cm`), tdNum(p.exceso_volumen, "0.000"), td(p.descripcion), tdNum(p.valor_aerolinea, "0.00")
     ]);
+    
+    const columnWidthsPacking = getColumnWidths(headerPacking, bodyPacking);
+
     const sheetPacking = sheetFromAOAStyled("Packing list", [headerPacking, ...bodyPacking], {
-        cols: [{wch:16},{wch:10},{wch:18},{wch:12},{wch:20},{wch:22},{wch:15},{wch:18},{wch:18},{wch:12},{wch:14},{wch:14},{wch:14},{wch:28},{wch:12}],
+        cols: columnWidthsPacking,
         rows: [{hpt:24}]
     });
 
@@ -95,8 +99,11 @@ export function CargasEnviadas({ packages, flights, user }) {
       const totalsRow = [
         td(""), th("Totales"), tdNum(totPeso, "0.000"), td(""), td(""), td(""), tdNum(totVol, "0.000")
       ];
+      
+      const columnWidthsCajas = getColumnWidths(headerCajas, [...bodyCajas, totalsRow]);
+
       const sheetCajas = sheetFromAOAStyled("Cajas", [headerCajas, ...bodyCajas, totalsRow], {
-        cols: [{ wch: 14 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }],
+        cols: columnWidthsCajas,
         rows: [{ hpt: 24 }]
       });
       downloadXLSX(`Carga_${flight.codigo}.xlsx`, [sheetPacking, sheetCajas]);

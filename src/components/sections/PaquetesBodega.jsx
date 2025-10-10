@@ -36,7 +36,8 @@ import {
   td,
   tdNum,
   tdInt,
-  estadosPermitidosPorCarga
+  estadosPermitidosPorCarga,
+  getColumnWidths // <-- IMPORTAMOS LA NUEVA FUNCIÓN
 } from "/src/utils/helpers.jsx";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
 import { db, storage } from "/src/firebase.js";
@@ -269,7 +270,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
     r.readAsDataURL(file);
   };
 
-  async function exportXLSX(){
+  async function exportXLSX() {
     const header = [
         th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"), th("Fecha"),
         th("CI/RUC"), th("Empresa de envío"), th("Nombre y apellido"), th("Tracking"), th("Remitente"),
@@ -287,12 +288,11 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
             td(p.descripcion), tdNum(p.valor_aerolinea, "0.00")
         ];
     });
+
+    const columnWidths = getColumnWidths(header, body);
+
     const { ws } = sheetFromAOAStyled("Bodega", [header, ...body], {
-        cols: [
-            {wch:12},{wch:14},{wch:12},{wch:10},{wch:18},{wch:12},{wch:15},
-            {wch:20},{wch:22},{wch:18},{wch:18},{wch:12},{wch:14},
-            {wch:14},{wch:14},{wch:28},{wch:12}
-        ],
+        cols: columnWidths,
         rows: [{ hpt: 24 }]
     });
     downloadXLSX("Paquetes_en_bodega.xlsx", [{ name: "Bodega", ws }]);

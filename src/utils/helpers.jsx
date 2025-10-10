@@ -120,6 +120,35 @@ export function downloadXLSX(filename, sheets){
   XLSX.writeFile(wb, filename);
 }
 
+// --- NUEVA FUNCIÓN PARA AUTO-AJUSTAR COLUMNAS EN XLSX ---
+export function getColumnWidths(headerRow, bodyRows) {
+  if (!headerRow || headerRow.length === 0) return [];
+  const columnCount = headerRow.length;
+  const widths = new Array(columnCount).fill(0);
+
+  // 1. Calcular el ancho del encabezado
+  for (let C = 0; C < columnCount; C++) {
+    const cellValue = headerRow[C]?.v || '';
+    widths[C] = Math.max(widths[C], String(cellValue).length);
+  }
+
+  // 2. Calcular el ancho del cuerpo
+  if (bodyRows) {
+    for (const row of bodyRows) {
+      for (let C = 0; C < columnCount; C++) {
+        const cell = row[C];
+        const cellValue = cell && cell.v !== undefined && cell.v !== null ? cell.v : '';
+        const valueLength = String(cellValue).length;
+        widths[C] = Math.max(widths[C], valueLength);
+      }
+    }
+  }
+
+  // 3. Devolver el formato requerido por la librería con un padding extra
+  return widths.map(width => ({ wch: width + 2 }));
+}
+
+
 function barcodeSVG(text){
   const safe = deaccent(String(text)).toUpperCase();
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");

@@ -210,6 +210,77 @@ export function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, c
     </body></html>`;
 }
 
+export function sinCasillaLabelHTML({ fecha, tracking, nombre, numero }) {
+  const barcodeValue = `SC-${String(numero).padStart(3, '0')}`;
+  const svgHtml = barcodeSVG(barcodeValue);
+  const fechaFmt = fecha ? new Date(fecha + 'T00:00:00').toLocaleDateString('es-ES') : '';
+
+  return `
+    <html><head><meta charset="utf-8"><title>Etiqueta Sin Casilla ${numero}</title>
+    <style>
+      @page { size: 100mm 50mm; margin: 1.5mm; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.2; }
+      .label-container {
+        width: 97mm;
+        height: 47mm;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 1mm;
+      }
+      .header, .footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .header span, .footer span {
+        display: block;
+      }
+      .main-content {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+      }
+      .package-number {
+        font-size: 60pt;
+        font-weight: bold;
+        line-height: 1;
+      }
+      .barcode {
+        width: 100%;
+        text-align: center;
+        margin-top: 1mm;
+      }
+      .barcode svg {
+        width: 80%;
+        height: 10mm;
+      }
+      .b { font-weight: bold; }
+    </style></head><body>
+      <div class="label-container">
+        <div class="header">
+          <span>Fecha: <span class="b">${fechaFmt}</span></span>
+          <span>Tracking: <span class="b">${deaccent(tracking ?? "")}</span></span>
+        </div>
+        
+        <div class="main-content">
+          <div class="package-number">${numero}</div>
+          <div class="barcode">${svgHtml}</div>
+        </div>
+        
+        <div class="footer">
+          <span>Nombre: <span class="b">${deaccent(nombre ?? "")}</span></span>
+          <span class="b">PAQUETE SIN CASILLA</span>
+        </div>
+      </div>
+    </body></html>`;
+}
+
+
 // --- CAMBIO AÑADIDO: Se agrega `cargaTxt` a la función ---
 export function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha, cargaTxt }) {
     const cajaDeTexto = `CAJA: ${boxNumber} de`;

@@ -24,7 +24,9 @@ import {
   downloadXLSX,
   th,
   td,
-  getColumnWidths // <-- IMPORTAMOS LA NUEVA FUNCIÓN
+  getColumnWidths,
+  printHTMLInIframe,
+  sinCasillaLabelHTML,
 } from "../../utils/helpers.jsx";
 
 export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }) {
@@ -99,6 +101,14 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
       const row = { fecha, numero: finalNumero, nombre: nombre.trim(), tracking: tracking.trim(), foto: foto };
       await onAdd(row);
 
+      // Imprimir etiqueta
+      printHTMLInIframe(sinCasillaLabelHTML({
+        fecha: row.fecha,
+        tracking: row.tracking,
+        nombre: row.nombre,
+        numero: row.numero
+      }));
+
       setNombre("");
       setTracking("");
       setFoto(null);
@@ -108,6 +118,16 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
     } finally {
       setIsAdding(false);
     }
+  };
+
+  const handleReprint = (paquete) => {
+    if (!paquete) return;
+    printHTMLInIframe(sinCasillaLabelHTML({
+      fecha: paquete.fecha,
+      tracking: paquete.tracking,
+      nombre: paquete.nombre,
+      numero: paquete.numero
+    }));
   };
 
   useEffect(() => {
@@ -356,9 +376,14 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
                 <button onClick={() => setEditRow(er => ({ ...er, foto: null }))} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-xs">X</button>
               </div>
             )}
-            <div className="flex justify-end gap-2 mt-6">
-              <Button variant="secondary" onClick={cancelEdit}>Cancelar</Button>
-              <Button variant="primary" onClick={saveEdit}>Guardar Cambios</Button>
+            <div className="flex justify-between items-center gap-2 mt-6">
+              <Button variant="secondary" onClick={() => handleReprint(editRow)}>Reimprimir etiqueta</Button>
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={cancelEdit}>Cancelar</Button>
+                <Button variant="primary" onClick={saveEdit} disabled={isUploading}>
+                    {isUploading ? 'Subiendo...' : 'Guardar Cambios'}
+                </Button>
+              </div>
             </div>
           </div>
         )}

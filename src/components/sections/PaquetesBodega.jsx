@@ -4,16 +4,16 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "/src/context/ModalContext.jsx";
+import { useModal } from "../../context/ModalContext";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { Field } from "/src/components/common/Field.jsx";
-import { Modal } from "/src/components/common/Modal.jsx";
-import { EmptyState } from "/src/components/common/EmptyState.jsx";
-import { Button } from "/src/components/common/Button.jsx";
-import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
+import { Section } from "../common/Section";
+import { Input } from "../common/Input";
+import { Field } from "../common/Field";
+import { Modal } from "../common/Modal";
+import { EmptyState } from "../common/EmptyState";
+import { Button } from "../common/Button";
+import { QrCodeModal } from "../common/QrCodeModal";
 
 // Helpers & Constantes
 import {
@@ -37,22 +37,9 @@ import {
   tdNum,
   tdInt,
   estadosPermitidosPorCarga
-} from "/src/utils/helpers.jsx";
+} from "../../utils/helpers";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { db, storage } from "/src/firebase.js";
-
-const CustomPieLegend = ({ payload }) => (
-    <div className="w-1/3 text-xs overflow-y-auto" style={{maxHeight: '16rem'}}>
-      <ul className="space-y-1">
-        {payload.map((entry, index) => (
-          <li key={`item-${index}`} className="flex items-center">
-            <div className="w-3 h-3 mr-2 rounded-sm" style={{ backgroundColor: entry.color }} />
-            <span>{entry.value}: <span className="font-semibold">{fmtPeso(entry.payload.value)} kg</span></span>
-          </li>
-        ))}
-      </ul>
-    </div>
-);
+import { db, storage } from "../../firebase";
 
 const SortableHeader = ({ children, col, sort, toggleSort }) => {
     const isSorted = sort.key === col;
@@ -395,32 +382,72 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
 
       <div className="grid md:grid-cols-2 gap-6 mt-6">
         {(() => {
-          const aggReal = {}; const aggExc = {};
-          rows.forEach(p=>{ aggReal[p.courier]=(aggReal[p.courier]||0)+p.peso_real; aggExc[p.courier]=(aggExc[p.courier]||0)+p.exceso_volumen; });
-          const dataReal = Object.entries(aggReal).filter(([, kg]) => kg > 0).map(([courier,kg_real])=>({courier,kg_real, name: courier}));
-          const dataExc  = Object.entries(aggExc).filter(([, kg]) => kg > 0).map(([courier,kg_exceso])=>({courier,kg_exceso, name: courier}));
-          const totalReal = sum(dataReal.map(d=>d.kg_real));
-          const totalExc = sum(dataExc.map(d=>d.kg_exceso));
+          const aggReal = {};
+          const aggExc = {};
+          rows.forEach(p => {
+            aggReal[p.courier] = (aggReal[p.courier] || 0) + p.peso_real;
+            aggExc[p.courier] = (aggExc[p.courier] || 0) + p.exceso_volumen;
+          });
+
+          const dataReal = Object.entries(aggReal)
+            .filter(([, kg]) => kg > 0)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value);
+
+          const dataExc = Object.entries(aggExc)
+            .filter(([, kg]) => kg > 0)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value);
+            
+          const totalReal = sum(dataReal.map(d => d.value));
+          const totalExc = sum(dataExc.map(d => d.value));
+
+          const charts = [
+            { data: dataReal, key: "value", title: "Kg reales por courier", total: totalReal },
+            { data: dataExc, key: "value", title: "Exceso volumétrico por courier", total: totalExc }
+          ];
+
           return (
             <>
-              {[{data:dataReal,key:"kg_real",title:`Kg reales por courier. Total: `,total:totalReal},
-                {data:dataExc,key:"kg_exceso",title:`Exceso volumétrico por courier. Total: `,total:totalExc}].map((g,ix)=>(
-                <div key={g.key} className="bg-slate-50 rounded-xl p-3 border border-slate-200">
-                  <div className="text-sm font-semibold text-slate-700 mb-2">{g.title}<b>{fmtPeso(g.total)} kg</b></div>
-                  <div className="h-64 flex">
-                    <ResponsiveContainer width="66%" height="100%">
-                      <PieChart>
-                        <Pie data={g.data} dataKey={g.key} nameKey="name" outerRadius="80%" cx="50%" cy="50%">
-                          {g.data.map((_,i)=><Cell key={i} fill={COLORS[(i+(ix?3:0))%COLORS.length]}/>)}
-                        </Pie>
-                        <Tooltip formatter={(v)=>`${fmtPeso(v)} kg`}/>
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <CustomPieLegend payload={g.data.map((entry, i) => ({
-                        value: entry.name,
-                        color: COLORS[(i+(ix?3:0))%COLORS.length],
-                        payload: { value: entry[g.key] }
-                    }))} />
+              {charts.map((chart, ix) => (
+                <div key={chart.key} className="bg-slate-50 rounded-xl p-4 border border-slate-200 flex flex-col">
+                  <h3 className="font-semibold text-slate-700 mb-4">{chart.title}</h3>
+                  <div className="flex-grow flex items-center">
+                    {chart.data.length > 0 ? (
+                      <>
+                        <ResponsiveContainer width="50%" height={300}>
+                          <PieChart>
+                            <Pie data={chart.data} dataKey={chart.key} nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={100}>
+                              {chart.data.map((_, i) => (
+                                <Cell key={`cell-${i}`} fill={COLORS[(i + (ix * 3)) % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(v) => `${fmtPeso(v)} kg`} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="w-1/2 text-sm pl-4">
+                          <ul className="space-y-1">
+                            {chart.data.map((entry, index) => (
+                              <li key={`item-${index}`} className="flex justify-between items-center py-1 border-b border-slate-100">
+                                <span className="flex items-center gap-2">
+                                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLORS[(index + (ix * 3)) % COLORS.length] }} />
+                                  {entry.name}
+                                </span>
+                                <span className="font-semibold">{fmtPeso(entry.value)} kg</span>
+                              </li>
+                            ))}
+                            <li className="flex justify-between items-center py-2 font-bold mt-2 border-t-2 border-slate-300">
+                              <span>TOTAL</span>
+                              <span>{fmtPeso(chart.total)} kg</span>
+                            </li>
+                          </ul>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-center h-full w-full text-slate-500">
+                        No hay datos para mostrar.
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -428,6 +455,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
           );
         })()}
       </div>
+
 
       <Modal open={open} onClose={() => setOpen(false)} title="Editar paquete" maxWidth="max-w-4xl">
         {form && (

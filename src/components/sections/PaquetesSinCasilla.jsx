@@ -1,20 +1,20 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { db, storage } from "../../firebase.js";
+import { db, storage } from "/src/firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, runTransaction, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
-import { QrCodeModal } from "../common/QrCodeModal.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -27,7 +27,7 @@ import {
   getColumnWidths,
   printHTMLInIframe,
   sinCasillaLabelHTML,
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 
 export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }) {
   const isAdmin = currentUser?.role === "ADMIN";
@@ -134,7 +134,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
     if (!camOpen) return;
     (async () => {
       try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        const s = await navigator.mediaDevices.getUserMedia({ video: true });
         streamRef.current = s; if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); }
       } catch { 
         showAlert("Error de cámara", "No se pudo acceder a la cámara.");

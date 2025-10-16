@@ -37,7 +37,7 @@ import {
   tdNum,
   tdInt,
   estadosPermitidosPorCarga,
-  getColumnWidths // <-- IMPORTAMOS LA NUEVA FUNCIÓN
+  getColumnWidths
 } from "../../utils/helpers.jsx";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
 import { db, storage } from "../../firebase.js";
@@ -58,8 +58,11 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   const [flightId, setFlightId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setTo] = useState("");
-  // MODIFICACIÓN: El orden por defecto ahora usa `createdAt` para mayor precisión.
   const [sort, setSort] = useState({ key: 'createdAt', dir: 'desc' });
+  const isCourier = user.role === "COURIER";
+  const [editingCiRucPackage, setEditingCiRucPackage] = useState(null);
+  const [isSavingCiRuc, setIsSavingCiRuc] = useState(false);
+
 
   const { showAlert, showConfirmation } = useModal();
 
@@ -88,7 +91,6 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       case "carga": return (flights.find(f=>f.id===p.flight_id)?.codigo || "").toLowerCase();
       case "codigo": return (p.codigo||"").toLowerCase();
       case "casilla": return (p.casilla||"").toLowerCase();
-      // MODIFICACIÓN: Se usa `createdAt` como clave principal para el orden de subida.
       case "createdAt": return p.createdAt || p.fecha || "";
       case "fecha": return p.fecha || "";
       case "nombre": return (p.nombre_apellido||"").toLowerCase();
@@ -167,6 +169,27 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       valor_txt: fmtMoney(p.valor_aerolinea)
     });
     setOpen(true);
+  };
+
+  const startEditCiRuc = (p) => {
+    setEditingCiRucPackage({ ...p });
+  };
+
+  const saveCiRuc = async () => {
+    if (!editingCiRucPackage || isSavingCiRuc) return;
+    setIsSavingCiRuc(true);
+    try {
+        await onUpdate({
+            id: editingCiRucPackage.id,
+            ci_ruc: editingCiRucPackage.ci_ruc || ""
+        });
+    } catch (error) {
+        console.error("Error al guardar CI/RUC:", error);
+        showAlert("Error", "No se pudo guardar el CI/RUC.");
+    } finally {
+        setIsSavingCiRuc(false);
+        setEditingCiRucPackage(null);
+    }
   };
 
   const saveEdit = () => {
@@ -338,13 +361,14 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                 <SortableHeader col="casilla" sort={sort} toggleSort={toggleSort}>Casilla</SortableHeader>
                 <SortableHeader col="createdAt" sort={sort} toggleSort={toggleSort}>Fecha</SortableHeader>
                 <SortableHeader col="nombre" sort={sort} toggleSort={toggleSort}>Nombre</SortableHeader>
+                <th className="text-left px-3 py-2 font-semibold text-slate-600">CI/RUC</th>
                 <SortableHeader col="tracking" sort={sort} toggleSort={toggleSort}>Tracking</SortableHeader>
                 <SortableHeader col="peso_real" sort={sort} toggleSort={toggleSort}>Peso real</SortableHeader>
                 <SortableHeader col="medidas" sort={sort} toggleSort={toggleSort}>Medidas</SortableHeader>
                 <SortableHeader col="exceso" sort={sort} toggleSort={toggleSort}>Exceso</SortableHeader>
                 <SortableHeader col="descripcion" sort={sort} toggleSort={toggleSort}>Descripción</SortableHeader>
                 <th className="text-left px-3 py-2 font-semibold text-slate-600">Fotos</th>
-                {user.role === 'ADMIN' && <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>}
+                <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -357,6 +381,19 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                   <td className="px-3 py-2 whitespace-nowrap">{p.casilla}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{p.fecha}</td>
                   <td className="px-3 py-2">{p.nombre_apellido}</td>
+                  <td className="px-3 py-2 whitespace-nowrap font-mono">
+                    {p.ci_ruc ? (
+                        <span className="flex items-center gap-1 text-slate-700">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-green-500 flex-shrink-0"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.06 0l4-5.5z" clipRule="evenodd" /></svg>
+                            {p.ci_ruc}
+                        </span>
+                    ) : (
+                        <span className="flex items-center gap-1 text-amber-600 font-semibold text-xs">
+                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 flex-shrink-0"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" /></svg>
+                            Pendiente
+                        </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 font-mono">{p.tracking}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_real)} kg</td>
                   <td className="px-3 py-2 whitespace-nowrap">{p.largo}x{p.ancho}x{p.alto} cm</td>
@@ -367,18 +404,28 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                         <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer(p.fotos)}>Ver foto</Button>
                         : "—"}
                   </td>
-                  {user.role === 'ADMIN' &&
-                    <td className="px-3 py-2">
+                  <td className="px-3 py-2">
+                    {isCourier ? (
+                        p.ci_ruc ? (
+                            <Button variant="icon" onClick={() => startEditCiRuc(p)} title="Editar CI/RUC">
+                                {Iconos.edit}
+                            </Button>
+                        ) : (
+                            <Button onClick={() => startEditCiRuc(p)} className="!px-2 !py-1 text-xs whitespace-nowrap rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors">
+                                Añadir CI/RUC
+                            </Button>
+                        )
+                    ) : ( // Es Admin
                         <div className="flex gap-2">
-                          <Button variant="icon" onClick={() => startEdit(p)}>{Iconos.edit}</Button>
-                          <Button variant="iconDanger" onClick={() => requestDelete(p)}>{Iconos.delete}</Button>
+                            <Button variant="icon" onClick={() => startEdit(p)} title="Editar">{Iconos.edit}</Button>
+                            <Button variant="iconDanger" onClick={() => requestDelete(p)} title="Eliminar">{Iconos.delete}</Button>
                         </div>
-                    </td>
-                  }
+                    )}
+                  </td>
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={12}><EmptyState icon={Iconos.box} title="No hay paquetes en bodega" message="Utiliza el filtro para buscar o agrega paquetes en Recepción."/></td></tr>}
+            {rows.length === 0 && <tr><td colSpan={13}><EmptyState icon={Iconos.box} title="No hay paquetes en bodega" message="Utiliza el filtro para buscar o agrega paquetes en Recepción."/></td></tr>}
           </tbody>
         </table>
       </div>
@@ -464,7 +511,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
         {form && (
           <div className="grid md:grid-cols-3 gap-4">
             <Field label="Carga">
-              <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} disabled={user.role==="COURIER"}>
+              <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.flight_id} onChange={e=>setForm({...form,flight_id:e.target.value})} >
                 <option value="">—</option>
                 {flights
                   .filter(f => f.estado === 'En bodega' || f.id === form.flight_id)
@@ -473,7 +520,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
               </select>
             </Field>
             <Field label="Courier">
-                <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})} disabled={user.role==="COURIER"}>
+                <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.courier} onChange={e=>setForm({...form,courier:e.target.value})} >
                     <option value="">Seleccionar...</option>
                     {couriers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
@@ -483,25 +530,25 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                 const codigo = flights.find(f=>f.id===form.flight_id)?.codigo || "";
                 const opts = estadosPermitidosPorCarga(codigo, ESTADOS_INICIALES);
                 return (
-                  <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} disabled={user.role==="COURIER"}>
+                  <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})} >
                     {opts.map(s=><option key={s}>{s}</option>)}
                   </select>
                 );
               })()}
             </Field>
-            <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Casilla"><Input value={form.casilla} onChange={e=>setForm({...form,casilla:e.target.value})} /></Field>
+            <Field label="Código de paquete"><Input value={form.codigo} onChange={e=>setForm({...form,codigo:limpiar(e.target.value)})} disabled={true}/></Field>
+            <Field label="Fecha"><Input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})} /></Field>
             <Field label="CI/Pasaporte/RUC"><Input value={form.ci_ruc || ""} onChange={e=>setForm({...form,ci_ruc:e.target.value})} /></Field>
             <Field label="Empresa de envío">
-                <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.empresa_envio || ""} onChange={e=>setForm({...form,empresa_envio:e.target.value})} disabled={user.role==="COURIER"}>
+                <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={form.empresa_envio || ""} onChange={e=>setForm({...form,empresa_envio:e.target.value})} >
                     <option value="">Seleccionar...</option>
                     {[...empresasEnvio].sort((a, b) => a.name.localeCompare(b.name)).map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
                 </select>
             </Field>
-            <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})} disabled={user.role==="COURIER"}/></Field>
-            <Field label="Remitente"><Input value={form.remitente||""} onChange={e=>setForm({...form,remitente:e.target.value})} disabled={user.role==="COURIER"}/></Field>
+            <Field label="Nombre y apellido"><Input value={form.nombre_apellido} onChange={e=>setForm({...form,nombre_apellido:e.target.value})} /></Field>
+            <Field label="Tracking"><Input value={form.tracking} onChange={e=>setForm({...form,tracking:e.target.value})} /></Field>
+            <Field label="Remitente"><Input value={form.remitente||""} onChange={e=>setForm({...form,remitente:e.target.value})} /></Field>
             <Field label="Peso real (kg)"><Input value={form.peso_real_txt} onChange={e=>setForm({...form,peso_real_txt:e.target.value.replace('.', ',')})} /></Field>
             <Field label="Largo (cm)"><Input value={form.L_txt} onChange={e=>setForm({...form,L_txt:e.target.value})} /></Field>
             <Field label="Ancho (cm)"><Input value={form.A_txt} onChange={e=>setForm({...form,A_txt:e.target.value})} /></Field>
@@ -560,6 +607,30 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       </Modal>
 
       <QrCodeModal open={!!uploadSessionId} onClose={() => setUploadSessionId(null)} sessionId={uploadSessionId} />
+
+      <Modal open={!!editingCiRucPackage} onClose={() => setEditingCiRucPackage(null)} title="Gestionar CI/RUC del Cliente">
+        {editingCiRucPackage && (
+            <div className="space-y-4">
+                <p className="text-sm text-slate-600">
+                    Editando CI/RUC para el paquete <span className="font-bold">{editingCiRucPackage.codigo}</span> del cliente <span className="font-bold">{editingCiRucPackage.nombre_apellido}</span>.
+                </p>
+                <Field label="CI/Pasaporte/RUC" required>
+                    <Input
+                        value={editingCiRucPackage.ci_ruc || ""}
+                        onChange={e => setEditingCiRucPackage({ ...editingCiRucPackage, ci_ruc: e.target.value })}
+                        autoFocus
+                        onKeyDown={e => e.key === 'Enter' && saveCiRuc()}
+                    />
+                </Field>
+                <div className="flex justify-end gap-2 mt-6">
+                    <Button variant="secondary" onClick={() => setEditingCiRucPackage(null)}>Cancelar</Button>
+                    <Button variant="primary" onClick={saveCiRuc} disabled={isSavingCiRuc}>
+                        {isSavingCiRuc ? "Guardando..." : "Guardar"}
+                    </Button>
+                </div>
+            </div>
+        )}
+    </Modal>
 
     </Section>
   );

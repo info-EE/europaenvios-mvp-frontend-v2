@@ -2,17 +2,17 @@
 import React, { useState, useMemo } from "react";
 
 // Context
-import { useModal } from "/src/context/ModalContext.jsx";
+import { useModal } from "../../context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { Field } from "/src/components/common/Field.jsx";
-import { Button } from "/src/components/common/Button.jsx";
-import { Modal } from "/src/components/common/Modal.jsx"; // Importamos el componente Modal
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { Button } from "../common/Button.jsx";
+import { Modal } from "../common/Modal.jsx"; // Importamos el componente Modal
 
 // Helpers & Constantes
-import { Iconos } from "/src/utils/helpers.jsx";
+import { Iconos } from "../../utils/helpers.jsx";
 
 export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete }) {
     const [flightId, setFlightId] = useState("");
@@ -92,7 +92,7 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
                     </select>
                 </Field>
                 <Field label="Descripción"><Input value={desc} onChange={e => setDesc(e.target.value)} /></Field>
-                <Field label="Monto (USD)"><Input value={monto} onChange={e => setMonto(e.target.value)} placeholder="10,00" /></Field>
+                <Field label="Monto (USD)"><Input value={monto} onChange={e => setMonto(e.target.value.replace('.', ','))} placeholder="10,00" /></Field>
                 <Field label="Estado">
                     <select className="w-full text-sm rounded-lg border-slate-300 px-3 py-2" value={estado} onChange={e => setEstado(e.target.value)}>
                         <option>Pendiente</option>
@@ -181,7 +181,7 @@ export function Extras({ flights, couriers, extras, onAdd, onUpdate, onDelete })
                         <Field label="Monto (USD)">
                             <Input 
                                 value={editingExtra.monto} 
-                                onChange={e => setEditingExtra({...editingExtra, monto: e.target.value})} 
+                                onChange={e => setEditingExtra({...editingExtra, monto: e.target.value.replace('.', ',')})} 
                             />
                         </Field>
                         <Field label="Estado">

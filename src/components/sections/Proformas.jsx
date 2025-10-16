@@ -1,13 +1,13 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useState } from "react";
-import ExcelJS from "exceljs";
+import ExcelJS from "exceljs/dist/exceljs.min.js";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { Field } from "/src/components/common/Field.jsx";
-import { EmptyState } from "/src/components/common/EmptyState.jsx";
-import { Button } from "/src/components/common/Button.jsx";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
 import {
@@ -17,7 +17,7 @@ import {
   sum,
   parseComma,
   parseIntEU // Aseguramos que parseIntEU esté disponible
-} from "/src/utils/helpers.jsx";
+} from "../../utils/helpers.jsx";
 
 // Constantes de cálculo de la lógica de negocio original
 const T = { proc: 5, fleteReal: 9, fleteExc: 9, despacho: 10, fleteMaritimo: 12 };
@@ -88,21 +88,26 @@ export function Proformas({ packages, flights, extras, user }) {
 
     if (isPybox && r.courier === 'ParaguayBox') {
         const cajasDelVuelo = flight.cajas || [];
-        const totalPesoVolumetricoCajas = sum(cajasDelVuelo.map(c => (parseIntEU(c.L) * parseIntEU(c.A) * parseIntEU(c.H)) / 6000));
+        // NOTA: El cálculo de Pybox se basa en el PESO REAL TOTAL de las cajas, no en el facturable de los paquetes.
         const totalPesoRealCajas = sum(cajasDelVuelo.map(c => parseComma(c.peso)));
-
+        
+        // El exceso de volumen sí se calcula con el volumétrico de las cajas.
+        const totalPesoVolumetricoCajas = sum(cajasDelVuelo.map(c => (parseIntEU(c.L) * parseIntEU(c.A) * parseIntEU(c.H)) / 6000));
+        
         let excesoVolumenCantidad = totalPesoVolumetricoCajas - totalPesoRealCajas;
         if (excesoVolumenCantidad < 0) {
             excesoVolumenCantidad = 0;
         }
-
-        const costoProcesamiento = r.kg_fact * 24.00;
+        
+        // CAMBIO: Usar el peso real total de las cajas para el costo de procesamiento.
+        const costoProcesamiento = totalPesoRealCajas * 24.00;
         const costoExceso = excesoVolumenCantidad * 8.00;
 
         total = costoProcesamiento + costoExceso + extrasMonto;
 
         detalle = [
-            ["Procesamiento, envío y despacho aduanero de carga aérea", Number(r.kg_fact.toFixed(3)), 24.00, Number(costoProcesamiento.toFixed(2))],
+            // CAMBIO: Usar el peso real total de las cajas como cantidad.
+            ["Procesamiento, envío y despacho aduanero carga aérea", Number(totalPesoRealCajas.toFixed(3)), 24.00, Number(costoProcesamiento.toFixed(2))],
             ["Exceso de volumen", Number(excesoVolumenCantidad.toFixed(3)), 8.00, Number(costoExceso.toFixed(2))],
             ...extrasList.map(e => [e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))])
         ];
@@ -125,8 +130,8 @@ export function Proformas({ packages, flights, extras, user }) {
         canje = Math.min(canje, 57);
       }
       
-      // REQUERIMIENTO: No se cobra comisión por transferencia a InflightBox (ya implementado)
-      const com = r.courier !== 'InflightBox' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
+      // CORRECCIÓN: Se ajusta el nombre de 'InflightBox' a 'Inflight Box' para que la excepción se aplique correctamente.
+      const com = r.courier !== 'Inflight Box' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
       
       total = proc + fr + fe + desp + canje + extrasMonto + com;
 
@@ -258,7 +263,8 @@ export function Proformas({ packages, flights, extras, user }) {
                     
                     kgExcesoDisplay = excesoVolumenCantidad; // Sobreescribimos para la UI
 
-                    const costoProcesamiento = r.kg_fact * 24.00;
+                    // CAMBIO: Usar el peso real total de las cajas para el costo de procesamiento.
+                    const costoProcesamiento = totalPesoRealCajas * 24.00;
                     const costoExceso = excesoVolumenCantidad * 8.00;
                     tot = costoProcesamiento + costoExceso + extrasMonto;
 
@@ -274,8 +280,9 @@ export function Proformas({ packages, flights, extras, user }) {
                   if (isAirMulti) {
                     canje = Math.min(canje, 57);
                   }
-
-                  const com = r.courier !== 'InflightBox' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
+                  
+                  // CORRECCIÓN: Se ajusta el nombre de 'InflightBox' a 'Inflight Box' para que la excepción se aplique correctamente.
+                  const com = r.courier !== 'Inflight Box' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
                   tot = proc + fr + fe + desp + canje + extrasMonto + com;
                 }
 

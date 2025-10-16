@@ -2,12 +2,12 @@
 import React, { useMemo, useState } from "react";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { Field } from "/src/components/common/Field.jsx";
-import { EmptyState } from "/src/components/common/EmptyState.jsx";
-import { Button } from "/src/components/common/Button.jsx";
-import { Modal } from "/src/components/common/Modal.jsx";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
+import { Modal } from "../common/Modal.jsx";
 
 // Helpers & Constantes
 import {
@@ -23,7 +23,7 @@ import {
   tdNum,
   tdInt,
   getColumnWidths // <-- IMPORTAMOS LA NUEVA FUNCIÓN
-} from "/src/utils/helpers.jsx";
+} from "../../utils/helpers.jsx";
 
 export function CargasEnviadas({ packages, flights, user }) {
   const [from, setFrom] = useState("");
@@ -34,11 +34,23 @@ export function CargasEnviadas({ packages, flights, user }) {
   const isAdmin = user.role === 'ADMIN';
   const isCourier = user.role === 'COURIER';
 
+  const courierFlightIds = useMemo(() => {
+    if (!isCourier) return null;
+    const ids = new Set();
+    packages.forEach(p => {
+        if (p.courier === user.courier) {
+            ids.add(p.flight_id);
+        }
+    });
+    return ids;
+  }, [packages, user.courier, isCourier]);
+
   const list = flights
     .filter(f => f.estado !== "En bodega")
     .filter(f => !from || f.fecha_salida >= from)
     .filter(f => !to || f.fecha_salida <= to)
-    .filter(f => !estado || f.estado === estado);
+    .filter(f => !estado || f.estado === estado)
+    .filter(f => !isCourier || (courierFlightIds && courierFlightIds.has(f.id)));
 
   const flight = flights.find(f => f.id === flightId);
   const pref = user.role === "COURIER" ? limpiar(user.courier) : null;

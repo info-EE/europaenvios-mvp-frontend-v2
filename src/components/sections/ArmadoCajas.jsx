@@ -103,7 +103,8 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
         title: "Peso de la caja",
         message: "Ingresá el peso de la caja de cartón (kg).",
         inputLabel: "Peso (kg)",
-        initialValue: "0,250"
+        initialValue: "0,250",
+        inputProps: { numericFormat: 'comma' }
     });
     if (inTxt === null) return;
     const peso_carton = fmtPeso(parseComma(inTxt));
@@ -392,7 +393,7 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
                         {isEditing && editingBoxData && (
                         <div className="grid md:grid-cols-5 gap-4 mb-3 p-3 bg-slate-50 rounded-lg" onClick={e => e.stopPropagation()}>
                             <Field label="Nombre"><Input value={editingBoxData.codigo} onChange={e => setEditingBoxData({ ...editingBoxData, codigo: e.target.value })} /></Field>
-                            <Field label="Peso (kg)"><Input value={editingBoxData.peso || ""} onChange={e => setEditingBoxData({ ...editingBoxData, peso: e.target.value })} placeholder="3,128" /></Field>
+                            <Field label="Peso (kg)"><Input numericFormat="comma" value={editingBoxData.peso || ""} onChange={e => setEditingBoxData({ ...editingBoxData, peso: e.target.value })} placeholder="3,128" /></Field>
                             <Field label="Largo (cm)"><Input value={editingBoxData.L || ""} onChange={e => setEditingBoxData({ ...editingBoxData, L: e.target.value })} /></Field>
                             <Field label="Ancho (cm)"><Input value={editingBoxData.A || ""} onChange={e => setEditingBoxData({ ...editingBoxData, A: e.target.value })} /></Field>
                             <Field label="Alto (cm)"><Input value={editingBoxData.H || ""} onChange={e => setEditingBoxData({ ...editingBoxData, H: e.target.value })} /></Field>

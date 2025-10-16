@@ -50,7 +50,7 @@ export const ModalProvider = ({ children }) => {
     });
   }, []);
   
-  const showPrompt = useCallback(({ title, message, inputLabel, initialValue }) => {
+  const showPrompt = useCallback(({ title, message, inputLabel, initialValue, inputProps }) => {
     return new Promise((resolve) => {
       setModalConfig({
         type: 'prompt',
@@ -58,6 +58,7 @@ export const ModalProvider = ({ children }) => {
         message,
         inputLabel,
         initialValue,
+        inputProps, // Pasar props adicionales al modal
         onConfirm: (value) => {
           closeModal();
           resolve(value);
@@ -105,6 +106,7 @@ export const ModalProvider = ({ children }) => {
             initialValue={modalConfig.initialValue}
             onConfirm={modalConfig.onConfirm}
             onClose={modalConfig.onClose}
+            inputProps={modalConfig.inputProps} // Pasar las props al componente
           />
         )}
       </Fragment>

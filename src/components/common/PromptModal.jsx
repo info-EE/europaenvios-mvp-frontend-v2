@@ -9,7 +9,7 @@ import { Field } from "./Field.jsx";
  * Un modal para solicitar texto al usuario.
  * Reemplaza a window.prompt()
  */
-export function PromptModal({ open, onClose, onConfirm, title, message, inputLabel, initialValue = "" }) {
+export function PromptModal({ open, onClose, onConfirm, title, message, inputLabel, initialValue = "", inputProps }) {
   const [value, setValue] = useState(initialValue);
 
   // Reinicia el valor del input cuando el modal se abre
@@ -36,6 +36,7 @@ export function PromptModal({ open, onClose, onConfirm, title, message, inputLab
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleConfirm()}
             autoFocus
+            {...inputProps}
           />
         </Field>
       </div>

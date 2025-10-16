@@ -250,14 +250,14 @@ export function sinCasillaLabelHTML({ fecha, tracking, nombre, numero }) {
             overflow: hidden;
           }
           .main-left {
-            flex-basis: 40%;
+            flex-basis: 45%;
             text-align: center;
             font-weight: bold;
-            font-size: 72pt;
+            font-size: 68pt;
             line-height: 1;
           }
           .main-right {
-            flex-basis: 60%;
+            flex-basis: 55%;
             padding-left: 3mm;
             display: flex;
             flex-direction: column;

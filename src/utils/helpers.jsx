@@ -165,30 +165,30 @@ export function labelHTML({ codigo, nombre, casilla, pesoKg, medidasTxt, desc, c
     <style>
       @page { size: 100mm 50mm; margin: 1.5mm; }
       * { box-sizing: border-box; word-break: break-word; }
-      body { font-family: Arial, sans-serif; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.15; }
+      body { font-family: Arial, sans-serif; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.2; }
       .label-container { display: flex; flex-direction: column; width: 97mm; height: 47mm; overflow: hidden; }
-      .line { margin-bottom: 0.5mm; }
+      .line { margin-bottom: 0.5mm; line-height: 1.2; }
       .b { font-weight: bold; }
-      .header { display: flex; justify-content: space-between; font-size: 9.5pt; }
-      .header > span { word-break: break-all; }
-      .barcode { text-align: center; margin: 0.2mm 0; }
+      .header { display: flex; justify-content: space-between; font-size: 9pt; }
+      .header > span { word-break: break-all; max-width: 48%; }
+      .barcode { text-align: center; margin: 0.5mm 0; }
       .barcode svg { width: 100%; height: 10mm; }
       .desc-line { 
         white-space: normal; 
         overflow: hidden;
-        max-height: 8mm; 
+        max-height: 7.5mm;
       }
       .footer { 
         margin-top: auto; 
         display: flex; 
         justify-content: space-between; 
         align-items: flex-end; 
-        padding-top: 0.5mm;
+        padding-top: 1mm;
         border-top: 0.5mm solid black;
       }
       .courier-text { 
         font-weight: bold; 
-        font-size: 14pt;
+        font-size: 13pt;
         line-height: 1;
       }
     </style></head><body>
@@ -221,13 +221,13 @@ export function sinCasillaLabelHTML({ fecha, tracking, nombre, numero }) {
         <title>Etiqueta Sin Casilla ${numero}</title>
         <style>
           @page { size: 100mm 50mm; margin: 0; }
-          * { box-sizing: border-box; margin: 0; padding: 0; }
+          * { box-sizing: border-box; margin: 0; padding: 0; word-break: break-word; }
           body {
             font-family: Arial, sans-serif;
-            font-size: 11pt;
+            font-size: 10pt;
             width: 100mm;
             height: 50mm;
-            padding: 2mm 3mm;
+            padding: 2.5mm;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -235,42 +235,43 @@ export function sinCasillaLabelHTML({ fecha, tracking, nombre, numero }) {
           .b { font-weight: bold; }
           .row { display: flex; justify-content: space-between; align-items: flex-start; }
           .header {
-            padding-bottom: 2mm;
-            border-bottom: 1px solid black;
+            padding-bottom: 1.5mm;
+            border-bottom: 0.5mm solid black;
             flex-shrink: 0;
+            font-size: 9pt;
           }
-          .header > span { word-break: break-all; }
+          .header > span { max-width: 48%; }
           .main {
             flex-grow: 1;
             display: flex;
             align-items: center;
             padding-top: 2mm;
             min-height: 0;
+            overflow: hidden;
           }
           .main-left {
-            flex-basis: 35%;
+            flex-basis: 40%;
             text-align: center;
             font-weight: bold;
-            font-size: 80pt;
+            font-size: 72pt;
             line-height: 1;
           }
           .main-right {
-            flex-basis: 65%;
-            padding-left: 4mm;
+            flex-basis: 60%;
+            padding-left: 3mm;
             display: flex;
             flex-direction: column;
             justify-content: center;
             height: 100%;
           }
           .nombre {
-            font-size: 14pt;
+            font-size: 13pt;
             font-weight: bold;
-            word-break: break-word;
             line-height: 1.2;
           }
           .tipo-paquete {
             margin-top: 4mm;
-            font-size: 14pt;
+            font-size: 13pt;
             font-weight: bold;
           }
         </style>

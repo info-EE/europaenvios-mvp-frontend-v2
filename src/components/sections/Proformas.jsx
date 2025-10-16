@@ -1,13 +1,13 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useState } from "react";
-import ExcelJS from "exceljs/dist/exceljs.min.js";
+import ExcelJS from "exceljs";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
 
 // Helpers & Constantes
 import {
@@ -15,8 +15,9 @@ import {
   fmtPeso,
   fmtMoney,
   sum,
-  parseComma
-} from "../../utils/helpers.jsx";
+  parseComma,
+  parseIntEU // Aseguramos que parseIntEU esté disponible
+} from "/src/utils/helpers.jsx";
 
 // Constantes de cálculo de la lógica de negocio original
 const T = { proc: 5, fleteReal: 9, fleteExc: 9, despacho: 10, fleteMaritimo: 12 };
@@ -77,42 +78,68 @@ export function Proformas({ packages, flights, extras, user }) {
 
     let detalle = [];
     let total = 0;
-    const isMaritimo = flight.codigo.toUpperCase().startsWith("MAR");
+    const flightCode = (flight.codigo || "").toUpperCase();
+    const isMaritimo = flightCode.startsWith("MAR");
+    const isPybox = flightCode.startsWith("AIR-PYBOX");
+    const isAirMulti = flightCode.startsWith("AIR-MULTI");
+
     const extrasList = extrasDeCourier(r.courier);
     const extrasMonto = extrasList.reduce((s, e) => s + parseComma(e.monto), 0);
 
-    if (isMaritimo) {
+    if (isPybox && r.courier === 'ParaguayBox') {
+        const cajasDelVuelo = flight.cajas || [];
+        const totalPesoVolumetricoCajas = sum(cajasDelVuelo.map(c => (parseIntEU(c.L) * parseIntEU(c.A) * parseIntEU(c.H)) / 6000));
+        const totalPesoRealCajas = sum(cajasDelVuelo.map(c => parseComma(c.peso)));
+
+        let excesoVolumenCantidad = totalPesoVolumetricoCajas - totalPesoRealCajas;
+        if (excesoVolumenCantidad < 0) {
+            excesoVolumenCantidad = 0;
+        }
+
+        const costoProcesamiento = r.kg_fact * 24.00;
+        const costoExceso = excesoVolumenCantidad * 8.00;
+
+        total = costoProcesamiento + costoExceso + extrasMonto;
+
+        detalle = [
+            ["Procesamiento, envío y despacho aduanero de carga aérea", Number(r.kg_fact.toFixed(3)), 24.00, Number(costoProcesamiento.toFixed(2))],
+            ["Exceso de volumen", Number(excesoVolumenCantidad.toFixed(3)), 8.00, Number(costoExceso.toFixed(2))],
+            ...extrasList.map(e => [e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))])
+        ];
+    } else if (isMaritimo) {
       const fleteTotal = r.kg_fact * T.fleteMaritimo;
       total = fleteTotal + extrasMonto;
       detalle = [
         ["Envío marítimo España-Paraguay", Number(r.kg_fact.toFixed(3)), Number(T.fleteMaritimo.toFixed(2)), Number(fleteTotal.toFixed(2))],
         ...extrasList.map(e => [e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))])
       ];
-    } else {
+    } else { // Lógica para Aéreo normal
       const proc = r.kg_fact * T.proc;
-      const fr = r.kg_fact * T.fleteReal; // MODIFICADO: Se usa peso facturable
+      const fr = r.kg_fact * T.fleteReal;
       const fe = r.kg_exc * T.fleteExc;
       const desp = r.kg_fact * T.despacho;
 
-      // MODIFICADO: No se cobra canje de guía a Global Box
-      const canje = r.courier !== 'Global Box' ? canjeGuiaUSD(r.kg_fact) : 0;
+      let canje = r.courier !== 'Global Box' ? canjeGuiaUSD(r.kg_fact) : 0;
+      // REQUERIMIENTO: Si la carga es Air-Multi, el máximo de canje es 57 USD
+      if (isAirMulti) {
+        canje = Math.min(canje, 57);
+      }
       
-      // MODIFICADO: No se cobra comisión por transferencia a InflightBox
+      // REQUERIMIENTO: No se cobra comisión por transferencia a InflightBox (ya implementado)
       const com = r.courier !== 'InflightBox' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
       
       total = proc + fr + fe + desp + canje + extrasMonto + com;
 
       detalle = [
         ["Procesamiento", Number(r.kg_fact.toFixed(3)), Number(T.proc.toFixed(2)), Number(proc.toFixed(2))],
-        ["Flete peso real", Number(r.kg_fact.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))], // MODIFICADO: Se muestra el peso facturable
+        ["Flete peso real", Number(r.kg_fact.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))],
         ["Flete exceso de volumen", Number(r.kg_exc.toFixed(3)), Number(T.fleteExc.toFixed(2)), Number(fe.toFixed(2))],
         ["Servicio de despacho", Number(r.kg_fact.toFixed(3)), Number(T.despacho.toFixed(2)), Number(desp.toFixed(2))],
-        // Se añaden los extras aquí para mantener el orden
         ...extrasList.map(e => [e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))]),
       ];
 
-      // Se añaden condicionalmente las comisiones
       if (canje > 0) {
+        // Se inserta en la posición correcta
         detalle.splice(4, 0, ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))]);
       }
       if (com > 0) {
@@ -178,7 +205,7 @@ export function Proformas({ packages, flights, extras, user }) {
     ws.getCell(`D${totalRow}`).numFmt = '#,##0.00';
 
     ws.columns = [
-      { width: 30 }, { width: 15 }, { width: 15 }, { width: 15 }
+      { width: 50 }, { width: 15 }, { width: 15 }, { width: 15 }
     ];
 
     wb.xlsx.writeBuffer().then(buffer => {
@@ -215,25 +242,48 @@ export function Proformas({ packages, flights, extras, user }) {
             <tbody className="divide-y divide-slate-200">
               {porCourier.map(r => {
                 let tot;
+                let kgExcesoDisplay = r.kg_exc; // Valor por defecto
                 const extrasMonto = extrasDeCourier(r.courier).reduce((s, e) => s + parseComma(e.monto), 0);
-                if (flight.codigo.toUpperCase().startsWith("MAR")) {
+                const flightCode = (flight.codigo || "").toUpperCase();
+                const isMaritimo = flightCode.startsWith("MAR");
+                const isPybox = flightCode.startsWith("AIR-PYBOX");
+                const isAirMulti = flightCode.startsWith("AIR-MULTI");
+                
+                if (isPybox && r.courier === 'ParaguayBox') {
+                    const cajasDelVuelo = flight.cajas || [];
+                    const totalPesoVolumetricoCajas = sum(cajasDelVuelo.map(c => (parseIntEU(c.L) * parseIntEU(c.A) * parseIntEU(c.H)) / 6000));
+                    const totalPesoRealCajas = sum(cajasDelVuelo.map(c => parseComma(c.peso)));
+                    let excesoVolumenCantidad = totalPesoVolumetricoCajas - totalPesoRealCajas;
+                    if (excesoVolumenCantidad < 0) excesoVolumenCantidad = 0;
+                    
+                    kgExcesoDisplay = excesoVolumenCantidad; // Sobreescribimos para la UI
+
+                    const costoProcesamiento = r.kg_fact * 24.00;
+                    const costoExceso = excesoVolumenCantidad * 8.00;
+                    tot = costoProcesamiento + costoExceso + extrasMonto;
+
+                } else if (isMaritimo) {
                   tot = (r.kg_fact * T.fleteMaritimo) + extrasMonto;
-                } else {
+                } else { // Aéreo Normal
                   const proc = r.kg_fact * T.proc;
-                  const fr = r.kg_fact * T.fleteReal; // MODIFICADO: Se usa peso facturable
+                  const fr = r.kg_fact * T.fleteReal;
                   const fe = r.kg_exc * T.fleteExc;
                   const desp = r.kg_fact * T.despacho;
-                  // MODIFICADO: No se cobra canje de guía a Global Box
-                  const canje = r.courier !== 'Global Box' ? canjeGuiaUSD(r.kg_fact) : 0;
-                  // MODIFICADO: No se cobra comisión por transferencia a InflightBox
+                  
+                  let canje = r.courier !== 'Global Box' ? canjeGuiaUSD(r.kg_fact) : 0;
+                  if (isAirMulti) {
+                    canje = Math.min(canje, 57);
+                  }
+
                   const com = r.courier !== 'InflightBox' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
                   tot = proc + fr + fe + desp + canje + extrasMonto + com;
                 }
+
                 return (
                   <tr key={r.courier} className="hover:bg-slate-50">
                     <td className="px-3 py-2 whitespace-nowrap">{r.courier}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(r.kg_fact)} kg</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(r.kg_exc)} kg</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(kgExcesoDisplay)} kg</td>
                     <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{fmtMoney(tot)}</td>
                     <td className="px-3 py-2 whitespace-nowrap"><Button onClick={() => exportX(r)}>Descargar</Button></td>
                   </tr>

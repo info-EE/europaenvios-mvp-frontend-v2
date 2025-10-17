@@ -4,16 +4,16 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
-import { QrCodeModal } from "../common/QrCodeModal.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -38,9 +38,9 @@ import {
   tdInt,
   estadosPermitidosPorCarga,
   getColumnWidths
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { db, storage } from "../../firebase.js";
+import { db, storage } from "/src/firebase.js";
 
 const SortableHeader = ({ children, col, sort, toggleSort }) => {
     const isSorted = sort.key === col;
@@ -71,6 +71,22 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   };
   
   const pref = user.role === "COURIER" ? limpiar(user.courier) : null;
+
+  const courierFlights = useMemo(() => {
+    const flightsInBodega = flights.filter(f => f.estado === 'En bodega');
+
+    if (!isCourier) {
+      return flightsInBodega;
+    }
+
+    const courierFlightIds = new Set(
+      packages
+        .filter(p => p.courier === user.courier && p.flight_id)
+        .map(p => p.flight_id)
+    );
+
+    return flightsInBodega.filter(f => courierFlightIds.has(f.id));
+  }, [flights, packages, user, isCourier]);
 
   const baseRows = useMemo(() => {
     return packages
@@ -337,7 +353,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
           <Field label="Carga en Bodega">
             <select className="text-sm rounded-lg border-slate-300 px-3 py-2 w-full" value={flightId} onChange={e=>setFlightId(e.target.value)}>
               <option value="">Todas</option>
-              {flights.filter(f => f.estado === 'En bodega').map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
+              {courierFlights.map(f=><option key={f.id} value={f.id}>{f.codigo}</option>)}
             </select>
           </Field>
           <Field label="Desde"> <Input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} /> </Field>

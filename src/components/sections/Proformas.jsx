@@ -3,11 +3,11 @@ import React, { useMemo, useState } from "react";
 import ExcelJS from "exceljs/dist/exceljs.min.js";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
 
 // Helpers & Constantes
 import {
@@ -17,7 +17,7 @@ import {
   sum,
   parseComma,
   parseIntEU // Aseguramos que parseIntEU esté disponible
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 
 // Constantes de cálculo de la lógica de negocio original
 const T = { proc: 5, fleteReal: 9, fleteExc: 9, despacho: 10, fleteMaritimo: 12 };
@@ -51,6 +51,7 @@ export function Proformas({ packages, flights, extras, user }) {
       const code = (f.codigo || "").toUpperCase();
       return code.startsWith("AIR") || code.startsWith("MAR");
     })
+    .filter(f => f.estado !== "En bodega")
     .filter(f => !isCourier || (courierFlightIds && courierFlightIds.has(f.id)))
     .sort((a, b) => new Date(b.fecha_salida) - new Date(a.fecha_salida));
 

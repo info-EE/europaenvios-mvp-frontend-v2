@@ -5,11 +5,11 @@ import jsPDF from "jspdf";
 import "jspdf-autotable";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
 
 // Helpers & Constantes
 import {
@@ -19,7 +19,7 @@ import {
   sum,
   parseComma,
   parseIntEU // Aseguramos que parseIntEU esté disponible
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 
 // Constantes de cálculo de la lógica de negocio original
 const T = { proc: 5, fleteReal: 9, fleteExc: 9, despacho: 10, fleteMaritimo: 12 };
@@ -329,6 +329,8 @@ export function Proformas({ packages, flights, extras, user }) {
               {porCourier.map(r => {
                 let tot;
                 let kgExcesoDisplay = r.kg_exc; // Valor por defecto
+                let kgFacturableDisplay = r.kg_fact; // Valor por defecto para kg facturable
+
                 const extrasMonto = extrasDeCourier(r.courier).reduce((s, e) => s + parseComma(e.monto), 0);
                 const flightCode = (flight.codigo || "").toUpperCase();
                 const isMaritimo = flightCode.startsWith("MAR");
@@ -343,6 +345,7 @@ export function Proformas({ packages, flights, extras, user }) {
                     if (excesoVolumenCantidad < 0) excesoVolumenCantidad = 0;
                     
                     kgExcesoDisplay = excesoVolumenCantidad; // Sobreescribimos para la UI
+                    kgFacturableDisplay = totalPesoRealCajas; // Sobreescribimos kg facturable para la UI
 
                     const costoProcesamiento = totalPesoRealCajas * 24.00;
                     const costoExceso = excesoVolumenCantidad * 8.00;
@@ -368,7 +371,7 @@ export function Proformas({ packages, flights, extras, user }) {
                 return (
                   <tr key={r.courier} className="hover:bg-slate-50">
                     <td className="px-3 py-2 whitespace-nowrap">{r.courier}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(r.kg_fact)} kg</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(kgFacturableDisplay)} kg</td>
                     <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(kgExcesoDisplay)} kg</td>
                     <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{fmtMoney(tot)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">

@@ -1,13 +1,15 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useState } from "react";
-import ExcelJS from "exceljs/dist/exceljs.min.js";
+import ExcelJS from "exceljs";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { Field } from "/src/components/common/Field.jsx";
-import { EmptyState } from "/src/components/common/EmptyState.jsx";
-import { Button } from "/src/components/common/Button.jsx";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
 import {
@@ -17,7 +19,7 @@ import {
   sum,
   parseComma,
   parseIntEU // Aseguramos que parseIntEU esté disponible
-} from "/src/utils/helpers.jsx";
+} from "../../utils/helpers.jsx";
 
 // Constantes de cálculo de la lógica de negocio original
 const T = { proc: 5, fleteReal: 9, fleteExc: 9, despacho: 10, fleteMaritimo: 12 };
@@ -74,9 +76,7 @@ export function Proformas({ packages, flights, extras, user }) {
 
   const extrasDeCourier = (courier) => extras.filter(e => e.flight_id === flightId && e.courier === courier);
 
-  async function exportX(r) {
-    if (!flight) return;
-
+  const getProformaData = (r) => {
     let detalle = [];
     let total = 0;
     const flightCode = (flight.codigo || "").toUpperCase();
@@ -89,35 +89,29 @@ export function Proformas({ packages, flights, extras, user }) {
 
     if (isPybox && r.courier === 'ParaguayBox') {
         const cajasDelVuelo = flight.cajas || [];
-        // NOTA: El cálculo de Pybox se basa en el PESO REAL TOTAL de las cajas, no en el facturable de los paquetes.
         const totalPesoRealCajas = sum(cajasDelVuelo.map(c => parseComma(c.peso)));
-        
-        // El exceso de volumen sí se calcula con el volumétrico de las cajas.
         const totalPesoVolumetricoCajas = sum(cajasDelVuelo.map(c => (parseIntEU(c.L) * parseIntEU(c.A) * parseIntEU(c.H)) / 6000));
-        
         let excesoVolumenCantidad = totalPesoVolumetricoCajas - totalPesoRealCajas;
         if (excesoVolumenCantidad < 0) {
             excesoVolumenCantidad = 0;
         }
         
-        // CAMBIO: Usar el peso real total de las cajas para el costo de procesamiento.
         const costoProcesamiento = totalPesoRealCajas * 24.00;
         const costoExceso = excesoVolumenCantidad * 8.00;
 
         total = costoProcesamiento + costoExceso + extrasMonto;
 
         detalle = [
-            // CAMBIO: Usar el peso real total de las cajas como cantidad.
-            ["Procesamiento, envío y despacho aduanero carga aérea", Number(totalPesoRealCajas.toFixed(3)), 24.00, Number(costoProcesamiento.toFixed(2))],
-            ["Exceso de volumen", Number(excesoVolumenCantidad.toFixed(3)), 8.00, Number(costoExceso.toFixed(2))],
-            ...extrasList.map(e => [e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))])
+            ["Procesamiento, envío y despacho aduanero carga aérea", totalPesoRealCajas, 24.00, costoProcesamiento],
+            ["Exceso de volumen", excesoVolumenCantidad, 8.00, costoExceso],
+            ...extrasList.map(e => [e.descripcion, 1, parseComma(e.monto), parseComma(e.monto)])
         ];
     } else if (isMaritimo) {
       const fleteTotal = r.kg_fact * T.fleteMaritimo;
       total = fleteTotal + extrasMonto;
       detalle = [
-        ["Envío marítimo España-Paraguay", Number(r.kg_fact.toFixed(3)), Number(T.fleteMaritimo.toFixed(2)), Number(fleteTotal.toFixed(2))],
-        ...extrasList.map(e => [e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))])
+        ["Envío marítimo España-Paraguay", r.kg_fact, T.fleteMaritimo, fleteTotal],
+        ...extrasList.map(e => [e.descripcion, 1, parseComma(e.monto), parseComma(e.monto)])
       ];
     } else { // Lógica para Aéreo normal
       const proc = r.kg_fact * T.proc;
@@ -126,32 +120,118 @@ export function Proformas({ packages, flights, extras, user }) {
       const desp = r.kg_fact * T.despacho;
 
       let canje = r.courier !== 'Global Box' ? canjeGuiaUSD(r.kg_fact) : 0;
-      // REQUERIMIENTO: Si la carga es Air-Multi, el máximo de canje es 57 USD
       if (isAirMulti) {
         canje = Math.min(canje, 57);
       }
       
-      // CORRECCIÓN: Se ajusta el nombre de 'InflightBox' a 'Inflight Box' para que la excepción se aplique correctamente.
       const com = r.courier !== 'Inflight Box' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
       
       total = proc + fr + fe + desp + canje + extrasMonto + com;
 
       detalle = [
-        ["Procesamiento", Number(r.kg_fact.toFixed(3)), Number(T.proc.toFixed(2)), Number(proc.toFixed(2))],
-        ["Flete peso real", Number(r.kg_fact.toFixed(3)), Number(T.fleteReal.toFixed(2)), Number(fr.toFixed(2))],
-        ["Flete exceso de volumen", Number(r.kg_exc.toFixed(3)), Number(T.fleteExc.toFixed(2)), Number(fe.toFixed(2))],
-        ["Servicio de despacho", Number(r.kg_fact.toFixed(3)), Number(T.despacho.toFixed(2)), Number(desp.toFixed(2))],
-        ...extrasList.map(e => [e.descripcion, 1, Number(parseComma(e.monto).toFixed(2)), Number(parseComma(e.monto).toFixed(2))]),
+        ["Procesamiento", r.kg_fact, T.proc, proc],
+        ["Flete peso real", r.kg_fact, T.fleteReal, fr],
+        ["Flete exceso de volumen", r.kg_exc, T.fleteExc, fe],
+        ["Servicio de despacho", r.kg_fact, T.despacho, desp],
+        ...extrasList.map(e => [e.descripcion, 1, parseComma(e.monto), parseComma(e.monto)]),
       ];
 
       if (canje > 0) {
-        // Se inserta en la posición correcta
-        detalle.splice(4, 0, ["Comisión por canje de guía", 1, Number(canje.toFixed(2)), Number(canje.toFixed(2))]);
+        detalle.splice(4, 0, ["Comisión por canje de guía", 1, canje, canje]);
       }
       if (com > 0) {
-        detalle.push(["Comisión por transferencia (4%)", 1, Number(com.toFixed(2)), Number(com.toFixed(2))]);
+        detalle.push(["Comisión por transferencia (4%)", 1, com, com]);
       }
     }
+
+    return { detalle, total };
+  };
+
+  async function exportPDF(r) {
+    if (!flight) return;
+
+    const { detalle, total } = getProformaData(r);
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let y = 15;
+
+    // Header
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("Europa Envíos", pageWidth / 2, y, { align: "center" });
+    y += 7;
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    const headerLines = [
+        "LAMAQUINALOGISTICA, SOCIEDAD LIMITADA",
+        "N.I.F.: B56340656",
+        "CALLE ESTEBAN SALAZAR CHAPELA, NUM 20, PUERTA 87, NAVE 87",
+        "29004 MÁLAGA (ESPAÑA)",
+        "(34) 633 74 08 31",
+    ];
+    doc.text(headerLines, pageWidth / 2, y, { align: "center" });
+    y += (headerLines.length * 4) + 5;
+
+    // Title
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Factura Proforma", pageWidth / 2, y, { align: "center" });
+    y += 6;
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(new Date().toLocaleDateString('es-ES'), pageWidth / 2, y, { align: "center" });
+    y += 12;
+
+    // Client Info
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("Cliente", 15, y);
+    doc.text("Nº factura", pageWidth / 2, y);
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    doc.text(r.courier, 15, y);
+    doc.text("-", pageWidth / 2, y);
+    
+    // Table
+    const head = [["Descripción", "Cantidad", "Precio unitario", "Precio total"]];
+    const body = detalle.map(item => [
+        item[0],
+        (typeof item[1] === 'number' && item[1] !== 1) ? fmtPeso(item[1]) : (item[1] === 1 ? '1' : item[1]),
+        typeof item[2] === 'number' ? fmtMoney(item[2]) : item[2],
+        typeof item[3] === 'number' ? fmtMoney(item[3]) : item[3],
+    ]);
+
+    doc.autoTable({
+        startY: y + 8,
+        head: head,
+        body: body,
+        theme: 'grid',
+        headStyles: { fillColor: [31, 41, 55], fontStyle: 'bold' },
+        columnStyles: {
+            0: { cellWidth: 85 },
+            1: { halign: 'right' },
+            2: { halign: 'right' },
+            3: { halign: 'right' },
+        },
+        didDrawPage: (data) => {
+            const finalY = data.cursor.y + 10;
+            if (finalY < doc.internal.pageSize.getHeight() - 10) {
+                doc.setFontSize(11);
+                doc.setFont("helvetica", "bold");
+                doc.text("Total", 140, finalY, { align: 'right' });
+                doc.text(`${fmtMoney(total)} USD`, pageWidth - 15, finalY, { align: 'right' });
+            }
+        }
+    });
+
+    doc.save(`Proforma_${r.courier}_${flight.codigo}.pdf`);
+  }
+
+  async function exportX(r) {
+    if (!flight) return;
+
+    const { detalle, total } = getProformaData(r);
 
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Factura");
@@ -194,11 +274,11 @@ export function Proformas({ packages, flights, extras, user }) {
     let currentRow = 16;
     detalle.forEach(item => {
       ws.getCell(`A${currentRow}`).value = item[0];
-      ws.getCell(`B${currentRow}`).value = item[1];
-      ws.getCell(`B${currentRow}`).numFmt = '#,##0.000';
-      ws.getCell(`C${currentRow}`).value = item[2];
+      ws.getCell(`B${currentRow}`).value = typeof item[1] === 'number' ? Number(item[1].toFixed(3)) : item[1];
+      ws.getCell(`B${currentRow}`).numFmt = (item[1] === 1) ? '0' : '#,##0.000';
+      ws.getCell(`C${currentRow}`).value = typeof item[2] === 'number' ? Number(item[2].toFixed(2)) : item[2];
       ws.getCell(`C${currentRow}`).numFmt = '#,##0.00';
-      ws.getCell(`D${currentRow}`).value = item[3];
+      ws.getCell(`D${currentRow}`).value = typeof item[3] === 'number' ? Number(item[3].toFixed(2)) : item[3];
       ws.getCell(`D${currentRow}`).numFmt = '#,##0.00';
       currentRow++;
     });
@@ -208,7 +288,7 @@ export function Proformas({ packages, flights, extras, user }) {
     ws.getCell(`C${totalRow}`).style = totalStyle;
     ws.getCell(`D${totalRow}`).value = Number(total.toFixed(2));
     ws.getCell(`D${totalRow}`).style = { font: { bold: true } };
-    ws.getCell(`D${totalRow}`).numFmt = '#,##0.00';
+    ws.getCell(`D${totalRow}`).numFmt = '#,##0.00 "USD"';
 
     ws.columns = [
       { width: 50 }, { width: 15 }, { width: 15 }, { width: 15 }
@@ -244,7 +324,7 @@ export function Proformas({ packages, flights, extras, user }) {
       {!flight ? <EmptyState icon={Iconos.box} title="Selecciona una carga" message="Elige una carga para ver las proformas por courier." /> : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead><tr className="bg-slate-50">{["Courier", "Kg facturable", "Kg exceso", "TOTAL USD", "XLSX"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
+            <thead><tr className="bg-slate-50">{["Courier", "Kg facturable", "Kg exceso", "TOTAL USD", "Exportar"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
             <tbody className="divide-y divide-slate-200">
               {porCourier.map(r => {
                 let tot;
@@ -264,7 +344,6 @@ export function Proformas({ packages, flights, extras, user }) {
                     
                     kgExcesoDisplay = excesoVolumenCantidad; // Sobreescribimos para la UI
 
-                    // CAMBIO: Usar el peso real total de las cajas para el costo de procesamiento.
                     const costoProcesamiento = totalPesoRealCajas * 24.00;
                     const costoExceso = excesoVolumenCantidad * 8.00;
                     tot = costoProcesamiento + costoExceso + extrasMonto;
@@ -282,7 +361,6 @@ export function Proformas({ packages, flights, extras, user }) {
                     canje = Math.min(canje, 57);
                   }
                   
-                  // CORRECCIÓN: Se ajusta el nombre de 'InflightBox' a 'Inflight Box' para que la excepción se aplique correctamente.
                   const com = r.courier !== 'Inflight Box' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
                   tot = proc + fr + fe + desp + canje + extrasMonto + com;
                 }
@@ -293,7 +371,12 @@ export function Proformas({ packages, flights, extras, user }) {
                     <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(r.kg_fact)} kg</td>
                     <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(kgExcesoDisplay)} kg</td>
                     <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{fmtMoney(tot)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap"><Button onClick={() => exportX(r)}>Descargar</Button></td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                        <div className="flex gap-2">
+                            <Button onClick={() => exportX(r)}>XLSX</Button>
+                            <Button onClick={() => exportPDF(r)}>PDF</Button>
+                        </div>
+                    </td>
                   </tr>
                 );
               })}

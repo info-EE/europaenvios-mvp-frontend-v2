@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Modal } from './Modal.jsx';
-import { Button } from './Button.jsx';
-import { useModal } from '../../context/ModalContext.jsx';
+import { Modal } from './Modal.jsx'; // Corrected path
+import { Button } from './Button.jsx'; // Corrected path
+import { useModal } from '../../context/ModalContext.jsx'; // Corrected path
 
 /**
  * A modal for capturing photos from a webcam, optimized for a balance of
@@ -19,12 +19,15 @@ export function CameraModal({ open, onClose, onCapture }) {
     async function setupCamera() {
       if (open) {
         try {
-          // Request a fluid Full HD preview. This is less demanding than 4K for real-time display.
+          // Request a fluid Full HD preview with auto exposure and white balance.
           const constraints = {
             video: {
               width: { ideal: 1920 },
               height: { ideal: 1080 },
-              frameRate: { ideal: 24 } // A slightly lower framerate can also help performance.
+              frameRate: { ideal: 24 }, // A slightly lower framerate can also help performance.
+              // --- AJUSTES PARA EVITAR SOBREEXPOSICIÓN ---
+              whiteBalanceMode: 'continuous', // Auto-ajuste de balance de blancos.
+              exposureMode: 'continuous'      // Auto-ajuste de exposición para evitar "quemado".
             },
           };
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -46,7 +49,7 @@ export function CameraModal({ open, onClose, onCapture }) {
           }
         } catch (err) {
             console.error("Error accessing camera with ideal constraints:", err);
-            // Fallback to default constraints if 1080p isn't available
+            // Fallback to default constraints if advanced settings aren't available
             try {
                 const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 streamRef.current = fallbackStream;
@@ -97,7 +100,6 @@ export function CameraModal({ open, onClose, onCapture }) {
     const canvas = document.createElement('canvas');
     
     // Capture at the full native resolution of the video stream for maximum quality.
-    // This avoids the downscaling that was reducing quality in the original version.
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 

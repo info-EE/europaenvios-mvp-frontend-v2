@@ -1,21 +1,22 @@
 /* eslint-disable react/prop-types */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { db, storage } from "../../firebase.js";
+import { db, storage } from "/src/firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, getDoc, runTransaction, setDoc, onSnapshot } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Button } from "../common/Button.jsx";
-import { Field } from "../common/Field.jsx";
-import { Input } from "../common/Input.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { InfoBox } from "../common/InfoBox.jsx";
-import { ManageList } from "../common/ManageList.jsx";
-import { QrCodeModal } from "../common/QrCodeModal.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { InfoBox } from "/src/components/common/InfoBox.jsx";
+import { ManageList } from "/src/components/common/ManageList.jsx";
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
+import { CameraModal } from "/src/components/common/CameraModal.jsx";
+import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -30,7 +31,7 @@ import {
   labelHTML,
   printHTMLInIframe,
   uuid
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx";
 
 export function Reception({ currentUser, couriers, setCouriers, estados, setEstados, empresasEnvio, setEmpresasEnvio, flights, packages, onAdd }) {
   const vuelosBodega = flights.filter(f => f.estado === "En bodega");
@@ -47,11 +48,10 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
 
   const [isUploading, setIsUploading] = useState(false);
   const [showMgr, setShowMgr] = useState(false);
-  const [camOpen, setCamOpen] = useState(false);
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
   const fileRef = useRef(null);
   const [uploadSessionId, setUploadSessionId] = useState(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [viewerImages, setViewerImages] = useState([]);
   
   const { showAlert } = useModal();
 
@@ -209,20 +209,6 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
       peso_real_txt: "", L_txt: "", A_txt: "", H_txt: "", desc: "", valor_txt: "", fotos: []
     }));
   };
-
-  useEffect(() => {
-    if (!camOpen) return;
-    (async () => {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: true });
-        streamRef.current = s; if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); }
-      } catch { 
-        showAlert("Error de cámara", "No se pudo acceder a la cámara.");
-        setCamOpen(false); 
-      }
-    })();
-    return () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } };
-  }, [camOpen, showAlert]);
   
   const startMobileUploadSession = async () => {
     const sessionId = uuid();
@@ -257,16 +243,6 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
 
   const removePhoto = (urlToRemove) => {
     setForm(f => ({ ...f, fotos: f.fotos.filter(url => url !== urlToRemove) }));
-  };
-
-  const tomarFoto = () => {
-    const v = videoRef.current; if (!v) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = v.videoWidth; canvas.height = v.videoHeight;
-    const ctx = canvas.getContext("2d"); ctx.drawImage(v, 0, 0);
-    const data = canvas.toDataURL("image/jpeg", 0.85);
-    handleImageUpload(data);
-    setCamOpen(false);
   };
 
   const onFile = (e) => {
@@ -351,17 +327,18 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
             <div className="flex gap-2 items-center flex-wrap">
               <input ref={fileRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
               <Button onClick={() => fileRef.current?.click()} disabled={isUploading}>Seleccionar archivo</Button>
-              <Button onClick={() => setCamOpen(true)} disabled={isUploading}>Tomar foto con PC</Button>
+              <Button onClick={() => setIsCameraOpen(true)} disabled={isUploading}>Tomar foto con PC</Button>
               <Button onClick={startMobileUploadSession} disabled={isUploading}>Usar cámara del móvil</Button>
               {isUploading && <span className="text-francia-600 text-sm font-semibold">Subiendo...</span>}
             </div>
           </Field>
           <div className="flex flex-wrap gap-2 mt-2">
             {form.fotos.map((url, index) => (
-              <div key={index} className="relative">
-                <a href={url} target="_blank" rel="noopener noreferrer">
-                  <img src={url} alt={`Foto ${index + 1}`} className="w-20 h-20 object-cover rounded-md" />
-                </a>
+              <div key={index} className="relative group">
+                 <img src={url} alt={`Foto ${index + 1}`} className="w-20 h-20 object-cover rounded-md cursor-pointer" onClick={() => setViewerImages([url])} />
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity" onClick={() => setViewerImages([url])}>
+                  <span className="text-white text-xs">Ver</span>
+                </div>
                 <button onClick={() => removePhoto(url)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-xs">X</button>
               </div>
             ))}
@@ -381,12 +358,9 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
       
       <QrCodeModal open={!!uploadSessionId} onClose={() => setUploadSessionId(null)} sessionId={uploadSessionId} />
 
-      <Modal open={camOpen} onClose={() => setCamOpen(false)} title="Tomar foto" maxWidth="max-w-2xl">
-        <div className="space-y-3">
-          <video ref={videoRef} playsInline className="w-full rounded-xl bg-black/50" />
-          <div className="flex justify-end"> <Button variant="primary" onClick={tomarFoto}>Capturar</Button></div>
-        </div>
-      </Modal>
+      <CameraModal open={isCameraOpen} onClose={() => setIsCameraOpen(false)} onCapture={handleImageUpload} />
+
+      <ImageViewerModal open={viewerImages.length > 0} onClose={() => setViewerImages([])} images={viewerImages} />
     </Section>
   );
 }

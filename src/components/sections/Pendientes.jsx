@@ -2,22 +2,23 @@
 import React, { useMemo, useState } from "react";
 
 // Context
-import { useModal } from "/src/context/ModalContext.jsx";
+import { useModal } from "../../context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx";
-import { Field } from "/src/components/common/Field.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { Button } from "/src/components/common/Button.jsx";
-import { EmptyState } from "/src/components/common/EmptyState.jsx";
-import { Modal } from "/src/components/common/Modal.jsx";
-import { Iconos } from "/src/utils/helpers.jsx";
+import { Section } from "../common/Section.jsx";
+import { Field } from "../common/Field.jsx";
+import { Input } from "../common/Input.jsx";
+import { Button } from "../common/Button.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Modal } from "../common/Modal.jsx";
+import { ImageViewerModal } from "../common/ImageViewerModal.jsx";
+import { Iconos } from "../../utils/helpers.jsx";
 
 export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
   const [editItem, setEditItem] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [newTask, setNewTask] = useState({ type: 'MANUAL', fecha: new Date().toISOString().slice(0, 10), details: '' });
-  const [viewer, setViewer] = useState(null);
+  const [viewerImages, setViewerImages] = useState([]);
 
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
@@ -147,7 +148,7 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
                 <td className="px-3 py-2">{renderTaskDetails(item)}</td>
                 <td className="px-3 py-2">
                   {item.data?.foto ? (
-                    <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer(item.data.foto)}>Ver foto</Button>
+                    <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewerImages([item.data.foto])}>Ver foto</Button>
                   ) : '—'}
                 </td>
                 <td className="px-3 py-2">
@@ -204,13 +205,8 @@ export function Pendientes({ items, onAdd, onUpdate, onRemove }) {
         )}
       </Modal>
       
-      <Modal open={!!viewer} onClose={() => setViewer(null)} title="Foto del Paquete">
-        {viewer && (
-          <a href={viewer} target="_blank" rel="noopener noreferrer" title="Abrir en nueva pestaña para hacer zoom">
-            <img src={viewer} alt="Foto" className="max-w-full max-h-[70vh] rounded-xl cursor-zoom-in" />
-          </a>
-        )}
-      </Modal>
+      <ImageViewerModal open={viewerImages.length > 0} onClose={() => setViewerImages([])} images={viewerImages} />
+
     </Section>
   );
 }

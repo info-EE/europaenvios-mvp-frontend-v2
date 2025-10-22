@@ -1,20 +1,22 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { db, storage } from "/src/firebase.js";
+import { db, storage } from "../../firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, runTransaction, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "/src/context/ModalContext.jsx";
+import { useModal } from "../../context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { Field } from "/src/components/common/Field.jsx";
-import { Modal } from "/src/components/common/Modal.jsx";
-import { EmptyState } from "/src/components/common/EmptyState.jsx";
-import { Button } from "/src/components/common/Button.jsx";
-import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { Field } from "../common/Field.jsx";
+import { Modal } from "../common/Modal.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
+import { QrCodeModal } from "../common/QrCodeModal.jsx";
+import { CameraModal } from "../common/CameraModal.jsx";
+import { ImageViewerModal } from "../common/ImageViewerModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -27,7 +29,7 @@ import {
   getColumnWidths,
   printHTMLInIframe,
   sinCasillaLabelHTML,
-} from "/src/utils/helpers.jsx";
+} from "../../utils/helpers.jsx";
 
 export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }) {
   const isAdmin = currentUser?.role === "ADMIN";
@@ -45,14 +47,12 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
 
   const [isAdding, setIsAdding] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [camOpen, setCamOpen] = useState(false);
-  const [viewer, setViewer] = useState(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(null); // 'new' or 'edit'
+  const [viewerImages, setViewerImages] = useState([]);
   const [uploadSessionId, setUploadSessionId] = useState(null);
 
   const { showAlert, showConfirmation, showPrompt } = useModal();
 
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -130,20 +130,6 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
     }));
   };
 
-  useEffect(() => {
-    if (!camOpen) return;
-    (async () => {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: true });
-        streamRef.current = s; if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); }
-      } catch { 
-        showAlert("Error de cámara", "No se pudo acceder a la cámara.");
-        setCamOpen(false); 
-      }
-    })();
-    return () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } };
-  }, [camOpen, showAlert]);
-
   const startMobileUploadSession = async () => {
     const sessionId = uuid();
     try {
@@ -176,16 +162,6 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
     } finally {
       setIsUploading(false);
     }
-  };
-
-  const tomarFoto = (target) => {
-    const v = videoRef.current; if (!v) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = v.videoWidth; canvas.height = v.videoHeight;
-    const ctx = canvas.getContext("2d"); ctx.drawImage(v, 0, 0);
-    const data = canvas.toDataURL("image/jpeg", 0.85);
-    handleImageUpload(data, target);
-    setCamOpen(false);
   };
 
   const onFile = (e, target) => {
@@ -287,7 +263,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
               <div className="flex gap-2 items-center flex-wrap">
                 <input ref={fileRef} type="file" accept="image/*" onChange={(e) => onFile(e, 'new')} className="hidden" />
                 <Button onClick={() => fileRef.current?.click()} disabled={isUploading}>Seleccionar archivo</Button>
-                <Button onClick={() => setCamOpen('new')} disabled={isUploading}>Tomar foto</Button>
+                <Button onClick={() => setIsCameraOpen('new')} disabled={isUploading}>Tomar foto</Button>
                 <Button onClick={startMobileUploadSession} disabled={isUploading}>Usar cámara del móvil</Button>
                 {foto && <a href={foto} target="_blank" rel="noopener noreferrer" className="text-green-600 text-sm font-semibold hover:underline">✓ Ver foto</a>}
               </div>
@@ -327,7 +303,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
                 {isAdmin && <td className="px-3 py-2 whitespace-nowrap">{r.tracking || "—"}</td>}
                 {isAdmin && (
                   <td className="px-3 py-2 whitespace-nowrap">
-                    {r.foto ? <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer([r.foto])}>Ver foto</Button> : "—"}
+                    {r.foto ? <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewerImages([r.foto])}>Ver foto</Button> : "—"}
                   </td>
                 )}
                 {isAdmin && (
@@ -363,7 +339,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
               <div className="flex gap-2 items-center flex-wrap">
                 <input ref={fileRef} type="file" accept="image/*" onChange={(e) => onFile(e, 'edit')} className="hidden" />
                 <Button onClick={() => fileRef.current?.click()} disabled={isUploading}>Seleccionar archivo</Button>
-                <Button onClick={() => setCamOpen('edit')} disabled={isUploading}>Tomar foto</Button>
+                <Button onClick={() => setIsCameraOpen('edit')} disabled={isUploading}>Tomar foto</Button>
                 <Button onClick={startMobileUploadSession} disabled={isUploading}>Usar cámara del móvil</Button>
                 {isUploading && <span className="text-francia-600 text-sm font-semibold">Subiendo...</span>}
               </div>
@@ -389,20 +365,10 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
         )}
       </Modal>
 
-      <Modal open={!!camOpen} onClose={() => setCamOpen(false)} title="Tomar foto">
-        <div className="space-y-3">
-          <video ref={videoRef} playsInline className="w-full rounded-xl bg-black/50" />
-          <div className="flex justify-end"> <Button variant="primary" onClick={() => tomarFoto(camOpen)}>Capturar</Button></div>
-        </div>
-      </Modal>
+      <CameraModal open={!!isCameraOpen} onClose={() => setIsCameraOpen(null)} onCapture={(dataUrl) => handleImageUpload(dataUrl, isCameraOpen)} />
 
-      <Modal open={!!viewer} onClose={() => setViewer(null)} title="Fotos del Paquete">
-        {viewer && (
-          <a href={viewer[0]} target="_blank" rel="noopener noreferrer" title="Abrir en nueva pestaña para hacer zoom">
-            <img src={viewer[0]} alt="Foto" className="max-w-full max-h-[70vh] rounded-xl cursor-zoom-in" />
-          </a>
-        )}
-      </Modal>
+      <ImageViewerModal open={viewerImages.length > 0} onClose={() => setViewerImages([])} images={viewerImages} />
+
       <QrCodeModal open={!!uploadSessionId} onClose={() => { setUploadSessionId(null); }} sessionId={uploadSessionId} />
     </Section>
   );

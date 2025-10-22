@@ -1,15 +1,15 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Modal } from '/src/components/common/Modal.jsx';
-import { Button } from '/src/components/common/Button.jsx';
-import { useModal } from '/src/context/ModalContext.jsx';
+import { Modal } from './Modal.jsx';
+import { Button } from './Button.jsx';
+import { useModal } from '../../context/ModalContext.jsx';
 
 // Constantes para optimizar la captura
 const MAX_CAPTURE_WIDTH = 1920;
 const MAX_CAPTURE_HEIGHT = 1080;
 
 /**
- * A modal for capturing photos from a webcam, optimized for performance
- * It requests a reasonable resolution and provides zoom controls if supported.
+ * Un modal para capturar fotos desde una cámara web, optimizado para el rendimiento.
+ * Solicita una resolución razonable y proporciona controles de zoom si son soportados.
  */
 export function CameraModal({ open, onClose, onCapture }) {
   const videoRef = useRef(null);
@@ -47,13 +47,13 @@ export function CameraModal({ open, onClose, onCapture }) {
                 if (trackCapabilities.zoom) {
                     setZoom(videoTrack.getSettings().zoom || 1);
                 } else {
-                    console.log("Zoom no soportado por esta cámara/navegador.");
+                    console.log("El zoom no es soportado por esta cámara/navegador.");
                 }
             };
           }
 
         } catch (err) {
-          console.error("Error accessing camera:", err);
+          console.error("Error al acceder a la cámara:", err);
           let message = "No se pudo acceder a la cámara.";
           if (err.name === "OverconstrainedError") {
               message = "La resolución solicitada (1920x1080) no es soportada por la cámara. Intentando con la predeterminada.";
@@ -75,7 +75,7 @@ export function CameraModal({ open, onClose, onCapture }) {
                         };
                    }
               } catch (fallbackErr) {
-                   console.error("Error accessing camera with fallback constraints:", fallbackErr);
+                   console.error("Error al acceder a la cámara con constraints de respaldo:", fallbackErr);
                    showAlert("Error de cámara", "No se pudo acceder a la cámara incluso con la configuración predeterminada.");
                    onClose();
               }
@@ -146,13 +146,13 @@ export function CameraModal({ open, onClose, onCapture }) {
             setZoom(newZoom); // Actualizar estado local si tiene éxito
           })
           .catch(error => {
-            console.error("Error aplicando zoom:", error);
+            console.error("Error al aplicar zoom:", error);
             // Opcional: mostrar alerta al usuario si falla
             // showAlert("Error de Zoom", "No se pudo aplicar el nivel de zoom.");
           });
       } catch (error) {
         // Captura errores síncronos, aunque applyConstraints es asíncrono
-        console.error("Error preparando para aplicar zoom:", error);
+        console.error("Error al preparar para aplicar zoom:", error);
       }
     }
   };

@@ -1,11 +1,11 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Modal } from '/src/components/common/Modal.jsx';
-import { Button } from '/src/components/common/Button.jsx';
-import { useModal } from '/src/context/ModalContext.jsx';
+import { Modal } from './Modal.jsx';
+import { Button } from './Button.jsx';
+import { useModal } from '../../context/ModalContext.jsx';
 
 /**
- * A modal for capturing photos from a webcam, optimized for performance and quality.
- * It requests a high resolution for the capture without lagging the preview.
+ * A modal for capturing photos from a webcam, optimized for a balance of
+ * preview performance and capture quality.
  */
 export function CameraModal({ open, onClose, onCapture }) {
   const videoRef = useRef(null);
@@ -19,13 +19,12 @@ export function CameraModal({ open, onClose, onCapture }) {
     async function setupCamera() {
       if (open) {
         try {
-          // Request a higher resolution, ideally 4K, for better capture quality.
-          // The browser will manage the preview performance.
+          // Request a fluid Full HD preview. This is less demanding than 4K for real-time display.
           const constraints = {
             video: {
-              width: { ideal: 3840 },
-              height: { ideal: 2160 },
-              frameRate: { ideal: 30 }
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 24 } // A slightly lower framerate can also help performance.
             },
           };
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -46,12 +45,29 @@ export function CameraModal({ open, onClose, onCapture }) {
             };
           }
         } catch (err) {
-          console.error("Error accessing camera:", err);
-          showAlert(
-            "Error de cámara",
-            "No se pudo acceder a la cámara. Asegúrate de que no esté en uso y que los permisos estén concedidos."
-          );
-          onClose();
+            console.error("Error accessing camera with ideal constraints:", err);
+            // Fallback to default constraints if 1080p isn't available
+            try {
+                const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                streamRef.current = fallbackStream;
+                if (videoRef.current) {
+                    videoRef.current.srcObject = fallbackStream;
+                    videoRef.current.onloadedmetadata = () => {
+                        videoRef.current.play();
+                        const videoTrack = fallbackStream.getVideoTracks()[0];
+                        setTrack(videoTrack);
+                        const trackCapabilities = videoTrack.getCapabilities();
+                        setCapabilities(trackCapabilities);
+                        if (trackCapabilities.zoom) {
+                            setZoom(videoTrack.getSettings().zoom || 1);
+                        }
+                    };
+                }
+            } catch (fallbackErr) {
+                 console.error("Error accessing camera with fallback constraints:", fallbackErr);
+                 showAlert("Error de cámara", "No se pudo acceder a la cámara. Asegúrate de que no esté en uso y que los permisos estén concedidos.");
+                 onClose();
+            }
         }
       } else if (streamRef.current) {
         // Stop stream when the modal closes
@@ -80,14 +96,15 @@ export function CameraModal({ open, onClose, onCapture }) {
 
     const canvas = document.createElement('canvas');
     
-    // Capture at the full native resolution of the video stream
+    // Capture at the full native resolution of the video stream for maximum quality.
+    // This avoids the downscaling that was reducing quality in the original version.
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Use high quality for JPEG to ensure text is legible
+    // Use high quality for JPEG to ensure text is legible.
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
     onCapture(dataUrl);
     onClose();

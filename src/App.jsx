@@ -3,38 +3,38 @@
 import React, { useEffect, useState } from "react";
 
 // Firebase
-// Corregido: Ruta absoluta desde /src/
-import { db, auth, signOut, onAuthStateChanged } from "/src/firebase.js";
+// Corregido: Rutas relativas desde App.jsx
+import { db, auth, signOut, onAuthStateChanged } from "./firebase.js";
 import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc, writeBatch, getDocs } from "firebase/firestore";
 
 // Context
-// Corregido: Ruta absoluta desde /src/
-import { useModal } from "/src/context/ModalContext.jsx";
+// Corregido: Ruta relativa desde App.jsx
+import { useModal } from "./context/ModalContext.jsx";
 
 // Componentes de Secciones
-// Corregido: Rutas absolutas desde /src/
-import { Login } from "/src/components/sections/Login.jsx";
-import { Dashboard } from "/src/components/sections/Dashboard.jsx";
-import { Reception } from "/src/components/sections/Reception.jsx";
-import { PaquetesSinCasilla } from "/src/components/sections/PaquetesSinCasilla.jsx";
-import { Usuarios } from "/src/components/sections/Usuarios.jsx";
-import { Pendientes } from "/src/components/sections/Pendientes.jsx";
-import { PaquetesBodega } from "/src/components/sections/PaquetesBodega.jsx";
-import { ArmadoCajas } from "/src/components/sections/ArmadoCajas.jsx";
-import { CargasEnviadas } from "/src/components/sections/CargasEnviadas.jsx";
-import { CargasAdmin } from "/src/components/sections/CargasAdmin.jsx";
-import { Proformas } from "/src/components/sections/Proformas.jsx";
-import { Extras } from "/src/components/sections/Extras.jsx";
+// Corregido: Rutas relativas desde App.jsx
+import { Login } from "./components/sections/Login.jsx";
+import { Dashboard } from "./components/sections/Dashboard.jsx";
+import { Reception } from "./components/sections/Reception.jsx";
+import { PaquetesSinCasilla } from "./components/sections/PaquetesSinCasilla.jsx";
+import { Usuarios } from "./components/sections/Usuarios.jsx";
+import { Pendientes } from "./components/sections/Pendientes.jsx";
+import { PaquetesBodega } from "./components/sections/PaquetesBodega.jsx";
+import { ArmadoCajas } from "./components/sections/ArmadoCajas.jsx";
+import { CargasEnviadas } from "./components/sections/CargasEnviadas.jsx";
+import { CargasAdmin } from "./components/sections/CargasAdmin.jsx";
+import { Proformas } from "./components/sections/Proformas.jsx";
+import { Extras } from "./components/sections/Extras.jsx";
 
 // Helpers y Constantes
-// Corregido: Ruta absoluta desde /src/
+// Corregido: Ruta relativa desde App.jsx
 import {
   Iconos,
   tabsForRole,
   COURIERS_INICIALES,
   ESTADOS_INICIALES,
   EMPRESAS_ENVIO_INICIALES
-} from "/src/utils/helpers.jsx";
+} from "./utils/helpers.jsx";
 
 // Icono para el menú de hamburguesa en móvil
 const MenuIcon = () => (
@@ -322,12 +322,11 @@ function App() {
         </main>
       </div>
 
-      {/* Marca de agua - Added "E-mail: " prefix */}
+      {/* Marca de agua - Solo nombre */}
       {currentUser && (
         <div className="fixed bottom-2 left-2 z-40 text-xs text-slate-500 bg-white/70 backdrop-blur-sm px-2 py-1 rounded shadow flex flex-col">
             <span>Designed by Nicolás Di Benedetto</span>
-            {/* Added "E-mail: " prefix */}
-            <span>E-mail: nicolasdibe@gmail.com</span>
+            {/* Se eliminó la línea del correo */}
         </div>
       )}
 

@@ -3,10 +3,12 @@ import React, { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 
 // Componentes
-import { Button } from "/src/components/common/Button.jsx";
+// Corrección: Usar rutas relativas
+import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
-import { Iconos, sum, fmtPeso, COLORS } from "/src/utils/helpers.jsx";
+// Corrección: Usar rutas relativas
+import { Iconos, sum, fmtPeso, COLORS } from "../../utils/helpers.jsx";
 
 const KpiCard = ({ title, value, icon, color }) => (
   <div className={`bg-white p-6 rounded-xl shadow-md flex items-center gap-6 border-l-4 ${color}`}>
@@ -18,21 +20,42 @@ const KpiCard = ({ title, value, icon, color }) => (
   </div>
 );
 
-// --- Helper para obtener el inicio de la semana (Lunes) ---
-const getWeekStart = (date) => {
+// --- Helper para obtener el inicio de la semana (Lunes 00:00 UTC) ---
+const getUTCWeekStart = (date) => {
     const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Ajuste para que el Lunes sea el primer día
-    d.setDate(diff);
-    d.setHours(0, 0, 0, 0);
-    return d;
+    // Ajusta la fecha al inicio del día UTC
+    d.setUTCHours(0, 0, 0, 0);
+    // Obtiene el día de la semana UTC (0=Domingo, 1=Lunes, ..., 6=Sábado)
+    const utcDay = d.getUTCDay();
+    // Calcula la diferencia en días para llegar al Lunes anterior
+    // Si es Domingo (0), retrocede 6 días. Si es Lunes (1), retrocede 0 días. etc.
+    const diff = d.getUTCDate() - utcDay + (utcDay === 0 ? -6 : 1);
+    // Establece la fecha al Lunes correspondiente en UTC
+    d.setUTCDate(diff);
+    return d; // Retorna el objeto Date ajustado a Lunes 00:00 UTC
+};
+
+// --- Helper para parsear la fecha del paquete como UTC ---
+// Asume que p.fecha es un string 'YYYY-MM-DD'
+const parsePackageDateAsUTC = (packageDateString) => {
+    if (!packageDateString || typeof packageDateString !== 'string') return null;
+    try {
+        // Añade 'T00:00:00Z' para asegurar que se interprete como UTC midnight
+        const date = new Date(packageDateString + 'T00:00:00Z');
+        // Verifica si la fecha es válida
+        if (isNaN(date.getTime())) return null;
+        return date;
+    } catch (e) {
+        console.error("Error parsing date string:", packageDateString, e);
+        return null;
+    }
 };
 
 
 export function Dashboard({ packages, flights, pendientes, onTabChange, currentUser }) {
   const isAdmin = currentUser.role === 'ADMIN';
   const [cargaFilter, setCargaFilter] = useState('Todas');
-  
+
   // --- Estados para las estadísticas semanales ---
   const [kgWeekOffset, setKgWeekOffset] = useState(0);
   const [kgFilter, setKgFilter] = useState('Todos');
@@ -55,7 +78,7 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
     );
 
     let filteredPackages = packages.filter(p => cargasEnBodegaIds.has(p.flight_id));
-    
+
     if (!isAdmin) {
       filteredPackages = filteredPackages.filter(p => p.courier === currentUser.courier);
     }
@@ -65,21 +88,28 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
   const cargasEnTransito = useMemo(() => flights.filter(f => f.estado === "En tránsito"), [flights]);
   const tareasPendientes = useMemo(() => pendientes.filter(t => t.status === "No realizada"), [pendientes]);
 
+  // --- Lógica de Paquetes Semanales (modificada para UTC) ---
   const weeklyPackageCountData = useMemo(() => {
     const today = new Date();
-    today.setDate(today.getDate() + (packageWeekOffset * 7));
+    // Aplica el offset semanal a la fecha actual
+    today.setUTCDate(today.getUTCDate() + (packageWeekOffset * 7));
 
-    const weekStart = getWeekStart(today);
+    // Calcula el inicio de la semana actual o desplazada en UTC
+    const weekStart = getUTCWeekStart(today);
+
+    // Calcula el fin de la semana (Domingo 23:59:59.999 UTC)
     const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
+    weekEnd.setUTCHours(23, 59, 59, 999);
 
+    // Filtra los paquetes que caen dentro de la semana UTC calculada
     const packagesInWeek = packages.filter(p => {
-        if (!p.fecha || isNaN(new Date(p.fecha))) return false;
-        const packageDate = new Date(p.fecha);
-        return packageDate >= weekStart && packageDate <= weekEnd;
+        const packageDate = parsePackageDateAsUTC(p.fecha);
+        // Compara fechas UTC
+        return packageDate && packageDate >= weekStart && packageDate <= weekEnd;
     });
-    
+
+    // Filtra adicionalmente por tipo de carga (Aéreo/Marítimo/Todos)
     const filteredPackages = packagesInWeek.filter(p => {
         if (packageFilter === 'Todos') return true;
         const flight = flights.find(f => f.id === p.flight_id);
@@ -90,22 +120,29 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
         return false;
     });
 
+    // Agrupa los paquetes por día de la semana (UTC)
     const dailyData = { 'Lunes': 0, 'Martes': 0, 'Miércoles': 0, 'Jueves': 0, 'Viernes': 0, 'Sábado': 0, 'Domingo': 0 };
+    // Mapeo de getUTCDay() a nombres de días (0=Dom, 1=Lun...)
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
     filteredPackages.forEach(p => {
-        const dayIndex = new Date(p.fecha).getUTCDay();
-        const dayName = dayNames[dayIndex];
-        if (dailyData.hasOwnProperty(dayName)) {
-            dailyData[dayName]++;
+        const packageDate = parsePackageDateAsUTC(p.fecha);
+        if (packageDate) {
+            const dayIndex = packageDate.getUTCDay(); // Usa el día UTC
+            const dayName = dayNames[dayIndex];
+            if (dailyData.hasOwnProperty(dayName)) {
+                dailyData[dayName]++;
+            }
         }
     });
 
+    // Prepara los datos para el gráfico
     const chartData = Object.entries(dailyData).map(([name, count]) => ({
-        name: name.substring(0, 3),
+        name: name.substring(0, 3), // Abreviatura del día
         paquetes: count
     }));
-    
+
+    // Ordena los datos del gráfico por día de la semana (Lun-Dom)
     const orderedChartData = chartData.sort((a, b) => {
         const order = { 'Lun': 1, 'Mar': 2, 'Mié': 3, 'Jue': 4, 'Vie': 5, 'Sáb': 6, 'Dom': 7 };
         return order[a.name] - order[b.name];
@@ -113,11 +150,12 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
 
     return {
         chartData: orderedChartData,
-        weekStart,
-        weekEnd,
-        totalPackages: filteredPackages.length
+        weekStart, // Fecha de inicio de semana (UTC)
+        weekEnd,   // Fecha de fin de semana (UTC)
+        totalPackages: filteredPackages.length // Total de paquetes en la semana filtrada
     };
   }, [packages, flights, packageWeekOffset, packageFilter]);
+
 
   const kgPorCourier = useMemo(() => {
     const agg = {};
@@ -136,22 +174,28 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
 
   const totalKgBodega = useMemo(() => sum(kgPorCourier.map(c => c.value)), [kgPorCourier]);
 
-  // --- Lógica para la nueva estadística semanal ---
+  // --- Lógica de Kilos Semanales (modificada para UTC) ---
   const weeklyKgData = useMemo(() => {
     const today = new Date();
-    today.setDate(today.getDate() + (kgWeekOffset * 7));
+    // Aplica el offset semanal a la fecha actual
+    today.setUTCDate(today.getUTCDate() + (kgWeekOffset * 7));
 
-    const weekStart = getWeekStart(today);
+    // Calcula el inicio de la semana actual o desplazada en UTC
+    const weekStart = getUTCWeekStart(today);
+
+    // Calcula el fin de la semana (Domingo 23:59:59.999 UTC)
     const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
+    weekEnd.setUTCHours(23, 59, 59, 999);
 
+    // Filtra los paquetes que caen dentro de la semana UTC calculada
     const packagesInWeek = packages.filter(p => {
-        if (!p.fecha || isNaN(new Date(p.fecha))) return false;
-        const packageDate = new Date(p.fecha);
-        return packageDate >= weekStart && packageDate <= weekEnd;
+        const packageDate = parsePackageDateAsUTC(p.fecha);
+        // Compara fechas UTC
+        return packageDate && packageDate >= weekStart && packageDate <= weekEnd;
     });
-    
+
+    // Filtra adicionalmente por tipo de carga (Aéreo/Marítimo/Todos)
     const filteredPackages = packagesInWeek.filter(p => {
         if (kgFilter === 'Todos') return true;
         const flight = flights.find(f => f.id === p.flight_id);
@@ -162,22 +206,29 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
         return false;
     });
 
+    // Agrupa los kilos por día de la semana (UTC)
     const dailyData = { 'Lunes': 0, 'Martes': 0, 'Miércoles': 0, 'Jueves': 0, 'Viernes': 0, 'Sábado': 0, 'Domingo': 0 };
+    // Mapeo de getUTCDay() a nombres de días (0=Dom, 1=Lun...)
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
     filteredPackages.forEach(p => {
-        const dayIndex = new Date(p.fecha).getUTCDay();
-        const dayName = dayNames[dayIndex];
-        if (dailyData.hasOwnProperty(dayName)) {
-            dailyData[dayName] += p.peso_real || 0;
+        const packageDate = parsePackageDateAsUTC(p.fecha);
+        if (packageDate) {
+            const dayIndex = packageDate.getUTCDay(); // Usa el día UTC
+            const dayName = dayNames[dayIndex];
+            if (dailyData.hasOwnProperty(dayName)) {
+                dailyData[dayName] += p.peso_real || 0;
+            }
         }
     });
 
+    // Prepara los datos para el gráfico
     const chartData = Object.entries(dailyData).map(([name, kg]) => ({
-        name: name.substring(0, 3),
+        name: name.substring(0, 3), // Abreviatura del día
         kg: parseFloat(kg.toFixed(3))
     }));
 
+    // Ordena los datos del gráfico por día de la semana (Lun-Dom)
     const orderedChartData = chartData.sort((a, b) => {
         const order = { 'Lun': 1, 'Mar': 2, 'Mié': 3, 'Jue': 4, 'Vie': 5, 'Sáb': 6, 'Dom': 7 };
         return order[a.name] - order[b.name];
@@ -185,11 +236,23 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
 
     return {
         chartData: orderedChartData,
-        weekStart,
-        weekEnd,
-        totalKg: sum(filteredPackages.map(p => p.peso_real))
+        weekStart, // Fecha de inicio de semana (UTC)
+        weekEnd,   // Fecha de fin de semana (UTC)
+        totalKg: sum(filteredPackages.map(p => p.peso_real)) // Total de kilos en la semana filtrada
     };
   }, [packages, flights, kgWeekOffset, kgFilter]);
+
+
+  // Función para formatear las fechas de la semana para mostrar en la UI
+  // Muestra las fechas en el formato local del usuario para mejor legibilidad
+  const formatWeekRangeForDisplay = (startDateUTC, endDateUTC) => {
+    const options = { day: '2-digit', month: '2-digit' };
+    const yearOption = { year: 'numeric' };
+    const startStr = startDateUTC.toLocaleDateString('es-ES', options);
+    // Muestra el año solo en la fecha de fin
+    const endStr = endDateUTC.toLocaleDateString('es-ES', {...options, ...yearOption});
+    return `${startStr} - ${endStr}`;
+  };
 
 
   return (
@@ -214,13 +277,15 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Gráfico de Paquetes Recibidos */}
         <div className="bg-white p-6 rounded-xl shadow-md">
             <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
                 <h3 className="font-semibold text-slate-700">Paquetes recibidos por semana</h3>
                 <div className="flex items-center gap-2">
                     <Button onClick={() => setPackageWeekOffset(packageWeekOffset - 1)}>{"<"}</Button>
                     <span className="text-sm text-slate-600 text-center w-44 md:w-48">
-                        {weeklyPackageCountData.weekStart.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })} - {weeklyPackageCountData.weekEnd.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        {/* Muestra el rango de fechas formateado localmente */}
+                        {formatWeekRangeForDisplay(weeklyPackageCountData.weekStart, weeklyPackageCountData.weekEnd)}
                     </span>
                     <Button onClick={() => setPackageWeekOffset(packageWeekOffset + 1)} disabled={packageWeekOffset >= 0}>{">"}</Button>
                 </div>
@@ -244,10 +309,11 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
             </div>
         </div>
 
+        {/* Gráfico Resumen KG en Bodega */}
         <div className="bg-white p-6 rounded-xl shadow-md flex flex-col">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-semibold text-slate-700">Resumen de kg en bodega</h3>
-            <select 
+            <select
               className="text-sm rounded-lg border-slate-300 px-2 py-1"
               value={cargaFilter}
               onChange={(e) => setCargaFilter(e.target.value)}
@@ -288,16 +354,17 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
             ) : <div className="flex items-center justify-center h-full w-full text-slate-500">No hay paquetes en bodega para el filtro seleccionado</div> }
             </div>
         </div>
-        
-        {/* --- NUEVA SECCIÓN DE ESTADÍSTICA SEMANAL --- */}
+
+        {/* Gráfico de Kilos Recibidos por Semana */}
         {isAdmin && (
             <div className="bg-white p-6 rounded-xl shadow-md lg:col-span-2">
                 <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
                     <h3 className="font-semibold text-slate-700">Kilos recibidos por semana</h3>
                     <div className="flex items-center gap-2">
                         <Button onClick={() => setKgWeekOffset(kgWeekOffset - 1)}>{"<"}</Button>
-                        <span className="text-sm text-slate-600 text-center w-44 md:w-48">
-                            {weeklyKgData.weekStart.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })} - {weeklyKgData.weekEnd.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                         <span className="text-sm text-slate-600 text-center w-44 md:w-48">
+                           {/* Muestra el rango de fechas formateado localmente */}
+                           {formatWeekRangeForDisplay(weeklyKgData.weekStart, weeklyKgData.weekEnd)}
                         </span>
                         <Button onClick={() => setKgWeekOffset(kgWeekOffset + 1)} disabled={kgWeekOffset >= 0}>{">"}</Button>
                     </div>

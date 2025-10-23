@@ -3,13 +3,16 @@
 import React, { useEffect, useState } from "react";
 
 // Firebase
+// Corregido: Ruta absoluta desde /src/
 import { db, auth, signOut, onAuthStateChanged } from "/src/firebase.js";
 import { collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, query, orderBy, getDoc, writeBatch, getDocs } from "firebase/firestore";
 
 // Context
+// Corregido: Ruta absoluta desde /src/
 import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes de Secciones
+// Corregido: Rutas absolutas desde /src/
 import { Login } from "/src/components/sections/Login.jsx";
 import { Dashboard } from "/src/components/sections/Dashboard.jsx";
 import { Reception } from "/src/components/sections/Reception.jsx";
@@ -24,6 +27,7 @@ import { Proformas } from "/src/components/sections/Proformas.jsx";
 import { Extras } from "/src/components/sections/Extras.jsx";
 
 // Helpers y Constantes
+// Corregido: Ruta absoluta desde /src/
 import {
   Iconos,
   tabsForRole,
@@ -54,7 +58,7 @@ function App() {
   const [extras, setExtras] = useState([]);
   const [sinCasillaItems, setSinCasillaItems] = useState([]);
   const [pendientes, setPendientes] = useState([]);
-  
+
   const { showConfirmation } = useModal();
 
   // Listener de Autenticación
@@ -97,9 +101,9 @@ function App() {
       // MODIFICACIÓN: Se elimina el ordenamiento por defecto para 'packages' en la consulta
       // para asegurar que el ordenamiento del lado del cliente sea la única fuente de verdad.
       const q = orderByField && collectionName !== 'packages'
-        ? query(collRef, orderBy(orderByField, "desc")) 
+        ? query(collRef, orderBy(orderByField, "desc"))
         : (collectionName === 'packages' ? query(collRef) : query(collRef, orderBy("name")));
-      
+
       return onSnapshot(q, (snapshot) => {
         const items = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
         setter(items);
@@ -126,7 +130,7 @@ function App() {
         console.error(`Error seeding collection ${collectionName}:`, error);
       }
     };
-    
+
     const initializeData = async () => {
       await Promise.all([
         seedInitialData("couriers", COURIERS_INICIALES),
@@ -155,7 +159,7 @@ function App() {
     };
 
   }, [currentUser]);
-  
+
   const createCrudHandlers = (collectionName) => ({
     add: async (data) => addDoc(collection(db, collectionName), data),
     update: async (data) => {
@@ -180,7 +184,7 @@ function App() {
       data: {
         numero: paquete.numero, nombre: paquete.nombre,
         tracking: paquete.tracking, casilla: casilla.trim().toUpperCase(),
-        foto: paquete.foto || null 
+        foto: paquete.foto || null
       }
     };
     pendientesHandlers.add(nuevaTarea);
@@ -205,7 +209,7 @@ function App() {
   if (!currentUser) {
     return <Login />;
   }
-  
+
   const handleLogout = async () => {
     const confirmed = await showConfirmation("Cerrar Sesión", "¿Estás seguro de que quieres cerrar sesión?");
     if (confirmed) {
@@ -251,8 +255,10 @@ function App() {
   };
 
   return (
-    <div className="h-screen w-screen flex bg-slate-100">
+    <div className="h-screen w-screen flex bg-slate-100 relative"> {/* Main container */}
+      {/* Sidebar */}
       <aside className={`absolute inset-y-0 left-0 z-30 w-64 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        {/* Sidebar content */}
         <div className="p-4 h-16 lg:h-32 border-b border-slate-200 flex items-center justify-center">
             <img src="/logo.png" alt="Logo Europa Envíos" className="max-w-full max-h-full" />
         </div>
@@ -291,7 +297,9 @@ function App() {
         </nav>
       </aside>
 
+      {/* Main content area */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
+        {/* Header */}
         <header className="bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 h-16 flex-shrink-0">
           <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="Abrir menú">
             <MenuIcon />
@@ -308,11 +316,22 @@ function App() {
           </div>
         </header>
 
+        {/* Scrollable main content */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           {renderTabContent()}
         </main>
       </div>
 
+      {/* Marca de agua - Added "E-mail: " prefix */}
+      {currentUser && (
+        <div className="fixed bottom-2 left-2 z-40 text-xs text-slate-500 bg-white/70 backdrop-blur-sm px-2 py-1 rounded shadow flex flex-col">
+            <span>Designed by Nicolás Di Benedetto</span>
+            {/* Added "E-mail: " prefix */}
+            <span>E-mail: nicolasdibe@gmail.com</span>
+        </div>
+      )}
+
+      {/* Sidebar overlay for mobile */}
       {isSidebarOpen && (
         <div
           className="lg:hidden fixed inset-0 bg-black/50 z-20"

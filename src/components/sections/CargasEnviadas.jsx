@@ -2,12 +2,12 @@
 import React, { useMemo, useState } from "react";
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
-import { Modal } from "../common/Modal.jsx";
+import { Section } from "/src/components/common/Section.jsx"; // Corrected path
+import { Input } from "/src/components/common/Input.jsx"; // Corrected path
+import { Field } from "/src/components/common/Field.jsx"; // Corrected path
+import { EmptyState } from "/src/components/common/EmptyState.jsx"; // Corrected path
+import { Button } from "/src/components/common/Button.jsx"; // Corrected path
+import { Modal } from "/src/components/common/Modal.jsx"; // Corrected path
 
 // Helpers & Constantes
 import {
@@ -23,7 +23,7 @@ import {
   tdNum,
   tdInt,
   getColumnWidths // <-- IMPORTAMOS LA NUEVA FUNCIÓN
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx"; // Corrected path
 
 export function CargasEnviadas({ packages, flights, user }) {
   const [from, setFrom] = useState("");
@@ -89,13 +89,13 @@ export function CargasEnviadas({ packages, flights, user }) {
   function exportFlightXLSX() {
     if (!flight) { alert("Seleccioná una carga."); return; }
 
-    const headerPacking = ["Courier", "Casilla", "Código de paquete", "Fecha", "Empresa de envío", "Nombre y apellido", "CI/RUC", "Tracking", "Remitente", "Peso real", "Peso facturable", "Medidas", "Exceso de volumen", "Descripción", "Precio (EUR)"].map(th);
+    const headerPacking = ["Courier", "Casilla", "Código de paquete", "Fecha", "Empresa de envío", "Nombre y apellido", "CI/RUC", "Tracking", "Remitente", "Peso real", "Peso facturable", "Medidas", "Peso volumétrico", "Exceso de volumen", "Descripción", "Precio (EUR)"].map(th);
     const bodyPacking = paquetesDeVuelo.map(p => [
       td(p.courier), td(p.casilla), td(p.codigo), td(p.fecha), td(p.empresa_envio), td(p.nombre_apellido),
       td(p.ci_ruc), td(p.tracking), td(p.remitente), tdNum(p.peso_real, "0.000"), tdNum(p.peso_facturable, "0.000"),
-      td(`${p.largo}x${p.ancho}x${p.alto} cm`), tdNum(p.exceso_volumen, "0.000"), td(p.descripcion), tdNum(p.valor_aerolinea, "0.00")
+      td(`${p.largo}x${p.ancho}x${p.alto} cm`), tdNum(p.peso_volumetrico, "0.000"), tdNum(p.exceso_volumen, "0.000"), td(p.descripcion), tdNum(p.valor_aerolinea, "0.00")
     ]);
-    
+
     const columnWidthsPacking = getColumnWidths(headerPacking, bodyPacking);
 
     const sheetPacking = sheetFromAOAStyled("Packing list", [headerPacking, ...bodyPacking], {
@@ -111,7 +111,7 @@ export function CargasEnviadas({ packages, flights, user }) {
       const totalsRow = [
         td(""), th("Totales"), tdNum(totPeso, "0.000"), td(""), td(""), td(""), tdNum(totVol, "0.000")
       ];
-      
+
       const columnWidthsCajas = getColumnWidths(headerCajas, [...bodyCajas, totalsRow]);
 
       const sheetCajas = sheetFromAOAStyled("Cajas", [headerCajas, ...bodyCajas, totalsRow], {
@@ -161,7 +161,7 @@ export function CargasEnviadas({ packages, flights, user }) {
           </div>
           <div className="overflow-x-auto mb-6">
             <table className="min-w-full text-sm">
-              <thead><tr className="bg-slate-50">{["Courier", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "Exceso", "Descripción", "Foto"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
+              <thead><tr className="bg-slate-50">{["Courier", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "P. Volum.", "Exceso", "Descripción", "Foto"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
               <tbody className="divide-y divide-slate-200">
                 {paquetesDeVuelo.map(p => (
                   <tr key={p.id} className="hover:bg-slate-50">
@@ -173,16 +173,17 @@ export function CargasEnviadas({ packages, flights, user }) {
                     <td className="px-3 py-2 font-mono whitespace-nowrap">{p.tracking}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_real)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{p.largo}x{p.ancho}x{p.alto} cm</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_volumetrico)}</td> {/* Added Cell */}
                     <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.exceso_volumen)}</td>
                     <td className="px-3 py-2">{p.descripcion}</td>
                     <td className="px-3 py-2">
-                      {(p.fotos && p.fotos.length > 0) ? 
-                          <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer(p.fotos)}>Ver foto ({p.fotos.length})</Button> 
+                      {(p.fotos && p.fotos.length > 0) ?
+                          <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewer(p.fotos)}>Ver foto ({p.fotos.length})</Button>
                           : "—"}
                     </td>
                   </tr>
                 ))}
-                {paquetesDeVuelo.length === 0 && <tr><td colSpan={11}><EmptyState icon={Iconos.box} title="Sin paquetes" message="No hay paquetes para mostrar para tu usuario en esta carga." /></td></tr>}
+                {paquetesDeVuelo.length === 0 && <tr><td colSpan={13}><EmptyState icon={Iconos.box} title="Sin paquetes" message="No hay paquetes para mostrar para tu usuario en esta carga." /></td></tr>} {/* Updated colspan */}
               </tbody>
             </table>
           </div>

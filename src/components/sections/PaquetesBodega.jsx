@@ -4,18 +4,18 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx"; // Corrected path
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
-import { QrCodeModal } from "../common/QrCodeModal.jsx";
-import { CameraModal } from "../common/CameraModal.jsx";
-import { ImageViewerModal } from "../common/ImageViewerModal.jsx";
+import { Section } from "/src/components/common/Section.jsx"; // Corrected path
+import { Input } from "/src/components/common/Input.jsx"; // Corrected path
+import { Field } from "/src/components/common/Field.jsx"; // Corrected path
+import { Modal } from "/src/components/common/Modal.jsx"; // Corrected path
+import { EmptyState } from "/src/components/common/EmptyState.jsx"; // Corrected path
+import { Button } from "/src/components/common/Button.jsx"; // Corrected path
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx"; // Corrected path
+import { CameraModal } from "/src/components/common/CameraModal.jsx"; // Corrected path
+import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx"; // Corrected path
 
 // Helpers & Constantes
 import {
@@ -40,9 +40,9 @@ import {
   tdInt,
   estadosPermitidosPorCarga,
   getColumnWidths
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx"; // Corrected path
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { db, storage } from "../../firebase.js";
+import { db, storage } from "/src/firebase.js"; // Corrected path
 
 const SortableHeader = ({ children, col, sort, toggleSort }) => {
     const isSorted = sort.key === col;
@@ -71,7 +71,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   const toggleSort = (key) => {
     setSort(s => s.key === key ? { key, dir: (s.dir === "asc" ? "desc" : "asc") } : { key, dir: "asc" });
   };
-  
+
   const pref = user.role === "COURIER" ? limpiar(user.courier) : null;
 
   const courierFlights = useMemo(() => {
@@ -115,6 +115,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       case "tracking": return (p.tracking||"").toLowerCase();
       case "peso_real": return Number(p.peso_real||0);
       case "medidas": return Number((p.largo||0)*(p.ancho||0)*(p.alto||0));
+      case "peso_volumetrico": return Number(p.peso_volumetrico||0); // Added for sorting
       case "exceso": return Number(p.exceso_volumen||0);
       case "descripcion": return (p.descripcion||"").toLowerCase();
       default: return 0;
@@ -153,7 +154,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   const fileRef = useRef(null);
   const [viewerImages, setViewerImages] = useState([]);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  
+
   const [uploadSessionId, setUploadSessionId] = useState(null);
 
   useEffect(() => {
@@ -259,7 +260,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       setIsUploading(false);
     }
   };
-  
+
   const startMobileUploadSession = async () => {
     const sessionId = uuid();
     try {
@@ -289,7 +290,8 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
     const header = [
         th("Carga"), th("Courier"), th("Estado"), th("Casilla"), th("Código de paquete"), th("Fecha"),
         th("CI/RUC"), th("Empresa de envío"), th("Nombre y apellido"), th("Tracking"), th("Remitente"),
-        th("Peso real"), th("Peso facturable"), th("Medidas"), th("Exceso de volumen"),
+        th("Peso real"), th("Peso facturable"), th("Medidas"), th("Peso volumétrico"), // Added header
+        th("Exceso de volumen"),
         th("Descripción"), th("Precio (EUR)")
     ];
     const body = rows.map(p => {
@@ -299,7 +301,8 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
             td(carga), td(p.courier), td(p.estado), td(p.casilla), td(p.codigo), td(p.fecha),
             td(p.ci_ruc), td(p.empresa_envio), td(p.nombre_apellido), td(p.tracking), td(p.remitente),
             tdNum(p.peso_real, "0.000"), tdNum(p.peso_facturable, "0.000"),
-            td(medidas), tdNum(p.exceso_volumen, "0.000"),
+            td(medidas), tdNum(p.peso_volumetrico, "0.000"), // Added data cell
+            tdNum(p.exceso_volumen, "0.000"),
             td(p.descripcion), tdNum(p.valor_aerolinea, "0.00")
         ];
     });
@@ -322,7 +325,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       onDelete(p.id);
     }
   };
-  
+
   return (
     <Section title="Paquetes en bodega">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 items-end">
@@ -357,6 +360,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                 <SortableHeader col="tracking" sort={sort} toggleSort={toggleSort}>Tracking</SortableHeader>
                 <SortableHeader col="peso_real" sort={sort} toggleSort={toggleSort}>Peso real</SortableHeader>
                 <SortableHeader col="medidas" sort={sort} toggleSort={toggleSort}>Medidas</SortableHeader>
+                <SortableHeader col="peso_volumetrico" sort={sort} toggleSort={toggleSort}>P. Volum.</SortableHeader> {/* Added Header */}
                 <SortableHeader col="exceso" sort={sort} toggleSort={toggleSort}>Exceso</SortableHeader>
                 <SortableHeader col="descripcion" sort={sort} toggleSort={toggleSort}>Descripción</SortableHeader>
                 <th className="text-left px-3 py-2 font-semibold text-slate-600">Fotos</th>
@@ -389,10 +393,11 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                   <td className="px-3 py-2 font-mono">{p.tracking}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_real)} kg</td>
                   <td className="px-3 py-2 whitespace-nowrap">{p.largo}x{p.ancho}x{p.alto} cm</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_volumetrico)} kg</td> {/* Added Cell */}
                   <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.exceso_volumen)} kg</td>
                   <td className="px-3 py-2">{p.descripcion}</td>
                   <td className="px-3 py-2">
-                    {(p.fotos && p.fotos.length > 0) ? 
+                    {(p.fotos && p.fotos.length > 0) ?
                         <Button variant="secondary" className="!px-2 !py-1 text-xs" onClick={() => setViewerImages(p.fotos)}>Ver foto</Button>
                         : "—"}
                   </td>
@@ -417,7 +422,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={13}><EmptyState icon={Iconos.box} title="No hay paquetes en bodega" message="Utiliza el filtro para buscar o agrega paquetes en Recepción."/></td></tr>}
+            {rows.length === 0 && <tr><td colSpan={15}><EmptyState icon={Iconos.box} title="No hay paquetes en bodega" message="Utiliza el filtro para buscar o agrega paquetes en Recepción."/></td></tr>} {/* Updated colspan */}
           </tbody>
         </table>
       </div>
@@ -440,7 +445,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
             .filter(([, kg]) => kg > 0)
             .map(([name, value]) => ({ name, value }))
             .sort((a, b) => b.value - a.value);
-            
+
           const totalReal = sum(dataReal.map(d => d.value));
           const totalExc = sum(dataExc.map(d => d.value));
 

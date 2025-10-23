@@ -3,11 +3,11 @@ import React, { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 
 // Componentes
-// Corrección: Usar rutas relativas
+// Revertido a rutas relativas
 import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
-// Corrección: Usar rutas relativas
+// Revertido a rutas relativas
 import { Iconos, sum, fmtPeso, COLORS } from "../../utils/helpers.jsx";
 
 const KpiCard = ({ title, value, icon, color }) => (
@@ -296,10 +296,12 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                 </div>
             </div>
             <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={weeklyPackageCountData.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                {/* Ajuste: margen izquierdo aumentado de -10 a 20 */}
+                <BarChart data={weeklyPackageCountData.chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
-                    <YAxis allowDecimals={false}/>
+                    {/* Ajuste: ancho del eje Y aumentado de 40 a 60 */}
+                    <YAxis allowDecimals={false} width={60}/>
                     <Tooltip />
                     <Bar dataKey="paquetes" fill="#4f46e5" name="Paquetes"/>
                 </BarChart>
@@ -375,10 +377,12 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                     </div>
                 </div>
                 <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={weeklyKgData.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                     {/* Ajuste: margen izquierdo aumentado de -10 a 20 */}
+                    <BarChart data={weeklyKgData.chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
-                        <YAxis unit="kg" width={40}/>
+                        {/* Ajuste: ancho del eje Y aumentado de 40 a 60 */}
+                        <YAxis unit="kg" width={60}/>
                         <Tooltip formatter={(value) => `${fmtPeso(value)} kg`} />
                         <Bar dataKey="kg" fill="#4f46e5" name="Kilos" />
                     </BarChart>

@@ -1,22 +1,22 @@
 /* eslint-disable react/prop-types */
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { db, storage } from "../../firebase.js";
+import { db, storage } from "/src/firebase.js"; // Reverted to absolute path
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, runTransaction, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "../../context/ModalContext.jsx";
+import { useModal } from "/src/context/ModalContext.jsx"; // Reverted to absolute path
 
 // Componentes
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { Field } from "../common/Field.jsx";
-import { Modal } from "../common/Modal.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
-import { QrCodeModal } from "../common/QrCodeModal.jsx";
-import { CameraModal } from "../common/CameraModal.jsx";
-import { ImageViewerModal } from "../common/ImageViewerModal.jsx";
+import { Section } from "/src/components/common/Section.jsx"; // Reverted to absolute path
+import { Input } from "/src/components/common/Input.jsx"; // Reverted to absolute path
+import { Field } from "/src/components/common/Field.jsx"; // Reverted to absolute path
+import { Modal } from "/src/components/common/Modal.jsx"; // Reverted to absolute path
+import { EmptyState } from "/src/components/common/EmptyState.jsx"; // Reverted to absolute path
+import { Button } from "/src/components/common/Button.jsx"; // Reverted to absolute path
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx"; // Reverted to absolute path
+import { CameraModal } from "/src/components/common/CameraModal.jsx"; // Reverted to absolute path
+import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx"; // Reverted to absolute path
 
 // Helpers & Constantes
 import {
@@ -29,7 +29,7 @@ import {
   getColumnWidths,
   printHTMLInIframe,
   sinCasillaLabelHTML,
-} from "../../utils/helpers.jsx";
+} from "/src/utils/helpers.jsx"; // Reverted to absolute path
 
 export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemove, onAsignarCasilla }) {
   const isAdmin = currentUser?.role === "ADMIN";
@@ -40,7 +40,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
   const [nombre, setNombre] = useState("");
   const [tracking, setTracking] = useState("");
   const [foto, setFoto] = useState(null);
-  
+
   // State for editing modal
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editRow, setEditRow] = useState(null); // Will hold the item being edited
@@ -78,9 +78,9 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
 
   const add = async () => {
     if (!isAdmin || isAdding || isUploading) return;
-    if (!fecha || !nombre.trim()) { 
-      await showAlert("Campos requeridos", "Completá los campos de Fecha y Nombre."); 
-      return; 
+    if (!fecha || !nombre.trim()) {
+      await showAlert("Campos requeridos", "Completá los campos de Fecha y Nombre.");
+      return;
     }
 
     setIsAdding(true);
@@ -206,11 +206,11 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
     onUpdate({ id: editRow.id, fecha: editRow.fecha, nombre: editRow.nombre, tracking: editRow.tracking, foto: editRow.foto });
     setIsEditModalOpen(false);
   }
-  function cancelEdit() { 
+  function cancelEdit() {
     setIsEditModalOpen(false);
     setEditRow(null);
   }
-  
+
   const removeRow = async (r) => {
     if (!isAdmin) return;
     const confirmed = await showConfirmation("Confirmar eliminación", `¿Seguro que quieres eliminar el paquete Nº ${r.numero}?`);
@@ -229,7 +229,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
       if (isAdmin) row.push(td(r.tracking || "—"));
       return row;
     });
-    
+
     const columnWidths = getColumnWidths(header, body);
 
     const { ws } = sheetFromAOAStyled("Sin casilla", [header, ...body], {
@@ -282,16 +282,19 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
       <div className="mb-4">
         <Input placeholder={isAdmin ? "Buscar por Nº, Nombre o Tracking…" : "Buscar por Nº o Nombre…"} value={q} onChange={e => setQ(e.target.value)} />
       </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
+       {/* Container with overflow-auto and max-height */}
+      <div className="overflow-auto w-full max-h-[calc(100vh-450px)] relative"> {/* Adjusted height */}
+        {/* Table itself is block, takes min-width */}
+        <table className="min-w-full text-sm table-auto w-full border-collapse"> {/* Removed table-fixed, added border-collapse */}
           <thead>
+            {/* Kept headers sticky */}
             <tr className="bg-slate-50">
-              <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Fecha recepción</th>
-              <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Nº paquete</th>
-              <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Nombre y apellido</th>
-              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Tracking</th>}
-              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Foto</th>}
-              {isAdmin && <th className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">Acciones</th>}
+              <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap sticky top-0 z-10">Fecha recepción</th>
+              <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap sticky top-0 z-10">Nº paquete</th>
+              <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap sticky top-0 z-10">Nombre y apellido</th>
+              {isAdmin && <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap sticky top-0 z-10">Tracking</th>}
+              {isAdmin && <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap sticky top-0 z-10">Foto</th>}
+              {isAdmin && <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap sticky top-0 z-10">Acciones</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -321,7 +324,7 @@ export function PaquetesSinCasilla({ currentUser, items, onAdd, onUpdate, onRemo
           </tbody>
         </table>
       </div>
-      
+
       {/* Edit Modal */}
       <Modal open={isEditModalOpen} onClose={cancelEdit} title="Editar Paquete Sin Casilla">
         {editRow && (

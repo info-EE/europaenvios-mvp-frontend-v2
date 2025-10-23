@@ -4,18 +4,18 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "/src/context/ModalContext.jsx"; // Corrected path
+import { useModal } from "/src/context/ModalContext.jsx"; // Reverted to absolute path
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx"; // Corrected path
-import { Input } from "/src/components/common/Input.jsx"; // Corrected path
-import { Field } from "/src/components/common/Field.jsx"; // Corrected path
-import { Modal } from "/src/components/common/Modal.jsx"; // Corrected path
-import { EmptyState } from "/src/components/common/EmptyState.jsx"; // Corrected path
-import { Button } from "/src/components/common/Button.jsx"; // Corrected path
-import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx"; // Corrected path
-import { CameraModal } from "/src/components/common/CameraModal.jsx"; // Corrected path
-import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx"; // Corrected path
+import { Section } from "/src/components/common/Section.jsx"; // Reverted to absolute path
+import { Input } from "/src/components/common/Input.jsx"; // Reverted to absolute path
+import { Field } from "/src/components/common/Field.jsx"; // Reverted to absolute path
+import { Modal } from "/src/components/common/Modal.jsx"; // Reverted to absolute path
+import { EmptyState } from "/src/components/common/EmptyState.jsx"; // Reverted to absolute path
+import { Button } from "/src/components/common/Button.jsx"; // Reverted to absolute path
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx"; // Reverted to absolute path
+import { CameraModal } from "/src/components/common/CameraModal.jsx"; // Reverted to absolute path
+import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx"; // Reverted to absolute path
 
 // Helpers & Constantes
 import {
@@ -40,15 +40,16 @@ import {
   tdInt,
   estadosPermitidosPorCarga,
   getColumnWidths
-} from "/src/utils/helpers.jsx"; // Corrected path
+} from "/src/utils/helpers.jsx"; // Reverted to absolute path
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { db, storage } from "/src/firebase.js"; // Corrected path
+import { db, storage } from "/src/firebase.js"; // Reverted to absolute path
 
 const SortableHeader = ({ children, col, sort, toggleSort }) => {
     const isSorted = sort.key === col;
     const arrow = isSorted ? (sort.dir === "asc" ? "▲" : "▼") : <span className="text-slate-400">↕</span>;
+    // Keep header background, make it sticky relative to the scroll container
     return (
-        <th className="text-left px-3 py-2 font-semibold text-slate-600 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort(col)}>
+        <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 cursor-pointer select-none whitespace-nowrap sticky top-0 z-10" onClick={() => toggleSort(col)}>
             {children}
             <span className="ml-1">{arrow}</span>
         </th>
@@ -347,24 +348,28 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
           </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
+      {/* FINAL ADJUSTMENT: Added max-h-[calc(100vh-Xpx)] to limit height and force scroll */}
+      {/* Container with overflow-auto and max-height */}
+      <div className="overflow-auto w-full max-h-[calc(100vh-350px)] relative"> {/* Adjusted height */}
+        {/* Table itself is block, takes min-width */}
+        <table className="min-w-full text-sm table-auto w-full border-collapse"> {/* Removed table-fixed, added border-collapse */}
           <thead>
+            {/* Kept headers sticky */}
             <tr className="bg-slate-50">
                 <SortableHeader col="carga" sort={sort} toggleSort={toggleSort}>Carga</SortableHeader>
                 <SortableHeader col="codigo" sort={sort} toggleSort={toggleSort}>Código</SortableHeader>
                 <SortableHeader col="casilla" sort={sort} toggleSort={toggleSort}>Casilla</SortableHeader>
                 <SortableHeader col="createdAt" sort={sort} toggleSort={toggleSort}>Fecha</SortableHeader>
                 <SortableHeader col="nombre" sort={sort} toggleSort={toggleSort}>Nombre</SortableHeader>
-                <th className="text-left px-3 py-2 font-semibold text-slate-600">CI/RUC</th>
+                <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 sticky top-0 z-10">CI/RUC</th>
                 <SortableHeader col="tracking" sort={sort} toggleSort={toggleSort}>Tracking</SortableHeader>
                 <SortableHeader col="peso_real" sort={sort} toggleSort={toggleSort}>Peso real</SortableHeader>
                 <SortableHeader col="medidas" sort={sort} toggleSort={toggleSort}>Medidas</SortableHeader>
-                <SortableHeader col="peso_volumetrico" sort={sort} toggleSort={toggleSort}>P. Volum.</SortableHeader> {/* Added Header */}
+                <SortableHeader col="peso_volumetrico" sort={sort} toggleSort={toggleSort}>P. Volum.</SortableHeader>
                 <SortableHeader col="exceso" sort={sort} toggleSort={toggleSort}>Exceso</SortableHeader>
                 <SortableHeader col="descripcion" sort={sort} toggleSort={toggleSort}>Descripción</SortableHeader>
-                <th className="text-left px-3 py-2 font-semibold text-slate-600">Fotos</th>
-                <th className="text-left px-3 py-2 font-semibold text-slate-600">Acciones</th>
+                <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 sticky top-0 z-10">Fotos</th>
+                <th className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 sticky top-0 z-10">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -427,7 +432,8 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
         </table>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6 mt-6">
+      {/* Rest of the component remains the same */}
+       <div className="grid md:grid-cols-2 gap-6 mt-6">
         {(() => {
           const aggReal = {};
           const aggExc = {};
@@ -614,7 +620,6 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
             </div>
         )}
     </Modal>
-
     </Section>
   );
 }

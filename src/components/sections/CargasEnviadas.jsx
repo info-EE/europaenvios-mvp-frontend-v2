@@ -2,12 +2,12 @@
 import React, { useMemo, useState } from "react";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx"; // Corrected path
-import { Input } from "/src/components/common/Input.jsx"; // Corrected path
-import { Field } from "/src/components/common/Field.jsx"; // Corrected path
-import { EmptyState } from "/src/components/common/EmptyState.jsx"; // Corrected path
-import { Button } from "/src/components/common/Button.jsx"; // Corrected path
-import { Modal } from "/src/components/common/Modal.jsx"; // Corrected path
+import { Section } from "/src/components/common/Section.jsx"; // Reverted to absolute path
+import { Input } from "/src/components/common/Input.jsx"; // Reverted to absolute path
+import { Field } from "/src/components/common/Field.jsx"; // Reverted to absolute path
+import { EmptyState } from "/src/components/common/EmptyState.jsx"; // Reverted to absolute path
+import { Button } from "/src/components/common/Button.jsx"; // Reverted to absolute path
+import { Modal } from "/src/components/common/Modal.jsx"; // Reverted to absolute path
 
 // Helpers & Constantes
 import {
@@ -23,7 +23,7 @@ import {
   tdNum,
   tdInt,
   getColumnWidths // <-- IMPORTAMOS LA NUEVA FUNCIÓN
-} from "/src/utils/helpers.jsx"; // Corrected path
+} from "/src/utils/helpers.jsx"; // Reverted to absolute path
 
 export function CargasEnviadas({ packages, flights, user }) {
   const [from, setFrom] = useState("");
@@ -159,9 +159,17 @@ export function CargasEnviadas({ packages, flights, user }) {
               </div>
             )}
           </div>
-          <div className="overflow-x-auto mb-6">
-            <table className="min-w-full text-sm">
-              <thead><tr className="bg-slate-50">{["Courier", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "P. Volum.", "Exceso", "Descripción", "Foto"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
+          {/* FINAL ADJUSTMENT: Added max-h-[calc(100vh-Xpx)] to limit height and force scroll */}
+          {/* Container with overflow-auto and max-height */}
+           <div className="overflow-auto w-full max-h-[calc(100vh-400px)] relative mb-6"> {/* Adjusted height */}
+            {/* Table itself is block, takes min-width */}
+            <table className="min-w-full text-sm table-auto w-full border-collapse"> {/* Removed table-fixed, added border-collapse */}
+              <thead>
+                {/* Kept headers sticky */}
+                <tr className="bg-slate-50">
+                  {["Courier", "Código", "Casilla", "Fecha", "Nombre", "Tracking", "Peso real", "Medidas", "P. Volum.", "Exceso", "Descripción", "Foto"].map(h => <th key={h} className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap sticky top-0 z-10">{h}</th>)}
+                </tr>
+              </thead>
               <tbody className="divide-y divide-slate-200">
                 {paquetesDeVuelo.map(p => (
                   <tr key={p.id} className="hover:bg-slate-50">
@@ -190,9 +198,17 @@ export function CargasEnviadas({ packages, flights, user }) {
           {isAdmin &&
             <>
               <h3 className="text-lg font-semibold text-slate-800 mt-6 mb-2">Resumen de Cajas</h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead><tr className="bg-slate-50">{["Nº Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
+              {/* FINAL ADJUSTMENT: Added max-h-[calc(100vh-Ypx)] to limit height and force scroll */}
+              {/* Container with overflow-auto and max-height */}
+               <div className="overflow-auto w-full max-h-[calc(100vh-600px)] relative"> {/* Adjusted height */}
+                {/* Table itself is block, takes min-width */}
+                <table className="min-w-full text-sm table-auto w-full border-collapse"> {/* Removed table-fixed, added border-collapse */}
+                  <thead>
+                     {/* Kept headers sticky */}
+                    <tr className="bg-slate-50">
+                      {["Nº Caja", "Courier", "Peso", "Largo", "Ancho", "Alto", "Volumétrico"].map(h => <th key={h} className="bg-slate-50 text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap sticky top-0 z-10">{h}</th>)}
+                    </tr>
+                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {resumenCajas.map(r => (
                       <tr key={r.n} className="hover:bg-slate-50">

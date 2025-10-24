@@ -3,11 +3,11 @@ import React, { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 
 // Componentes
-// Revertido a rutas relativas
+// Corregido: Rutas relativas
 import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
-// Revertido a rutas relativas
+// Corregido: Rutas relativas
 import { Iconos, sum, fmtPeso, COLORS } from "../../utils/helpers.jsx";
 
 const KpiCard = ({ title, value, icon, color }) => (
@@ -242,6 +242,40 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
     };
   }, [packages, flights, kgWeekOffset, kgFilter]);
 
+  // --- START: Lógica para Estado de Cargas (SEPARADA) ---
+  const estadoCargasData = useMemo(() => {
+    // Ordenar todas las cargas por fecha de salida descendente
+    const sortedFlights = [...flights].sort((a, b) => (b.fecha_salida || "").localeCompare(a.fecha_salida || ""));
+
+    // Mapear datos comunes
+    const mapFlightData = (flight) => {
+        const totalWeight = sum(packages.filter(p => p.flight_id === flight.id).map(p => p.peso_real)); // Calcular peso directamente
+        const boxCount = flight.cajas?.length || 0; // Contar cajas directamente desde el objeto flight
+        return {
+          id: flight.id,
+          nombre: flight.codigo,
+          fechaSalida: flight.fecha_salida || 'N/A', // Añadir fecha de salida
+          pesoTotal: totalWeight,
+          cantidadCajas: boxCount, // Cambiado de cantidadPaquetes a cantidadCajas
+          estado: flight.estado
+        };
+    };
+
+    // Filtrar, mapear y tomar las últimas 10 aéreas
+    const latestAir = sortedFlights
+        .filter(f => (f.codigo || "").toUpperCase().startsWith('AIR'))
+        .slice(0, 10)
+        .map(mapFlightData);
+
+    // Filtrar, mapear y tomar las últimas 6 marítimas
+    const latestSea = sortedFlights
+        .filter(f => (f.codigo || "").toUpperCase().startsWith('MAR'))
+        .slice(0, 6)
+        .map(mapFlightData);
+
+    return { latestAir, latestSea }; // Devolver objeto con las dos listas
+  }, [flights, packages]); // Dependencia 'packages' necesaria para calcular peso total
+  // --- END: Lógica para Estado de Cargas ---
 
   // Función para formatear las fechas de la semana para mostrar en la UI
   // Muestra las fechas en el formato local del usuario para mejor legibilidad
@@ -253,6 +287,54 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
     const endStr = endDateUTC.toLocaleDateString('es-ES', {...options, ...yearOption});
     return `${startStr} - ${endStr}`;
   };
+
+  // Componente reutilizable para la tabla de estado de cargas
+  const EstadoCargasTable = ({ title, data }) => (
+    // Contenedor individual con estilo de gráfico
+    <div className="bg-white p-6 rounded-xl shadow-md">
+        <h3 className="text-lg font-semibold text-slate-800 mb-4">{title}</h3>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50">
+                <th className="px-3 py-2 text-left font-semibold text-slate-600">Nombre Carga</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-600">Fecha Salida</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-600">Peso Total (kg)</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-600">Nº Cajas</th> {/* Cambiado */}
+                <th className="px-3 py-2 text-left font-semibold text-slate-600">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {data.length > 0 ? data.map(carga => (
+                <tr key={carga.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2 whitespace-nowrap">{carga.nombre}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{carga.fechaSalida}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(carga.pesoTotal)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{carga.cantidadCajas}</td> {/* Cambiado */}
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        carga.estado === 'En bodega' ? 'bg-blue-100 text-blue-800' :
+                        carga.estado === 'En tránsito' ? 'bg-yellow-100 text-yellow-800' :
+                        carga.estado === 'Arribada' ? 'bg-purple-100 text-purple-800' :
+                        carga.estado === 'Entregada' ? 'bg-green-100 text-green-800' :
+                        carga.estado === 'Cobrada' ? 'bg-teal-100 text-teal-800' :
+                        'bg-gray-100 text-gray-800'
+                    }`}>
+                      {carga.estado}
+                    </span>
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  {/* Actualizado colSpan a 5 */}
+                  <td colSpan="5" className="px-3 py-4 text-center text-slate-500">No hay cargas recientes para mostrar.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+  );
 
 
   return (
@@ -276,7 +358,8 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Gráficos principales */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
         {/* Gráfico de Paquetes Recibidos */}
         <div className="bg-white p-6 rounded-xl shadow-md">
             <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
@@ -284,7 +367,6 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                 <div className="flex items-center gap-2">
                     <Button onClick={() => setPackageWeekOffset(packageWeekOffset - 1)}>{"<"}</Button>
                     <span className="text-sm text-slate-600 text-center w-44 md:w-48">
-                        {/* Muestra el rango de fechas formateado localmente */}
                         {formatWeekRangeForDisplay(weeklyPackageCountData.weekStart, weeklyPackageCountData.weekEnd)}
                     </span>
                     <Button onClick={() => setPackageWeekOffset(packageWeekOffset + 1)} disabled={packageWeekOffset >= 0}>{">"}</Button>
@@ -296,11 +378,9 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                 </div>
             </div>
             <ResponsiveContainer width="100%" height={300}>
-                {/* Ajuste: margen izquierdo aumentado de -10 a 20 */}
                 <BarChart data={weeklyPackageCountData.chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
-                    {/* Ajuste: ancho del eje Y aumentado de 40 a 60 */}
                     <YAxis allowDecimals={false} width={60}/>
                     <Tooltip />
                     <Bar dataKey="paquetes" fill="#4f46e5" name="Paquetes"/>
@@ -365,7 +445,6 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                     <div className="flex items-center gap-2">
                         <Button onClick={() => setKgWeekOffset(kgWeekOffset - 1)}>{"<"}</Button>
                          <span className="text-sm text-slate-600 text-center w-44 md:w-48">
-                           {/* Muestra el rango de fechas formateado localmente */}
                            {formatWeekRangeForDisplay(weeklyKgData.weekStart, weeklyKgData.weekEnd)}
                         </span>
                         <Button onClick={() => setKgWeekOffset(kgWeekOffset + 1)} disabled={kgWeekOffset >= 0}>{">"}</Button>
@@ -377,11 +456,9 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                     </div>
                 </div>
                 <ResponsiveContainer width="100%" height={300}>
-                     {/* Ajuste: margen izquierdo aumentado de -10 a 20 */}
                     <BarChart data={weeklyKgData.chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
-                        {/* Ajuste: ancho del eje Y aumentado de 40 a 60 */}
                         <YAxis unit="kg" width={60}/>
                         <Tooltip formatter={(value) => `${fmtPeso(value)} kg`} />
                         <Bar dataKey="kg" fill="#4f46e5" name="Kilos" />
@@ -393,6 +470,14 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
             </div>
         )}
       </div>
+
+       {/* START: Sección Estado de Cargas (Movida al final y en recuadros separados) */}
+       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8"> {/* Nuevo grid para las tablas */}
+         <EstadoCargasTable title="Estado de Cargas Aéreas (Últimas 10)" data={estadoCargasData.latestAir} />
+         <EstadoCargasTable title="Estado de Cargas Marítimas (Últimas 6)" data={estadoCargasData.latestSea} />
+       </div>
+      {/* END: Sección Estado de Cargas */}
+
     </div>
   );
 }

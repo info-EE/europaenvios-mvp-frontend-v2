@@ -9,6 +9,7 @@
     "preview": "vite preview --port 5173"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "exceljs": "^4.4.0",
     "firebase": "^12.2.1",
     "jsbarcode": "^3.11.6",

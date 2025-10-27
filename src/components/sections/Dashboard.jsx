@@ -3,12 +3,12 @@ import React, { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 
 // Componentes
-// Corrected: Use absolute paths from /src/
-import { Button } from "/src/components/common/Button.jsx";
+// Corrected: Use relative paths
+import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
-// Corrected: Use absolute paths from /src/
-import { Iconos, sum, fmtPeso, COLORS } from "/src/utils/helpers.jsx";
+// Corrected: Use relative paths
+import { Iconos, sum, fmtPeso, COLORS } from "../../utils/helpers.jsx";
 
 
 // --- START: Icons for Courier Dashboard ---
@@ -298,28 +298,46 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
         return { chartData: orderedChartData, weekStart, weekEnd, totalPackages: filteredPackages.length };
     }, [isAdmin, packages, flights, packageWeekOffset, packageFilter]);
 
+    // *** MODIFIED CALCULATION FOR KG PIE CHART ***
     const kgPorCourierAdmin = useMemo(() => {
         if (!isAdmin) return [];
         const agg = {};
-        let packagesToProcess = paquetesEnBodega;
 
-         if (cargaFilter !== 'Todas') {
-            const typePrefix = cargaFilter === 'Aéreos' ? 'AIR' : 'MAR';
-            const relevantFlightIds = new Set(
-                flights.filter(f => f.estado === 'En bodega' && (f.codigo || '').toUpperCase().startsWith(typePrefix)).map(f => f.id)
-            );
-            packagesToProcess = packagesToProcess.filter(p => relevantFlightIds.has(p.flight_id));
-        }
-
-        packagesToProcess.forEach(p => {
-            agg[p.courier] = (agg[p.courier] || 0) + p.peso_real;
+        // 1. Filter packages: exclude those in 'COMPLICADOS' flight
+        const nonComplicatedPackages = paquetesEnBodega.filter(p => {
+            const flight = flights.find(f => f.id === p.flight_id);
+            // Ensure flight and flight.codigo exist before checking the prefix
+            return flight && flight.codigo && !flight.codigo.toUpperCase().startsWith('COMP');
         });
 
+
+        // 2. Apply the cargaFilter (Aéreos, Marítimos, Todas)
+        let packagesToProcess = nonComplicatedPackages;
+        if (cargaFilter !== 'Todas') {
+            const typePrefix = cargaFilter === 'Aéreos' ? 'AIR' : 'MAR';
+            packagesToProcess = nonComplicatedPackages.filter(p => {
+                const flight = flights.find(f => f.id === p.flight_id);
+                // Ensure flight exists and has a code before checking the prefix
+                // This check is crucial as flight might be undefined if data is inconsistent
+                return flight && flight.codigo && flight.codigo.toUpperCase().startsWith(typePrefix);
+            });
+        }
+        // If 'Todas', we keep all non-complicated packages (those starting with AIR or MAR implicitly)
+
+        // 3. Aggregate weights by courier
+        packagesToProcess.forEach(p => {
+            // Ensure peso_real is treated as a number
+             // Make sure courier name exists, otherwise use 'Sin Courier'
+            const courierKey = p.courier || 'Sin Courier';
+            agg[courierKey] = (agg[courierKey] || 0) + Number(p.peso_real || 0);
+        });
+
+        // 4. Format for the chart
         return Object.entries(agg)
             .filter(([, kg]) => kg > 0)
             .map(([name, value]) => ({ name, value }))
             .sort((a, b) => b.value - a.value);
-    }, [isAdmin, paquetesEnBodega, flights, cargaFilter]);
+    }, [isAdmin, paquetesEnBodega, flights, cargaFilter]); // Added flights dependency
 
     const totalKgBodegaAdmin = useMemo(() => sum(kgPorCourierAdmin.map(c => c.value)), [kgPorCourierAdmin]);
 
@@ -418,7 +436,7 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
 
     // --- Render Admin Dashboard ---
     if (isAdmin) {
-        // ... (Admin dashboard code remains unchanged) ...
+        // ... (Admin dashboard code) ...
          return (
             <div>
                 <h1 className="text-2xl font-bold text-slate-800 mb-6">Dashboard</h1>
@@ -448,9 +466,10 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                                 <Button onClick={() => setPackageWeekOffset(packageWeekOffset + 1)} disabled={packageWeekOffset >= 0}>{">"}</Button>
                             </div>
                             <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
-                                <Button onClick={() => setPackageFilter('Todos')} className={`text-xs !px-2 !py-1 ${packageFilter === 'Todos' ? 'bg-white shadow' : 'bg-transparent shadow-none'}`}>Todos</Button>
-                                <Button onClick={() => setPackageFilter('Aéreos')} className={`text-xs !px-2 !py-1 ${packageFilter === 'Aéreos' ? 'bg-white shadow' : 'bg-transparent shadow-none'}`}>Aéreos</Button>
-                                <Button onClick={() => setPackageFilter('Marítimos')} className={`text-xs !px-2 !py-1 ${packageFilter === 'Marítimos' ? 'bg-white shadow' : 'bg-transparent shadow-none'}`}>Marítimos</Button>
+                                {/* Applied enhanced active style with border */}
+                                <Button onClick={() => setPackageFilter('Todos')} className={`text-xs !px-2 !py-1 ${packageFilter === 'Todos' ? 'bg-white text-francia-700 border-francia-500 border-2 font-semibold shadow' : 'bg-transparent text-slate-700 hover:bg-slate-200 border-transparent border-2 shadow-none'}`}>Todos</Button>
+                                <Button onClick={() => setPackageFilter('Aéreos')} className={`text-xs !px-2 !py-1 ${packageFilter === 'Aéreos' ? 'bg-white text-francia-700 border-francia-500 border-2 font-semibold shadow' : 'bg-transparent text-slate-700 hover:bg-slate-200 border-transparent border-2 shadow-none'}`}>Aéreos</Button>
+                                <Button onClick={() => setPackageFilter('Marítimos')} className={`text-xs !px-2 !py-1 ${packageFilter === 'Marítimos' ? 'bg-white text-francia-700 border-francia-500 border-2 font-semibold shadow' : 'bg-transparent text-slate-700 hover:bg-slate-200 border-transparent border-2 shadow-none'}`}>Marítimos</Button>
                             </div>
                         </div>
                         <ResponsiveContainer width="100%" height={300}>
@@ -464,15 +483,17 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                         </ResponsiveContainer>
                         <div className="text-right font-bold mt-2 text-slate-700">Total semanal: {weeklyPackageCountDataAdmin.totalPackages} paquetes</div>
                     </div>
-                     {/* Gráfico Resumen KG Bodega */}
+                     {/* Gráfico Resumen KG Bodega - Filter changed to Buttons */}
                     <div className="bg-white p-6 rounded-xl shadow-md flex flex-col">
-                        <div className="flex justify-between items-center mb-4">
+                        <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
                             <h3 className="font-semibold text-slate-700">Resumen de kg en bodega</h3>
-                            <select className="text-sm rounded-lg border-slate-300 px-2 py-1" value={cargaFilter} onChange={(e) => setCargaFilter(e.target.value)}>
-                                <option value="Todas">Todas las cargas</option>
-                                <option value="Aéreas">Cargas Aéreas</option>
-                                <option value="Marítimas">Cargas Marítimas</option>
-                            </select>
+                            {/* --- FILTER CHANGED FROM SELECT TO BUTTONS & Applied enhanced active style with border --- */}
+                            <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
+                                <Button onClick={() => setCargaFilter('Todas')} className={`text-xs !px-2 !py-1 ${cargaFilter === 'Todas' ? 'bg-white text-francia-700 border-francia-500 border-2 font-semibold shadow' : 'bg-transparent text-slate-700 hover:bg-slate-200 border-transparent border-2 shadow-none'}`}>Todos</Button>
+                                <Button onClick={() => setCargaFilter('Aéreos')} className={`text-xs !px-2 !py-1 ${cargaFilter === 'Aéreos' ? 'bg-white text-francia-700 border-francia-500 border-2 font-semibold shadow' : 'bg-transparent text-slate-700 hover:bg-slate-200 border-transparent border-2 shadow-none'}`}>Aéreos</Button>
+                                <Button onClick={() => setCargaFilter('Marítimas')} className={`text-xs !px-2 !py-1 ${cargaFilter === 'Marítimas' ? 'bg-white text-francia-700 border-francia-500 border-2 font-semibold shadow' : 'bg-transparent text-slate-700 hover:bg-slate-200 border-transparent border-2 shadow-none'}`}>Marítimos</Button>
+                            </div>
+                            {/* --- END OF FILTER CHANGE --- */}
                         </div>
                         <div className="flex-grow flex items-center">
                             {kgPorCourierAdmin.length > 0 ? (
@@ -513,9 +534,10 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                                 <Button onClick={() => setKgWeekOffset(kgWeekOffset + 1)} disabled={kgWeekOffset >= 0}>{">"}</Button>
                             </div>
                             <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
-                                <Button onClick={() => setKgFilter('Todos')} className={`text-xs !px-2 !py-1 ${kgFilter === 'Todos' ? 'bg-white shadow' : 'bg-transparent shadow-none'}`}>Todos</Button>
-                                <Button onClick={() => setKgFilter('Aéreos')} className={`text-xs !px-2 !py-1 ${kgFilter === 'Aéreos' ? 'bg-white shadow' : 'bg-transparent shadow-none'}`}>Aéreos</Button>
-                                <Button onClick={() => setKgFilter('Marítimos')} className={`text-xs !px-2 !py-1 ${kgFilter === 'Marítimos' ? 'bg-white shadow' : 'bg-transparent shadow-none'}`}>Marítimos</Button>
+                                {/* Applied enhanced active style with border */}
+                                <Button onClick={() => setKgFilter('Todos')} className={`text-xs !px-2 !py-1 ${kgFilter === 'Todos' ? 'bg-white text-francia-700 border-francia-500 border-2 font-semibold shadow' : 'bg-transparent text-slate-700 hover:bg-slate-200 border-transparent border-2 shadow-none'}`}>Todos</Button>
+                                <Button onClick={() => setKgFilter('Aéreos')} className={`text-xs !px-2 !py-1 ${kgFilter === 'Aéreos' ? 'bg-white text-francia-700 border-francia-500 border-2 font-semibold shadow' : 'bg-transparent text-slate-700 hover:bg-slate-200 border-transparent border-2 shadow-none'}`}>Aéreos</Button>
+                                <Button onClick={() => setKgFilter('Marítimos')} className={`text-xs !px-2 !py-1 ${kgFilter === 'Marítimos' ? 'bg-white text-francia-700 border-francia-500 border-2 font-semibold shadow' : 'bg-transparent text-slate-700 hover:bg-slate-200 border-transparent border-2 shadow-none'}`}>Marítimos</Button>
                             </div>
                         </div>
                         <ResponsiveContainer width="100%" height={300}>

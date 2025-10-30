@@ -1,22 +1,22 @@
 /* eslint-disable react/prop-types */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { db, storage } from "/src/firebase.js";
+import { db, storage } from "../../firebase.js";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { doc, getDoc, runTransaction, setDoc, onSnapshot } from "firebase/firestore";
 
 // Context
-import { useModal } from "/src/context/ModalContext.jsx";
+import { useModal } from "../../context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx";
-import { Button } from "/src/components/common/Button.jsx";
-import { Field } from "/src/components/common/Field.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { InfoBox } from "/src/components/common/InfoBox.jsx";
-import { ManageList } from "/src/components/common/ManageList.jsx";
-import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
-import { CameraModal } from "/src/components/common/CameraModal.jsx";
-import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx";
+import { Section } from "../common/Section.jsx";
+import { Button } from "../common/Button.jsx";
+import { Field } from "../common/Field.jsx";
+import { Input } from "../common/Input.jsx";
+import { InfoBox } from "../common/InfoBox.jsx";
+import { ManageList } from "../common/ManageList.jsx";
+import { QrCodeModal } from "../common/QrCodeModal.jsx";
+import { CameraModal } from "../common/CameraModal.jsx";
+import { ImageViewerModal } from "../common/ImageViewerModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -31,7 +31,7 @@ import {
   labelHTML,
   printHTMLInIframe,
   uuid
-} from "/src/utils/helpers.jsx";
+} from "../../utils/helpers.jsx";
 
 export function Reception({ currentUser, couriers, setCouriers, estados, setEstados, empresasEnvio, setEmpresasEnvio, flights, packages, onAdd }) {
   const vuelosBodega = flights.filter(f => f.estado === "En bodega");
@@ -47,6 +47,8 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
   });
 
   const [isUploading, setIsUploading] = useState(false);
+  // --- NUEVO ESTADO PARA PREVENIR DOBLE SUBMIT ---
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showMgr, setShowMgr] = useState(false);
   const fileRef = useRef(null);
   const [uploadSessionId, setUploadSessionId] = useState(null);
@@ -140,74 +142,86 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
   ].every(k => String(form[k] || "").trim() !== "");
 
   const submit = async () => {
-    if (isUploading) return;
+    // --- MODIFICADO: Chequear ambos estados ---
+    if (isUploading || isSubmitting) return;
     if (!flightId) { await showAlert("Error de validación", "Seleccioná una Carga."); return; }
     if (!okCampos()) { await showAlert("Error de validación", "Faltan campos obligatorios."); return; }
 
-    const fl = flights.find(f => f.id === flightId);
-    if (fl?.codigo.toUpperCase().startsWith("AIR-MULTI") && form.courier === "ParaguayBox") {
-      await showAlert("Validación de Carga", "No se permite cargar paquetes de ParaguayBox en cargas que comiencen con AIR-MULTI.");
-      return;
-    }
-
-    let finalCode = "";
+    // --- MODIFICADO: Activar estado de envío y envolver en try/finally ---
+    setIsSubmitting(true);
     try {
-      await runTransaction(db, async (transaction) => {
-        const prefix = courierPrefix(form.courier);
-        const counterRef = doc(db, "counters", "packageSequences");
-        const counterDoc = await transaction.get(counterRef);
+      const fl = flights.find(f => f.id === flightId);
+      if (fl?.codigo.toUpperCase().startsWith("AIR-MULTI") && form.courier === "ParaguayBox") {
+        await showAlert("Validación de Carga", "No se permite cargar paquetes de ParaguayBox en cargas que comiencen con AIR-MULTI.");
+        return; // El finally se ejecutará
+      }
 
-        if (!counterDoc.exists() || counterDoc.data()?.[prefix] === undefined) {
-          throw new Error(`El contador para "${prefix}" no está configurado en Firestore.`);
-        }
+      let finalCode = "";
+      try {
+        await runTransaction(db, async (transaction) => {
+          const prefix = courierPrefix(form.courier);
+          const counterRef = doc(db, "counters", "packageSequences");
+          const counterDoc = await transaction.get(counterRef);
 
-        let newCount = (counterDoc.data()[prefix] || 0) + 1;
-        if (newCount > 999) newCount = 1;
+          if (!counterDoc.exists() || counterDoc.data()?.[prefix] === undefined) {
+            throw new Error(`El contador para "${prefix}" no está configurado en Firestore.`);
+          }
 
-        transaction.update(counterRef, { [prefix]: newCount });
-        finalCode = `${prefix}${newCount}`;
+          let newCount = (counterDoc.data()[prefix] || 0) + 1;
+          if (newCount > 999) newCount = 1;
+
+          transaction.update(counterRef, { [prefix]: newCount });
+          finalCode = `${prefix}${newCount}`;
+        });
+      } catch (e) {
+        console.error("Error en la transacción del contador: ", e);
+        await showAlert("Error de base de datos", `No se pudo generar el código del paquete. Error: ${e.message}`);
+        return; // El finally se ejecutará
+      }
+
+      if (packages.some(p => p.flight_id === flightId && p.codigo === finalCode)) {
+        await showAlert("Error de duplicado", `El código de paquete "${finalCode}" ya existe en esta carga. Intente de nuevo.`);
+        return; // El finally se ejecutará
+      }
+
+      const newPackage = {
+        createdAt: new Date().toISOString(),
+        flight_id: flightId,
+        courier: form.courier, estado: form.estado, casilla: form.casilla,
+        codigo: finalCode,
+        codigo_full: `${fl?.codigo || "CARGA"}-${finalCode}`,
+        fecha: form.fecha, ci_ruc: form.ci_ruc, empresa_envio: form.empresa, nombre_apellido: form.nombre,
+        tracking: form.tracking, remitente: form.remitente,
+        peso_real: peso, largo: L, ancho: A, alto: H,
+        descripcion: form.desc, valor_aerolinea: parseComma(form.valor_txt),
+        peso_facturable: Number(fact.toFixed(3)), peso_volumetrico: Number(vol.toFixed(3)), exceso_volumen: Number(exc.toFixed(3)),
+        fotos: form.fotos,
+        estado_bodega: "En bodega",
+      };
+
+      const medidas = `${L}x${A}x${H} cm`;
+      const html = labelHTML({
+        codigo: finalCode, nombre: form.nombre, casilla: form.casilla,
+        pesoKg: peso, medidasTxt: medidas, desc: form.desc, cargaTxt: fl?.codigo || "-", fecha: form.fecha,
+        courier: form.courier
       });
-    } catch (e) {
-      console.error("Error en la transacción del contador: ", e);
-      await showAlert("Error de base de datos", `No se pudo generar el código del paquete. Error: ${e.message}`);
-      return;
+
+      await onAdd(newPackage);
+      printHTMLInIframe(html); // Esta es la parte lenta
+
+      setFlightId("");
+      setForm(f => ({
+        ...f, courier: currentUser.role === "COURIER" ? f.courier : "", estado: "", casilla: "", codigo: "", ci_ruc: "", empresa: "", nombre: "", tracking: "", remitente: "",
+        peso_real_txt: "", L_txt: "", A_txt: "", H_txt: "", desc: "", valor_txt: "", fotos: []
+      }));
+    
+    } catch (error) {
+        console.error("Error inesperado al guardar el paquete:", error);
+        await showAlert("Error inesperado", `Ocurrió un error: ${error.message}`);
+    } finally {
+        // --- MODIFICADO: Desactivar estado de envío ---
+        setIsSubmitting(false);
     }
-
-    if (packages.some(p => p.flight_id === flightId && p.codigo === finalCode)) {
-      await showAlert("Error de duplicado", `El código de paquete "${finalCode}" ya existe en esta carga. Intente de nuevo.`);
-      return;
-    }
-
-    const newPackage = {
-      createdAt: new Date().toISOString(),
-      flight_id: flightId,
-      courier: form.courier, estado: form.estado, casilla: form.casilla,
-      codigo: finalCode,
-      codigo_full: `${fl?.codigo || "CARGA"}-${finalCode}`,
-      fecha: form.fecha, ci_ruc: form.ci_ruc, empresa_envio: form.empresa, nombre_apellido: form.nombre,
-      tracking: form.tracking, remitente: form.remitente,
-      peso_real: peso, largo: L, ancho: A, alto: H,
-      descripcion: form.desc, valor_aerolinea: parseComma(form.valor_txt),
-      peso_facturable: Number(fact.toFixed(3)), peso_volumetrico: Number(vol.toFixed(3)), exceso_volumen: Number(exc.toFixed(3)),
-      fotos: form.fotos,
-      estado_bodega: "En bodega",
-    };
-
-    const medidas = `${L}x${A}x${H} cm`;
-    const html = labelHTML({
-      codigo: finalCode, nombre: form.nombre, casilla: form.casilla,
-      pesoKg: peso, medidasTxt: medidas, desc: form.desc, cargaTxt: fl?.codigo || "-", fecha: form.fecha,
-      courier: form.courier
-    });
-
-    await onAdd(newPackage);
-    printHTMLInIframe(html);
-
-    setFlightId("");
-    setForm(f => ({
-      ...f, courier: currentUser.role === "COURIER" ? f.courier : "", estado: "", casilla: "", codigo: "", ci_ruc: "", empresa: "", nombre: "", tracking: "", remitente: "",
-      peso_real_txt: "", L_txt: "", A_txt: "", H_txt: "", desc: "", valor_txt: "", fotos: []
-    }));
   };
   
   const startMobileUploadSession = async () => {
@@ -351,8 +365,9 @@ export function Reception({ currentUser, couriers, setCouriers, estados, setEsta
         <InfoBox title="Exceso de volumen" value={`${fmtPeso(exc)} kg`} />
       </div>
       <div className="flex justify-end mt-6">
-        <Button variant="primary" onClick={submit} disabled={isUploading}>
-          {isUploading ? "Subiendo foto..." : "Guardar paquete"}
+        {/* --- MODIFICADO: Deshabilitar con isSubmitting y cambiar texto --- */}
+        <Button variant="primary" onClick={submit} disabled={isUploading || isSubmitting}>
+          {isSubmitting ? "Guardando..." : (isUploading ? "Subiendo foto..." : "Guardar paquete")}
         </Button>
       </div>
       

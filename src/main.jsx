@@ -27,3 +27,5 @@ if (isUploadPage) {
     </React.StrictMode>
   );
 }
+
+// Forzar redeploy - timestamp: 2025

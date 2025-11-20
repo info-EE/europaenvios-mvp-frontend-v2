@@ -86,19 +86,32 @@ export function CargasEnviadas({ packages, flights, user }) {
     });
 
     const query = q.toLowerCase();
+    let finalPkgs = pkgs;
 
     if (isGlobalSearchActive) {
       // 4a. SI HAY BÚSQUEDA GLOBAL: Filtrar paquetes de TODAS las cargas enviadas por el texto de búsqueda.
-      return pkgs.filter(p => 
+      finalPkgs = pkgs.filter(p => 
         (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier + p.descripcion).toLowerCase().includes(query)
       );
     } else if (flightId) {
       // 4b. SI NO HAY BÚSQUEDA PERO HAY CARGA SELECCIONADA: Filtrar solo por la carga seleccionada (comportamiento original)
-      return pkgs.filter(p => p.flight_id === flightId);
+      finalPkgs = pkgs.filter(p => p.flight_id === flightId);
     } else {
       // 4c. SI NO HAY NADA ACTIVO: Mostrar vacío
-      return [];
+      finalPkgs = [];
     }
+
+    // 5. ORDENAMIENTO: Ordenar por fecha de creación (createdAt) o fecha, descendente.
+    return finalPkgs.sort((a, b) => {
+        const dateA = a.createdAt || a.fecha || "";
+        const dateB = b.createdAt || b.fecha || "";
+        // Usamos localeCompare para ordenar cadenas de texto, pero invertimos para descendente.
+        // Si no existe createdAt, fecha funciona como fallback.
+        if (dateA < dateB) return 1;
+        if (dateA > dateB) return -1;
+        return 0;
+    });
+
   }, [packages, flights, user, pref, flightId, q, isGlobalSearchActive]); 
 
   // Totales de courier para la carga seleccionada (no afectados por búsqueda global)

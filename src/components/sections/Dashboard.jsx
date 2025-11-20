@@ -3,12 +3,12 @@ import React, { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 
 // Componentes
-// Corrected: Use relative paths
+// Corregido: Usar ruta relativa estándar (una vez más, ajustada)
 import { Button } from "../common/Button.jsx";
 
 // Helpers & Constantes
-// Corrected: Use relative paths
-import { Iconos, sum, fmtPeso, COLORS } from "../../utils/helpers.jsx";
+// Corregido: Usar ruta relativa estándar (una vez más, ajustada)
+import { Iconos, sum, fmtPeso, COLORS, parseComma } from "../../utils/helpers.jsx"; // Importamos 'parseComma'
 
 
 // --- START: Icons for Courier Dashboard ---
@@ -208,14 +208,13 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
 
             const flightCode = flight.codigo || "Sin Código";
 
+            // CORRECCIÓN CLAVE: Usar peso_facturable en lugar de peso_real para couriers
             if (airFlights.has(p.flight_id)) {
                 if (!airSummary[flightCode]) airSummary[flightCode] = { count: 0, weight: 0 };
-                // airSummary[flightCode].count++; // No longer needed
-                airSummary[flightCode].weight += (p.peso_real || 0);
+                airSummary[flightCode].weight += (p.peso_facturable || 0); // <-- CORREGIDO
             } else if (seaFlights.has(p.flight_id)) {
                  if (!seaSummary[flightCode]) seaSummary[flightCode] = { count: 0, weight: 0 };
-                // seaSummary[flightCode].count++; // No longer needed
-                seaSummary[flightCode].weight += (p.peso_real || 0);
+                seaSummary[flightCode].weight += (p.peso_facturable || 0); // <-- CORREGIDO
             }
         });
 
@@ -298,7 +297,7 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
         return { chartData: orderedChartData, weekStart, weekEnd, totalPackages: filteredPackages.length };
     }, [isAdmin, packages, flights, packageWeekOffset, packageFilter]);
 
-    // *** MODIFIED CALCULATION FOR KG PIE CHART ***
+    // *** KG POR COURIER ADMIN (usa peso real de paquete en bodega) ***
     const kgPorCourierAdmin = useMemo(() => {
         if (!isAdmin) return [];
         const agg = {};
@@ -385,23 +384,46 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
         return { chartData: orderedChartData, weekStart, weekEnd, totalKg: sum(filteredPackages.map(p => p.peso_real)) };
     }, [isAdmin, packages, flights, kgWeekOffset, kgFilter]);
 
-    // --- Common Cargo Status Calculation (used by both, filtered later if needed) ---
+    // --- MODIFIED CARGO STATUS CALCULATION FOR ADMIN WEIGHT LOGIC ---
     const estadoCargasData = useMemo(() => {
         const sortedFlights = [...flights].sort((a, b) => (b.fecha_salida || "").localeCompare(a.fecha_salida || ""));
 
         const mapFlightData = (flight) => {
+            // 1. Filter packages relevant to the current user (all for Admin, only courier's for Courier)
             const relevantPackages = isCourier
                 ? packages.filter(p => p.flight_id === flight.id && p.courier === courierName)
                 : packages.filter(p => p.flight_id === flight.id);
 
-            const totalWeight = sum(relevantPackages.map(p => p.peso_real));
-            const boxCount = flight.cajas?.length || 0;
+            // Check if the courier participated. This logic remains the same for courier visibility.
             const courierParticipated = isCourier ? relevantPackages.length > 0 : true;
+            if (!courierParticipated) return null;
 
-            return courierParticipated ? {
+            let totalWeight;
+
+            if (isAdmin) {
+                // ADMIN LOGIC: Use Cajas weight unless status is 'En bodega'.
+                const isEnBodega = flight.estado === 'En bodega';
+                
+                if (isEnBodega) {
+                    // Si está 'En bodega', siempre se muestra peso por paquete (peso_real).
+                    totalWeight = sum(relevantPackages.map(p => p.peso_real));
+                } else {
+                    // Si no está "En bodega" (En tránsito, Arribada, Entregada, Cobrada), se usa el peso de las cajas armadas.
+                    totalWeight = sum((flight.cajas || []).map(c => parseComma(c.peso) || 0));
+                }
+
+            } else {
+                // COURIER LOGIC: Always use sum of package peso_facturable (CORREGIDO)
+                totalWeight = sum(relevantPackages.map(p => p.peso_facturable)); // <-- CORREGIDO
+            }
+
+
+            const boxCount = flight.cajas?.length || 0;
+
+            return {
                 id: flight.id, nombre: flight.codigo, fechaSalida: flight.fecha_salida || 'N/A',
                 pesoTotal: totalWeight, cantidadCajas: boxCount, estado: flight.estado
-            } : null;
+            };
         };
 
         const latestAir = sortedFlights
@@ -412,7 +434,7 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
             .map(mapFlightData).filter(Boolean).slice(0, 6);
 
         return { latestAir, latestSea };
-    }, [flights, packages, isCourier, courierName]);
+    }, [flights, packages, isAdmin, isCourier, courierName]);
 
 
     const formatWeekRangeForDisplay = (startDateUTC, endDateUTC) => {
@@ -436,7 +458,6 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
 
     // --- Render Admin Dashboard ---
     if (isAdmin) {
-        // ... (Admin dashboard code) ...
          return (
             <div>
                 <h1 className="text-2xl font-bold text-slate-800 mb-6">Dashboard</h1>
@@ -554,6 +575,7 @@ export function Dashboard({ packages, flights, pendientes, onTabChange, currentU
                 </div>
                  {/* Estado de Cargas */}
                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+                     {/* Se utiliza el mismo componente, la lógica de peso se modificó en estadoCargasData */}
                      <EstadoCargasTable title="Estado de Cargas Aéreas (Últimas 10)" data={estadoCargasData.latestAir} showBoxCount={true} />
                      <EstadoCargasTable title="Estado de Cargas Marítimas (Últimas 6)" data={estadoCargasData.latestSea} showBoxCount={true} />
                  </div>

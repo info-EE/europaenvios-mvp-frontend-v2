@@ -4,18 +4,18 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 
 // Context
-import { useModal } from "/src/context/ModalContext.jsx"; // Reverted to absolute path
+import { useModal } from "/src/context/ModalContext.jsx";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx"; // Reverted to absolute path
-import { Input } from "/src/components/common/Input.jsx"; // Reverted to absolute path
-import { Field } from "/src/components/common/Field.jsx"; // Reverted to absolute path
-import { Modal } from "/src/components/common/Modal.jsx"; // Reverted to absolute path
-import { EmptyState } from "/src/components/common/EmptyState.jsx"; // Reverted to absolute path
-import { Button } from "/src/components/common/Button.jsx"; // Reverted to absolute path
-import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx"; // Reverted to absolute path
-import { CameraModal } from "/src/components/common/CameraModal.jsx"; // Reverted to absolute path
-import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx"; // Reverted to absolute path
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { Modal } from "/src/components/common/Modal.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { QrCodeModal } from "/src/components/common/QrCodeModal.jsx";
+import { CameraModal } from "/src/components/common/CameraModal.jsx";
+import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -40,9 +40,9 @@ import {
   tdInt,
   estadosPermitidosPorCarga,
   getColumnWidths
-} from "/src/utils/helpers.jsx"; // Reverted to absolute path
+} from "/src/utils/helpers.jsx";
 import { getDownloadURL, ref, uploadString } from "firebase/storage";
-import { db, storage } from "/src/firebase.js"; // Reverted to absolute path
+import { db, storage } from "/src/firebase.js";
 
 const SortableHeader = ({ children, col, sort, toggleSort }) => {
     const isSorted = sort.key === col;
@@ -375,16 +375,31 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
           <tbody className="divide-y divide-slate-200">
             {rows.map(p => {
               const carga = flights.find(f => f.id === p.flight_id)?.codigo || "";
+              
+              // --- Lógica de colores aplicada ---
+              const isComplicado = carga.toUpperCase().startsWith("COMP");
+              const isMaritimo = carga.toUpperCase().startsWith("MAR");
+              const isSinCasilla = !p.casilla || p.casilla.trim() === "";
+
+              let rowClass = "hover:bg-slate-50 transition-colors";
+              if (isComplicado) {
+                  rowClass = "bg-red-100 hover:bg-red-200 text-red-900";
+              } else if (isSinCasilla) {
+                  rowClass = "bg-yellow-100 hover:bg-yellow-200 text-yellow-900";
+              } else if (isMaritimo) {
+                  rowClass = "bg-sky-100 hover:bg-sky-200 text-sky-900";
+              }
+
               return (
-                <tr key={p.id} className="hover:bg-slate-50">
-                  <td className="px-3 py-2 whitespace-nowrap">{carga}</td>
+                <tr key={p.id} className={rowClass}>
+                  <td className="px-3 py-2 whitespace-nowrap font-medium">{carga}</td>
                   <td className="px-3 py-2 font-mono whitespace-nowrap">{p.codigo}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">{p.casilla}</td>
+                  <td className="px-3 py-2 whitespace-nowrap font-bold">{p.casilla}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{p.fecha}</td>
                   <td className="px-3 py-2">{p.nombre_apellido}</td>
                   <td className="px-3 py-2 whitespace-nowrap font-mono">
                     {p.ci_ruc ? (
-                        <span className="flex items-center gap-1 text-slate-700">
+                        <span className="flex items-center gap-1 opacity-90">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-green-500 flex-shrink-0"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.06 0l4-5.5z" clipRule="evenodd" /></svg>
                             {p.ci_ruc}
                         </span>
@@ -395,7 +410,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
                         </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 font-mono">{p.tracking}</td>
+                  <td className="px-3 py-2 font-mono opacity-80">{p.tracking}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_real)} kg</td>
                   <td className="px-3 py-2 whitespace-nowrap">{p.largo}x{p.ancho}x{p.alto} cm</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtPeso(p.peso_volumetrico)} kg</td> {/* Added Cell */}

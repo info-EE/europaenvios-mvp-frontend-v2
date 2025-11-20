@@ -32,10 +32,14 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
       // Enriquecer con info de la carga
       const vuelo = flights.find(f => f.id === p.flight_id);
       const estadoCarga = vuelo ? vuelo.estado : "Desconocido";
-      const codigoCarga = vuelo ? vuelo.codigo : "—";
+      const codigoCarga = (vuelo ? vuelo.codigo : "—") || "";
       
       let ubicacion = "En Bodega";
       if (estadoCarga !== "En bodega") ubicacion = `Enviado (${estadoCarga})`;
+
+      // Detectar condiciones para colores
+      const isComplicado = codigoCarga.toUpperCase().startsWith("COMP");
+      const isMaritimo = codigoCarga.toUpperCase().startsWith("MAR");
 
       return {
         id: p.id,
@@ -48,7 +52,9 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
         fecha: p.fecha,
         createdAt: p.createdAt, // Añadido para ordenamiento preciso
         courier: p.courier,
-        fotos: p.fotos || []
+        fotos: p.fotos || [],
+        isComplicado,
+        isMaritimo
       };
     });
 
@@ -70,7 +76,8 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
       fecha: item.fecha,
       createdAt: item.createdAt || item.fecha, // Fallback a fecha si no hay createdAt
       courier: "—",
-      fotos: item.foto ? [item.foto] : []
+      fotos: item.foto ? [item.foto] : [],
+      isSinCasilla: true
     }));
 
     // Combinar y ordenar por fecha (más reciente primero)
@@ -135,22 +142,32 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
                 // - Courier NO ve fotos de "Sin Casilla" (porque no le pertenecen).
                 const showPhoto = !isCourier || row.tipo === "Paquete";
 
+                // Definir clase de la fila según condiciones
+                let rowClass = "hover:bg-francia-50 transition-colors";
+                if (row.isComplicado) {
+                    rowClass = "bg-red-100 hover:bg-red-200 text-red-900";
+                } else if (row.isSinCasilla) {
+                    rowClass = "bg-yellow-100 hover:bg-yellow-200 text-yellow-900";
+                } else if (row.isMaritimo) {
+                    rowClass = "bg-sky-100 hover:bg-sky-200 text-sky-900";
+                }
+
                 return (
-                  <tr key={`${row.tipo}-${row.id}`} className="hover:bg-francia-50 transition-colors">
+                  <tr key={`${row.tipo}-${row.id}`} className={rowClass}>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        row.tipo === "Sin Casilla" ? "bg-red-100 text-red-800" :
+                        row.tipo === "Sin Casilla" ? "bg-white text-red-800 border border-red-200" :
                         row.ubicacion === "En Bodega" ? "bg-blue-100 text-blue-800" :
                         "bg-green-100 text-green-800"
                       }`}>
                         {row.ubicacion}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono font-bold text-slate-700 whitespace-nowrap">{row.codigo}</td>
-                    <td className="px-4 py-3 text-slate-800">{row.cliente}</td>
-                    <td className="px-4 py-3 font-mono text-slate-500">{row.tracking}</td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">{row.infoAdicional}</td>
-                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{row.fecha}</td>
+                    <td className="px-4 py-3 font-mono font-bold whitespace-nowrap">{row.codigo}</td>
+                    <td className="px-4 py-3 font-semibold">{row.cliente}</td>
+                    <td className="px-4 py-3 font-mono opacity-80">{row.tracking}</td>
+                    <td className="px-4 py-3 text-xs opacity-90">{row.infoAdicional}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{row.fecha}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {showPhoto && row.fotos && row.fotos.length > 0 ? (
                         <Button 
@@ -161,7 +178,7 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
                           Ver foto
                         </Button>
                       ) : (
-                        <span className="text-slate-400 text-xs">—</span>
+                        <span className="opacity-50 text-xs">—</span>
                       )}
                     </td>
                   </tr>

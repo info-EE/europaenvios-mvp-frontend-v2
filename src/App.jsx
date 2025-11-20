@@ -16,6 +16,7 @@ import { useModal } from "/src/context/ModalContext.jsx";
 import { Login } from "/src/components/sections/Login.jsx";
 import { Dashboard } from "/src/components/sections/Dashboard.jsx";
 import { Reception } from "/src/components/sections/Reception.jsx";
+import { BuscadorMaestro } from "/src/components/sections/BuscadorMaestro.jsx"; 
 import { PaquetesSinCasilla } from "/src/components/sections/PaquetesSinCasilla.jsx";
 import { Usuarios } from "/src/components/sections/Usuarios.jsx";
 import { Pendientes } from "/src/components/sections/Pendientes.jsx";
@@ -220,7 +221,8 @@ function App() {
   const allowedTabs = tabsForRole(currentUser.role);
   const navStructure = [
     { category: "Principal", icon: Iconos.dashboard, tabs: ["Dashboard"] },
-    { category: "Paquetes", icon: Iconos.paquetes, tabs: ["Recepción", "Paquetes en bodega", "Paquetes sin casilla", "Pendientes"] },
+    // <-- CAMBIO AQUÍ: "Buscador" -> "Buscador de paquetes"
+    { category: "Paquetes", icon: Iconos.paquetes, tabs: ["Recepción", "Buscador de paquetes", "Paquetes en bodega", "Paquetes sin casilla", "Pendientes"] }, 
     { category: "Envíos", icon: Iconos.envios, tabs: ["Armado de cajas", "Cargas enviadas", "Gestión de cargas", "Proformas", "Extras"] },
     { category: "Administración", icon: Iconos.gestion, tabs: ["Usuarios"] },
   ];
@@ -231,6 +233,8 @@ function App() {
         return <Dashboard packages={packages} flights={flights} pendientes={pendientes} onTabChange={setTab} currentUser={currentUser} />;
       case "Recepción":
         return <Reception currentUser={currentUser} couriers={couriers} setCouriers={couriersHandlers} estados={estados} setEstados={estadosHandlers} empresasEnvio={empresasEnvio} setEmpresasEnvio={empresasEnvioHandlers} flights={flights} packages={packages} onAdd={packagesHandlers.add}/>;
+      case "Buscador de paquetes": // <-- CAMBIO AQUÍ
+        return <BuscadorMaestro packages={packages} flights={flights} sinCasillaItems={sinCasillaItems} user={currentUser} />;
       case "Paquetes sin casilla":
         return <PaquetesSinCasilla currentUser={currentUser} items={sinCasillaItems} onAdd={sinCasillaHandlers.add} onUpdate={sinCasillaHandlers.update} onRemove={sinCasillaHandlers.remove} onAsignarCasilla={moverPaqueteAPendientes} />;
       case "Pendientes":

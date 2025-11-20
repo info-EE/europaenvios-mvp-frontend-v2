@@ -23,6 +23,12 @@ import {
 
 // Constantes de cálculo de la lógica de negocio original
 const T = { proc: 5, fleteReal: 9, fleteExc: 9, despacho: 10, fleteMaritimo: 12 };
+const PRECIO_MARITIMO_PARAGUAYBOX_EUR = 9.00; // Precio unitario de flete marítimo para ParaguayBox (en EUR)
+
+// NOTA: Esta tasa de cambio debe ser gestionada dinámicamente en producción.
+// Se usa un valor fijo (1.15) solo para el cálculo interno de la proforma.
+const EUR_TO_USD_RATE = 1.15; 
+
 const canjeGuiaUSD = (kg) => kg <= 5 ? 10 : kg <= 10 ? 13.5 : kg <= 30 ? 17 : kg <= 50 ? 37 : kg <= 100 ? 57 : 100;
 
 export function Proformas({ packages, flights, extras, user }) {
@@ -85,7 +91,8 @@ export function Proformas({ packages, flights, extras, user }) {
     const isAirMulti = flightCode.startsWith("AIR-MULTI");
 
     const extrasList = extrasDeCourier(r.courier);
-    const extrasMonto = extrasList.reduce((s, e) => s + parseComma(e.monto), 0);
+    // El extrasMonto por defecto es el valor en USD para Aéreo y Marítimo NO-ParaguayBox
+    const extrasMontoUSD = extrasList.reduce((s, e) => s + parseComma(e.monto), 0);
 
     if (isPybox && r.courier === 'ParaguayBox') {
         const cajasDelVuelo = flight.cajas || [];
@@ -99,7 +106,7 @@ export function Proformas({ packages, flights, extras, user }) {
         const costoProcesamiento = totalPesoRealCajas * 24.00;
         const costoExceso = excesoVolumenCantidad * 8.00;
 
-        total = costoProcesamiento + costoExceso + extrasMonto;
+        total = costoProcesamiento + costoExceso + extrasMontoUSD;
 
         detalle = [
             ["Procesamiento, envío y despacho aduanero carga aérea", totalPesoRealCajas, 24.00, costoProcesamiento],
@@ -107,13 +114,41 @@ export function Proformas({ packages, flights, extras, user }) {
             ...extrasList.map(e => [e.descripcion, 1, parseComma(e.monto), parseComma(e.monto)])
         ];
     } else if (isMaritimo) {
-      const fleteTotal = r.kg_fact * T.fleteMaritimo;
-      total = fleteTotal + extrasMonto;
-      detalle = [
-        ["Envío marítimo España-Paraguay", r.kg_fact, T.fleteMaritimo, fleteTotal],
-        ...extrasList.map(e => [e.descripcion, 1, parseComma(e.monto), parseComma(e.monto)])
-      ];
-    } else { // Lógica para Aéreo normal
+      
+      let fleteUnitarioUSD = 0; // Inicialización explícita
+      
+      if (r.courier === 'ParaguayBox') {
+        const fleteUnitarioEUR = PRECIO_MARITIMO_PARAGUAYBOX_EUR; // 9 EUR
+        
+        // Calcular el total del flete en EUR
+        const fleteTotalEUR = r.kg_fact * fleteUnitarioEUR;
+        
+        // CORRECCIÓN LÓGICA DE CONVERSIÓN: Solo convertir el flete a USD y sumar extras (ya en USD)
+        const fleteTotalUSD = fleteTotalEUR * EUR_TO_USD_RATE;
+        total = fleteTotalUSD + extrasMontoUSD; 
+        fleteUnitarioUSD = fleteUnitarioEUR * EUR_TO_USD_RATE;
+        
+        detalle = [
+          ["Envío marítimo España-Paraguay", r.kg_fact, fleteUnitarioUSD, fleteTotalUSD],
+          ...extrasList.map(e => {
+            const montoUSD = parseComma(e.monto); 
+            return [e.descripcion, 1, montoUSD, montoUSD];
+          })
+        ];
+
+      } else {
+        // Lógica para otros couriers marítimos (usa T.fleteMaritimo, que es 12 USD)
+        fleteUnitarioUSD = T.fleteMaritimo; 
+        const fleteTotal = r.kg_fact * fleteUnitarioUSD;
+        total = fleteTotal + extrasMontoUSD;
+        
+        detalle = [
+          ["Envío marítimo España-Paraguay", r.kg_fact, fleteUnitarioUSD, fleteTotal],
+          ...extrasList.map(e => [e.descripcion, 1, parseComma(e.monto), parseComma(e.monto)])
+        ];
+      }
+      
+    } else { // Lógica para Aéreo normal (siempre en USD, ya estaba bien)
       const proc = r.kg_fact * T.proc;
       const fr = r.kg_fact * T.fleteReal;
       const fe = r.kg_exc * T.fleteExc;
@@ -124,9 +159,9 @@ export function Proformas({ packages, flights, extras, user }) {
         canje = Math.min(canje, 57);
       }
       
-      const com = r.courier !== 'Inflight Box' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
+      const com = r.courier !== 'Inflight Box' ? 0.04 * (proc + fr + fe + extrasMontoUSD) : 0;
       
-      total = proc + fr + fe + desp + canje + extrasMonto + com;
+      total = proc + fr + fe + desp + canje + extrasMontoUSD + com;
 
       detalle = [
         ["Procesamiento", r.kg_fact, T.proc, proc],
@@ -150,159 +185,173 @@ export function Proformas({ packages, flights, extras, user }) {
   async function exportPDF(r) {
     if (!flight) return;
 
-    const { detalle, total } = getProformaData(r);
+    // Esta llamada es la que está fallando
+    try {
+        const { detalle, total } = getProformaData(r);
 
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    let y = 15;
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        let y = 15;
 
-    // Header
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.text("Europa Envíos", pageWidth / 2, y, { align: "center" });
-    y += 7;
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    const headerLines = [
-        "LAMAQUINALOGISTICA, SOCIEDAD LIMITADA",
-        "N.I.F.: B56340656",
-        "CALLE ESTEBAN SALAZAR CHAPELA, NUM 20, PUERTA 87, NAVE 87",
-        "29004 MÁLAGA (ESPAÑA)",
-        "(34) 633 74 08 31",
-    ];
-    doc.text(headerLines, pageWidth / 2, y, { align: "center" });
-    y += (headerLines.length * 4) + 5;
+        // Header
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text("Europa Envíos", pageWidth / 2, y, { align: "center" });
+        y += 7;
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        const headerLines = [
+            "LAMAQUINALOGISTICA, SOCIEDAD LIMITADA",
+            "N.I.F.: B56340656",
+            "CALLE ESTEBAN SALAZAR CHAPELA, NUM 20, PUERTA 87, NAVE 87",
+            "29004 MÁLAGA (ESPAÑA)",
+            "(34) 633 74 08 31",
+        ];
+        doc.text(headerLines, pageWidth / 2, y, { align: "center" });
+        y += (headerLines.length * 4) + 5;
 
-    // Title
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Factura Proforma", pageWidth / 2, y, { align: "center" });
-    y += 6;
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(new Date().toLocaleDateString('es-ES'), pageWidth / 2, y, { align: "center" });
-    y += 12;
+        // Title
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text("Factura Proforma", pageWidth / 2, y, { align: "center" });
+        y += 6;
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(new Date().toLocaleDateString('es-ES'), pageWidth / 2, y, { align: "center" });
+        y += 12;
 
-    // Client Info
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.text("Cliente", 15, y);
-    doc.text("Nº factura", pageWidth / 2, y);
-    y += 5;
-    doc.setFont("helvetica", "normal");
-    doc.text(r.courier, 15, y);
-    doc.text("-", pageWidth / 2, y);
-    
-    // Table
-    const head = [["Descripción", "Cantidad", "Precio unitario", "Precio total"]];
-    const body = detalle.map(item => [
-        item[0],
-        (typeof item[1] === 'number' && item[1] !== 1) ? fmtPeso(item[1]) : (item[1] === 1 ? '1' : item[1]),
-        typeof item[2] === 'number' ? fmtMoney(item[2]) : item[2],
-        typeof item[3] === 'number' ? fmtMoney(item[3]) : item[3],
-    ]);
+        // Client Info
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text("Cliente", 15, y);
+        doc.text("Nº factura", pageWidth / 2, y);
+        y += 5;
+        doc.setFont("helvetica", "normal");
+        doc.text(r.courier, 15, y);
+        doc.text("-", pageWidth / 2, y);
+        
+        // Table
+        const head = [["Descripción", "Cantidad", "Precio unitario", "Precio total"]];
+        const body = detalle.map(item => [
+            item[0],
+            (typeof item[1] === 'number' && item[1] !== 1) ? fmtPeso(item[1]) : (item[1] === 1 ? '1' : item[1]),
+            typeof item[2] === 'number' ? fmtMoney(item[2]) : item[2],
+            typeof item[3] === 'number' ? fmtMoney(item[3]) : item[3],
+        ]);
 
-    doc.autoTable({
-        startY: y + 8,
-        head: head,
-        body: body,
-        theme: 'grid',
-        headStyles: { fillColor: [31, 41, 55], fontStyle: 'bold' },
-        columnStyles: {
-            0: { cellWidth: 85 },
-            1: { halign: 'right' },
-            2: { halign: 'right' },
-            3: { halign: 'right' },
-        },
-        didDrawPage: (data) => {
-            const finalY = data.cursor.y + 10;
-            if (finalY < doc.internal.pageSize.getHeight() - 10) {
-                doc.setFontSize(11);
-                doc.setFont("helvetica", "bold");
-                doc.text("Total", 140, finalY, { align: 'right' });
-                doc.text(`${fmtMoney(total)} USD`, pageWidth - 15, finalY, { align: 'right' });
+        doc.autoTable({
+            startY: y + 8,
+            head: head,
+            body: body,
+            theme: 'grid',
+            headStyles: { fillColor: [31, 41, 55], fontStyle: 'bold' },
+            columnStyles: {
+                0: { cellWidth: 85 },
+                1: { halign: 'right' },
+                2: { halign: 'right' },
+                3: { halign: 'right' },
+            },
+            didDrawPage: (data) => {
+                const finalY = data.cursor.y + 10;
+                if (finalY < doc.internal.pageSize.getHeight() - 10) {
+                    doc.setFontSize(11);
+                    doc.setFont("helvetica", "bold");
+                    doc.text("Total", 140, finalY, { align: 'right' });
+                    doc.text(`${fmtMoney(total)} USD`, pageWidth - 15, finalY, { align: 'right' });
+                }
             }
-        }
-    });
+        });
 
-    doc.save(`Proforma_${r.courier}_${flight.codigo}.pdf`);
+        doc.save(`Proforma_${r.courier}_${flight.codigo}.pdf`);
+    } catch (e) {
+        console.error("Error al exportar PDF:", e);
+        // Si el usuario tiene acceso a useModal, sería mejor usar showAlert.
+        // Como no tengo acceso a useModal aquí, imprimo a la consola.
+        alert(`Error al generar PDF: ${e.message}. Revisa la consola para más detalles.`);
+    }
   }
 
   async function exportX(r) {
     if (!flight) return;
 
-    const { detalle, total } = getProformaData(r);
+    // Esta llamada es la que está fallando
+    try {
+        const { detalle, total } = getProformaData(r);
 
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet("Factura");
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet("Factura");
 
-    const boldStyle = { font: { bold: true } };
-    const headerStyle = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } }, alignment: { horizontal: 'center' } };
-    const totalStyle = { font: { bold: true }, alignment: { horizontal: 'right' } };
+        const boldStyle = { font: { bold: true } };
+        const headerStyle = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } }, alignment: { horizontal: 'center' } };
+        const totalStyle = { font: { bold: true }, alignment: { horizontal: 'right' } };
 
-    ws.getCell('A1').value = "Europa Envíos";
-    ws.getCell('A1').font = { bold: true, size: 14 };
-    ws.mergeCells('A1:D1');
-    ws.getCell('A2').value = "LAMAQUINALOGISTICA, SOCIEDAD LIMITADA";
-    ws.getCell('A3').value = "N.I.F.: B56340656";
-    ws.getCell('A4').value = "CALLE ESTEBAN SALAZAR CHAPELA, NUM 20, PUERTA 87, NAVE 87";
-    ws.getCell('A5').value = "29004 MÁLAGA (ESPAÑA)";
-    ws.getCell('A6').value = "(34) 633 74 08 31";
+        ws.getCell('A1').value = "Europa Envíos";
+        ws.getCell('A1').font = { bold: true, size: 14 };
+        ws.mergeCells('A1:D1');
+        ws.getCell('A2').value = "LAMAQUINALOGISTICA, SOCIEDAD LIMITADA";
+        ws.getCell('A3').value = "N.I.F.: B56340656";
+        ws.getCell('A4').value = "CALLE ESTEBAN SALAZAR CHAPELA, NUM 20, PUERTA 87, NAVE 87";
+        ws.getCell('A5').value = "29004 MÁLAGA (ESPAÑA)";
+        ws.getCell('A6').value = "(34) 633 74 08 31";
 
-    ws.getCell('A8').value = "Factura Proforma";
-    ws.getCell('A8').font = { bold: true, size: 16 };
-    ws.mergeCells('A8:D8');
-    ws.getCell('A9').value = new Date().toLocaleDateString('es-ES');
-    ws.mergeCells('A9:D9');
+        ws.getCell('A8').value = "Factura Proforma";
+        ws.getCell('A8').font = { bold: true, size: 16 };
+        ws.mergeCells('A8:D8');
+        ws.getCell('A9').value = new Date().toLocaleDateString('es-ES');
+        ws.mergeCells('A9:D9');
 
-    ws.getCell('A11').value = "Cliente";
-    ws.getCell('A11').style = boldStyle;
-    ws.getCell('B11').value = "Nº factura";
-    ws.getCell('B11').style = boldStyle;
-    ws.getCell('A12').value = r.courier;
-    ws.getCell('B12').value = "-";
+        ws.getCell('A11').value = "Cliente";
+        ws.getCell('A11').style = boldStyle;
+        ws.getCell('B11').value = "Nº factura";
+        ws.getCell('B11').style = boldStyle;
+        ws.getCell('A12').value = r.courier;
+        ws.getCell('B12').value = "-";
 
-    ws.getCell('A15').value = "Descripción";
-    ws.getCell('A15').style = headerStyle;
-    ws.getCell('B15').value = "Cantidad";
-    ws.getCell('B15').style = headerStyle;
-    ws.getCell('C15').value = "Precio unitario";
-    ws.getCell('C15').style = headerStyle;
-    ws.getCell('D15').value = "Precio total";
-    ws.getCell('D15').style = headerStyle;
+        ws.getCell('A15').value = "Descripción";
+        ws.getCell('A15').style = headerStyle;
+        ws.getCell('B15').value = "Cantidad";
+        ws.getCell('B15').style = headerStyle;
+        ws.getCell('C15').value = "Precio unitario";
+        ws.getCell('C15').style = headerStyle;
+        ws.getCell('D15').value = "Precio total";
+        ws.getCell('D15').style = headerStyle;
 
-    let currentRow = 16;
-    detalle.forEach(item => {
-      ws.getCell(`A${currentRow}`).value = item[0];
-      ws.getCell(`B${currentRow}`).value = typeof item[1] === 'number' ? Number(item[1].toFixed(3)) : item[1];
-      ws.getCell(`B${currentRow}`).numFmt = (item[1] === 1) ? '0' : '#,##0.000';
-      ws.getCell(`C${currentRow}`).value = typeof item[2] === 'number' ? Number(item[2].toFixed(2)) : item[2];
-      ws.getCell(`C${currentRow}`).numFmt = '#,##0.00';
-      ws.getCell(`D${currentRow}`).value = typeof item[3] === 'number' ? Number(item[3].toFixed(2)) : item[3];
-      ws.getCell(`D${currentRow}`).numFmt = '#,##0.00';
-      currentRow++;
-    });
+        let currentRow = 16;
+        detalle.forEach(item => {
+          ws.getCell(`A${currentRow}`).value = item[0];
+          ws.getCell(`B${currentRow}`).value = typeof item[1] === 'number' ? Number(item[1].toFixed(3)) : item[1];
+          ws.getCell(`B${currentRow}`).numFmt = (item[1] === 1) ? '0' : '#,##0.000';
+          ws.getCell(`C${currentRow}`).value = typeof item[2] === 'number' ? Number(item[2].toFixed(2)) : item[2];
+          ws.getCell(`C${currentRow}`).numFmt = '#,##0.00';
+          ws.getCell(`D${currentRow}`).value = typeof item[3] === 'number' ? Number(item[3].toFixed(2)) : item[3];
+          ws.getCell(`D${currentRow}`).numFmt = '#,##0.00';
+          currentRow++;
+        });
 
-    const totalRow = currentRow + 2;
-    ws.getCell(`C${totalRow}`).value = "Total";
-    ws.getCell(`C${totalRow}`).style = totalStyle;
-    ws.getCell(`D${totalRow}`).value = Number(total.toFixed(2));
-    ws.getCell(`D${totalRow}`).style = { font: { bold: true } };
-    ws.getCell(`D${totalRow}`).numFmt = '#,##0.00 "USD"';
+        const totalRow = currentRow + 2;
+        ws.getCell(`C${totalRow}`).value = "Total";
+        ws.getCell(`C${totalRow}`).style = totalStyle;
+        ws.getCell(`D${totalRow}`).value = Number(total.toFixed(2));
+        ws.getCell(`D${totalRow}`).style = { font: { bold: true } };
+        ws.getCell(`D${totalRow}`).numFmt = '#,##0.00 "USD"';
 
-    ws.columns = [
-      { width: 50 }, { width: 15 }, { width: 15 }, { width: 15 }
-    ];
+        ws.columns = [
+          { width: 50 }, { width: 15 }, { width: 15 }, { width: 15 }
+        ];
 
-    wb.xlsx.writeBuffer().then(buffer => {
-      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Proforma_${r.courier}_${flight.codigo}.xlsx`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    });
+        wb.xlsx.writeBuffer().then(buffer => {
+          const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `Proforma_${r.courier}_${flight.codigo}.xlsx`;
+          a.click();
+          window.URL.revokeObjectURL(url);
+        });
+    } catch (e) {
+        console.error("Error al exportar XLSX:", e);
+        alert(`Error al generar XLSX: ${e.message}. Revisa la consola para más detalles.`);
+    }
   }
 
   return (
@@ -325,13 +374,13 @@ export function Proformas({ packages, flights, extras, user }) {
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead><tr className="bg-slate-50">{["Courier", "Kg facturable", "Kg exceso", "TOTAL USD", "Exportar"].map(h => <th key={h} className="text-left px-3 py-2 font-semibold text-slate-600 whitespace-nowrap">{h}</th>)}</tr></thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody>
               {porCourier.map(r => {
                 let tot;
                 let kgExcesoDisplay = r.kg_exc; // Valor por defecto
                 let kgFacturableDisplay = r.kg_fact; // Valor por defecto para kg facturable
 
-                const extrasMonto = extrasDeCourier(r.courier).reduce((s, e) => s + parseComma(e.monto), 0);
+                const extrasMontoUSD = extrasDeCourier(r.courier).reduce((s, e) => s + parseComma(e.monto), 0);
                 const flightCode = (flight.codigo || "").toUpperCase();
                 const isMaritimo = flightCode.startsWith("MAR");
                 const isPybox = flightCode.startsWith("AIR-PYBOX");
@@ -339,8 +388,8 @@ export function Proformas({ packages, flights, extras, user }) {
                 
                 if (isPybox && r.courier === 'ParaguayBox') {
                     const cajasDelVuelo = flight.cajas || [];
-                    const totalPesoVolumetricoCajas = sum(cajasDelVuelo.map(c => (parseIntEU(c.L) * parseIntEU(c.A) * parseIntEU(c.H)) / 6000));
                     const totalPesoRealCajas = sum(cajasDelVuelo.map(c => parseComma(c.peso)));
+                    const totalPesoVolumetricoCajas = sum(cajasDelVuelo.map(c => (parseIntEU(c.L) * parseIntEU(c.A) * parseIntEU(c.H)) / 6000));
                     let excesoVolumenCantidad = totalPesoVolumetricoCajas - totalPesoRealCajas;
                     if (excesoVolumenCantidad < 0) excesoVolumenCantidad = 0;
                     
@@ -349,10 +398,30 @@ export function Proformas({ packages, flights, extras, user }) {
 
                     const costoProcesamiento = totalPesoRealCajas * 24.00;
                     const costoExceso = excesoVolumenCantidad * 8.00;
-                    tot = costoProcesamiento + costoExceso + extrasMonto;
+                    tot = costoProcesamiento + costoExceso + extrasMontoUSD;
 
                 } else if (isMaritimo) {
-                  tot = (r.kg_fact * T.fleteMaritimo) + extrasMonto;
+                  let fleteUnitarioUSD = T.fleteMaritimo; // ¡ASIGNACIÓN INICIAL CORRECTA PARA OTROS COURIERS!
+                  
+                  // Aplicar precio unitario de 9 euros SOLO si es ParaguayBox y convertir a USD.
+                  if (r.courier === 'ParaguayBox') {
+                    const fleteUnitarioEUR = PRECIO_MARITIMO_PARAGUAYBOX_EUR; // 9 EUR
+                    
+                    // Calcular el total del flete en EUR
+                    const fleteTotalEUR = r.kg_fact * fleteUnitarioEUR;
+
+                    // CORRECCIÓN LÓGICA DE CONVERSIÓN: Solo convertir el flete a USD y sumar extras (ya en USD)
+                    const fleteTotalUSD = fleteTotalEUR * EUR_TO_USD_RATE;
+                    tot = fleteTotalUSD + extrasMontoUSD;
+                    fleteUnitarioUSD = fleteUnitarioEUR * EUR_TO_USD_RATE; // Solo para visualización si se usara aquí
+                    
+                  } else {
+                    // Lógica para otros couriers marítimos (usa T.fleteMaritimo que es 12.00, y no aplica conversión)
+                    // fleteUnitarioUSD ya es T.fleteMaritimo (12.00)
+                    const fleteTotal = r.kg_fact * fleteUnitarioUSD;
+                    tot = fleteTotal + extrasMontoUSD;
+                  }
+                  
                 } else { // Aéreo Normal
                   const proc = r.kg_fact * T.proc;
                   const fr = r.kg_fact * T.fleteReal;
@@ -364,8 +433,8 @@ export function Proformas({ packages, flights, extras, user }) {
                     canje = Math.min(canje, 57);
                   }
                   
-                  const com = r.courier !== 'Inflight Box' ? 0.04 * (proc + fr + fe + extrasMonto) : 0;
-                  tot = proc + fr + fe + desp + canje + extrasMonto + com;
+                  const com = r.courier !== 'Inflight Box' ? 0.04 * (proc + fr + fe + extrasMontoUSD) : 0;
+                  tot = proc + fr + fe + desp + canje + extrasMontoUSD + com;
                 }
 
                 return (

@@ -1,11 +1,11 @@
 /* eslint-disable react/prop-types */
 import React, { useState, useMemo } from "react";
-import { Section } from "../common/Section.jsx";
-import { Input } from "../common/Input.jsx";
-import { EmptyState } from "../common/EmptyState.jsx";
-import { Button } from "../common/Button.jsx";
-import { ImageViewerModal } from "../common/ImageViewerModal.jsx";
-import { Iconos } from "../../utils/helpers.jsx";
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx";
+import { Iconos } from "/src/utils/helpers.jsx";
 
 export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
   const [q, setQ] = useState("");
@@ -63,7 +63,9 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
       ubicacion: "Recepción (Sin Casilla)",
       codigo: `SC-${item.numero}`,
       cliente: item.nombre,
-      tracking: item.tracking || "—",
+      // CAMBIO: Si es courier, ocultamos el tracking para que no puedan verlo visualmente en la tabla.
+      // Esto permite que el admin verifique el tracking cuando el courier reclama el paquete.
+      tracking: isCourier ? "—" : (item.tracking || "—"), 
       infoAdicional: "Pendiente de asignar",
       fecha: item.fecha,
       createdAt: item.createdAt || item.fecha, // Fallback a fecha si no hay createdAt

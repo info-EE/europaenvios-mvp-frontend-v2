@@ -108,7 +108,8 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
     });
     if (inTxt === null) return;
     const peso_carton = fmtPeso(parseComma(inTxt));
-    const n = (flight?.cajas?.length || 0) + 1;
+    // El número correlativo se sigue mostrando aquí, como pidió el usuario.
+    const n = (flight?.cajas?.length || 0) + 1; 
     const newBox = { id: uuid(), codigo: `Caja ${n}`, paquetes: [], peso: "", L: "", A: "", H: "", peso_carton };
     const updatedCajas = [...(flight.cajas || []), newBox];
     onUpdateFlight({ ...flight, cajas: updatedCajas });
@@ -228,8 +229,11 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
     const thinBorder = { style: "thin", color: { argb: "FF000000" } };
     const allBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
 
-    (flight.cajas || []).forEach((caja, idx) => {
-      const ws = wb.addWorksheet(`CAJA ${idx + 1}`);
+    (flight.cajas || []).forEach((caja) => { // Eliminamos idx ya que no se usará el correlativo
+      // MODIFICACIÓN CLAVE: Usar caja.codigo para el nombre de la hoja, limpiándolo y truncándolo a 31 caracteres
+      const sheetName = (caja.codigo || `CAJA SIN NOMBRE`).substring(0, 31).trim();
+      
+      const ws = wb.addWorksheet(sheetName);
       const pkgObjs = (caja.paquetes || []).map(pid => packages.find(p => p.id === pid)).filter(Boolean);
       const cantPaquetes = pkgObjs.length;
 
@@ -248,7 +252,8 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
       ws.getCell('B2').alignment = { horizontal: "center", vertical: "center" };
       ws.mergeCells('B2:L2');
 
-      ws.getCell('B3').value = `CAJA Nº ${idx + 1}`;
+      // MODIFICACIÓN CLAVE: Usar caja.codigo para el título dentro de la hoja
+      ws.getCell('B3').value = `${caja.codigo}`;
       ws.getCell('B3').font = { bold: true };
       ws.mergeCells('B3:F3');
 
@@ -294,7 +299,10 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `cajas_${flight.codigo}.xlsx`;
+      
+      // MODIFICACIÓN CLAVE: Usar flight.codigo para el nombre del archivo
+      a.download = `${flight.codigo}_CAJAS.xlsx`;
+      
       a.click();
       window.URL.revokeObjectURL(url);
     });
@@ -305,7 +313,8 @@ export function ArmadoCajas({ packages, flights, onUpdateFlight }) {
     const couriers = new Set(caja.paquetes.map(pid => packages.find(p => p.id === pid)?.courier).filter(Boolean));
     const etiqueta = couriers.size === 0 ? flight.codigo : (couriers.size === 1 ? [...couriers][0] : "MULTICOURIER");
 
-    const boxNumber = (caja.codigo || "").replace(/[^0-9]/g, "") || 'S/N';
+    // Usar el código completo de la caja (ej: "Caja 5", "Caja VIP-001")
+    const boxNumber = caja.codigo || 'S/N'; 
 
     const data = {
       courier: etiqueta,

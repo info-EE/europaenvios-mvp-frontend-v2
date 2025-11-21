@@ -1,15 +1,18 @@
 /* eslint-disable react/prop-types */
 import React, { useState, useMemo } from "react";
-import { Section } from "/src/components/common/Section.jsx";
-import { Input } from "/src/components/common/Input.jsx";
-import { EmptyState } from "/src/components/common/EmptyState.jsx";
-import { Button } from "/src/components/common/Button.jsx";
-import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx";
-import { Iconos } from "/src/utils/helpers.jsx";
+import { Section } from "../common/Section.jsx";
+import { Input } from "../common/Input.jsx";
+import { EmptyState } from "../common/EmptyState.jsx";
+import { Button } from "../common/Button.jsx";
+import { Modal } from "../common/Modal.jsx";
+import { Field } from "../common/Field.jsx";
+import { ImageViewerModal } from "../common/ImageViewerModal.jsx";
+import { Iconos, fmtPeso } from "../../utils/helpers.jsx";
 
 export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
   const [q, setQ] = useState("");
-  const [viewerImages, setViewerImages] = useState([]); // Estado para el visor de imágenes
+  const [viewerImages, setViewerImages] = useState([]); 
+  const [detailsPackage, setDetailsPackage] = useState(null); // Estado para el paquete seleccionado
   
   const isCourier = user?.role === "COURIER";
   const courierName = user?.courier;
@@ -50,16 +53,28 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
         tracking: p.tracking,
         infoAdicional: `Carga: ${codigoCarga} | Casilla: ${p.casilla}`,
         fecha: p.fecha,
-        createdAt: p.createdAt, // Añadido para ordenamiento preciso
+        createdAt: p.createdAt, 
         courier: p.courier,
         fotos: p.fotos || [],
         isComplicado,
-        isMaritimo
+        isMaritimo,
+        // Datos completos para el modal de detalles
+        peso_real: p.peso_real,
+        largo: p.largo,
+        ancho: p.ancho,
+        alto: p.alto,
+        peso_volumetrico: p.peso_volumetrico,
+        peso_facturable: p.peso_facturable,
+        exceso_volumen: p.exceso_volumen,
+        descripcion: p.descripcion,
+        remitente: p.remitente,
+        empresa_envio: p.empresa_envio,
+        casilla: p.casilla,
+        carga_codigo: codigoCarga
       };
     });
 
     // 2. Buscar en Paquetes Sin Casilla
-    // Los paquetes sin casilla son visibles para todos en la búsqueda, pero la foto será restringida en el renderizado para couriers
     const resultadosSinCasilla = sinCasillaItems.filter(item => {
       const searchStr = `${item.nombre} ${item.tracking} ${item.numero}`.toLowerCase();
       return searchStr.includes(query);
@@ -69,29 +84,59 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
       ubicacion: "Recepción (Sin Casilla)",
       codigo: `SC-${item.numero}`,
       cliente: item.nombre,
-      // CAMBIO: Si es courier, ocultamos el tracking para que no puedan verlo visualmente en la tabla.
-      // Esto permite que el admin verifique el tracking cuando el courier reclama el paquete.
       tracking: isCourier ? "—" : (item.tracking || "—"), 
       infoAdicional: "Pendiente de asignar",
       fecha: item.fecha,
-      createdAt: item.createdAt || item.fecha, // Fallback a fecha si no hay createdAt
+      createdAt: item.createdAt || item.fecha,
       courier: "—",
       fotos: item.foto ? [item.foto] : [],
-      isSinCasilla: true
+      isSinCasilla: true,
+      // Datos mínimos para el modal
+      descripcion: "Paquete registrado sin casilla asignada.",
+      peso_real: 0, largo: 0, ancho: 0, alto: 0
     }));
 
-    // Combinar y ordenar por fecha (más reciente primero)
-    // Usamos la misma lógica que en PaquetesBodega: createdAt tiene prioridad, luego fecha.
+    // Combinar y ordenar
     return [...resultadosPaquetes, ...resultadosSinCasilla].sort((a, b) => {
       const dateA = a.createdAt || a.fecha || "";
       const dateB = b.createdAt || b.fecha || "";
-      // Orden descendente (B - A) para que lo más nuevo quede arriba
       if (dateA < dateB) return 1;
       if (dateA > dateB) return -1;
       return 0;
     });
 
   }, [q, packages, flights, sinCasillaItems, isCourier, courierName]);
+
+  // Función para determinar los colores del header del modal
+  const getHeaderColors = (pkg) => {
+    if (pkg.isComplicado) {
+      return {
+        bg: "bg-red-100 border-red-200",
+        text: "text-red-900",
+        label: "text-red-800/70"
+      };
+    }
+    if (pkg.isSinCasilla) {
+      return {
+        bg: "bg-yellow-100 border-yellow-200",
+        text: "text-yellow-900",
+        label: "text-yellow-800/70"
+      };
+    }
+    if (pkg.isMaritimo) {
+      return {
+        bg: "bg-sky-100 border-sky-200",
+        text: "text-sky-900",
+        label: "text-sky-800/70"
+      };
+    }
+    // Default (Aéreo / Normal)
+    return {
+      bg: "bg-slate-50 border-slate-200",
+      text: "text-slate-800",
+      label: "text-slate-500"
+    };
+  };
 
   return (
     <Section title="Buscador de paquetes">
@@ -131,26 +176,17 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
                 <th className="px-4 py-3 text-left font-semibold text-slate-600">Tracking</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-600">Info Extra</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-600">Fecha</th>
-                <th className="px-4 py-3 text-left font-semibold text-slate-600">Foto</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-600">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {resultados.map((row) => {
-                // Lógica de visibilidad de foto:
-                // - Admin ve todo.
-                // - Courier ve solo si es tipo "Paquete" (porque esos ya están filtrados por propiedad).
-                // - Courier NO ve fotos de "Sin Casilla" (porque no le pertenecen).
                 const showPhoto = !isCourier || row.tipo === "Paquete";
 
-                // Definir clase de la fila según condiciones
                 let rowClass = "hover:bg-francia-50 transition-colors";
-                if (row.isComplicado) {
-                    rowClass = "bg-red-100 hover:bg-red-200 text-red-900";
-                } else if (row.isSinCasilla) {
-                    rowClass = "bg-yellow-100 hover:bg-yellow-200 text-yellow-900";
-                } else if (row.isMaritimo) {
-                    rowClass = "bg-sky-100 hover:bg-sky-200 text-sky-900";
-                }
+                if (row.isComplicado) rowClass = "bg-red-100 hover:bg-red-200 text-red-900";
+                else if (row.isSinCasilla) rowClass = "bg-yellow-100 hover:bg-yellow-200 text-yellow-900";
+                else if (row.isMaritimo) rowClass = "bg-sky-100 hover:bg-sky-200 text-sky-900";
 
                 return (
                   <tr key={`${row.tipo}-${row.id}`} className={rowClass}>
@@ -168,18 +204,33 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
                     <td className="px-4 py-3 font-mono opacity-80">{row.tracking}</td>
                     <td className="px-4 py-3 text-xs opacity-90">{row.infoAdicional}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{row.fecha}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {showPhoto && row.fotos && row.fotos.length > 0 ? (
-                        <Button 
-                          variant="secondary" 
-                          className="!px-2 !py-1 text-xs" 
-                          onClick={() => setViewerImages(row.fotos)}
-                        >
-                          Ver foto
-                        </Button>
-                      ) : (
-                        <span className="opacity-50 text-xs">—</span>
-                      )}
+                    <td className="px-4 py-3 whitespace-nowrap text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        {/* Botón Ver Detalles */}
+                        {row.tipo === "Paquete" && (
+                            <Button 
+                                variant="secondary" 
+                                className="!px-2 !py-1 text-xs bg-white/50 hover:bg-white"
+                                onClick={() => setDetailsPackage(row)}
+                                title="Ver información completa"
+                            >
+                                Ver detalles
+                            </Button>
+                        )}
+
+                        {/* Botón Ver Foto */}
+                        {showPhoto && row.fotos && row.fotos.length > 0 ? (
+                          <Button 
+                            variant="secondary" 
+                            className="!px-2 !py-1 text-xs bg-white/50 hover:bg-white" 
+                            onClick={() => setViewerImages(row.fotos)}
+                          >
+                            Ver foto
+                          </Button>
+                        ) : (
+                          row.tipo === "Paquete" && <span className="opacity-50 text-xs px-2">—</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -188,6 +239,97 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
           </table>
         </div>
       )}
+
+      {/* Modal de Detalles del Paquete */}
+      <Modal 
+        open={!!detailsPackage} 
+        onClose={() => setDetailsPackage(null)} 
+        title={`Detalles del Paquete: ${detailsPackage?.codigo}`}
+        maxWidth="max-w-4xl"
+      >
+        {detailsPackage && (() => {
+            const colors = getHeaderColors(detailsPackage);
+            return (
+                <div className="space-y-6">
+                    {/* Cabecera con información clave y colores dinámicos */}
+                    <div className={`${colors.bg} p-4 rounded-lg border grid grid-cols-2 md:grid-cols-4 gap-4`}>
+                        <div>
+                            <span className={`text-xs uppercase font-bold ${colors.label}`}>Estado</span>
+                            <div className={`text-sm font-semibold ${colors.text}`}>{detailsPackage.ubicacion}</div>
+                        </div>
+                        <div>
+                            <span className={`text-xs uppercase font-bold ${colors.label}`}>Carga</span>
+                            <div className={`text-sm font-semibold ${colors.text}`}>{detailsPackage.carga_codigo || "N/A"}</div>
+                        </div>
+                        <div>
+                            <span className={`text-xs uppercase font-bold ${colors.label}`}>Fecha</span>
+                            <div className={`text-sm font-semibold ${colors.text}`}>{detailsPackage.fecha}</div>
+                        </div>
+                        <div>
+                            <span className={`text-xs uppercase font-bold ${colors.label}`}>Casilla</span>
+                            <div className={`text-sm font-semibold ${colors.text}`}>{detailsPackage.casilla}</div>
+                        </div>
+                    </div>
+
+                    {/* Datos del Cliente y Envío (Sin CI/RUC) */}
+                    <div className="grid md:grid-cols-2 gap-4">
+                        <Field label="Cliente"><Input value={detailsPackage.cliente} readOnly className="bg-slate-50" /></Field>
+                        <Field label="Tracking"><Input value={detailsPackage.tracking} readOnly className="bg-slate-50 font-mono" /></Field>
+                        <Field label="Empresa de envío"><Input value={detailsPackage.empresa_envio || ""} readOnly className="bg-slate-50" /></Field>
+                        <Field label="Remitente"><Input value={detailsPackage.remitente || ""} readOnly className="bg-slate-50" /></Field>
+                        <div className="md:col-span-2">
+                            <Field label="Descripción"><Input value={detailsPackage.descripcion || ""} readOnly className="bg-slate-50" /></Field>
+                        </div>
+                    </div>
+
+                    {/* Pesos y Medidas */}
+                    <div>
+                        <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-1">Pesos y Medidas</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {/* Peso Real: Neutro (Gris) */}
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                <div className="text-xs text-slate-500 font-bold">Peso Real</div>
+                                <div className="text-lg font-mono text-slate-700">{fmtPeso(detailsPackage.peso_real)} kg</div>
+                            </div>
+                            {/* Peso Volumétrico: Neutro (Gris) */}
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                <div className="text-xs text-slate-500 font-bold">Peso Volumétrico</div>
+                                <div className="text-lg font-mono text-slate-700">{fmtPeso(detailsPackage.peso_volumetrico)} kg</div>
+                            </div>
+                            {/* Exceso Volumen: Resaltado (Naranja) */}
+                            <div className="bg-orange-50 p-3 rounded-lg border border-orange-100">
+                                <div className="text-xs text-orange-700 font-bold">Exceso Volumen</div>
+                                <div className="text-lg font-mono text-orange-800">{fmtPeso(detailsPackage.exceso_volumen)} kg</div>
+                            </div>
+                            {/* Peso Facturable: Resaltado (Verde) */}
+                            <div className="bg-green-50 p-3 rounded-lg border border-green-100">
+                                <div className="text-xs text-green-700 font-bold">Peso Facturable</div>
+                                <div className="text-xl font-bold font-mono text-green-800">{fmtPeso(detailsPackage.peso_facturable)} kg</div>
+                            </div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-3 gap-4 text-center">
+                            <div className="bg-slate-50 p-2 rounded">
+                                <span className="text-xs text-slate-500 block">Largo</span>
+                                <span className="font-mono font-semibold">{detailsPackage.largo} cm</span>
+                            </div>
+                            <div className="bg-slate-50 p-2 rounded">
+                                <span className="text-xs text-slate-500 block">Ancho</span>
+                                <span className="font-mono font-semibold">{detailsPackage.ancho} cm</span>
+                            </div>
+                            <div className="bg-slate-50 p-2 rounded">
+                                <span className="text-xs text-slate-500 block">Alto</span>
+                                <span className="font-mono font-semibold">{detailsPackage.alto} cm</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                        <Button onClick={() => setDetailsPackage(null)}>Cerrar</Button>
+                    </div>
+                </div>
+            );
+        })()}
+      </Modal>
 
       <ImageViewerModal 
         open={viewerImages.length > 0} 

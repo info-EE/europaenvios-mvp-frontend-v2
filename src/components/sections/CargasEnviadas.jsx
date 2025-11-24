@@ -2,12 +2,13 @@
 import React, { useMemo, useState } from "react";
 
 // Componentes
-import { Section } from "/src/components/common/Section.jsx"; // Reverted to absolute path
-import { Input } from "/src/components/common/Input.jsx"; // Reverted to absolute path
-import { Field } from "/src/components/common/Field.jsx"; // Reverted to absolute path
-import { EmptyState } from "/src/components/common/EmptyState.jsx"; // Reverted to absolute path
-import { Button } from "/src/components/common/Button.jsx"; // Reverted to absolute path
-import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx"; // <-- IMPORTADO VISOR
+// Se han corregido las rutas relativas a absolutas para asegurar la compilación
+import { Section } from "/src/components/common/Section.jsx";
+import { Input } from "/src/components/common/Input.jsx";
+import { Field } from "/src/components/common/Field.jsx";
+import { EmptyState } from "/src/components/common/EmptyState.jsx";
+import { Button } from "/src/components/common/Button.jsx";
+import { ImageViewerModal } from "/src/components/common/ImageViewerModal.jsx";
 
 // Helpers & Constantes
 import {
@@ -22,8 +23,8 @@ import {
   td,
   tdNum,
   tdInt,
-  getColumnWidths // <-- IMPORTADO LA NUEVA FUNCIÓN
-} from "/src/utils/helpers.jsx"; // Reverted to absolute path
+  getColumnWidths
+} from "/src/utils/helpers.jsx";
 
 export function CargasEnviadas({ packages, flights, user }) {
   const [from, setFrom] = useState("");
@@ -161,9 +162,19 @@ export function CargasEnviadas({ packages, flights, user }) {
     if (!flight) { alert("Seleccioná una carga."); return; }
 
     // Usar la lista SIN filtrar por el buscador 'q' para el export (el export siempre debe ser de todo el paquete)
-    const packagesForExport = flights.find(f => f.id === flightId)
+    let packagesForExport = flights.find(f => f.id === flightId)
         ? packages.filter(p => p.flight_id === flightId)
         : [];
+
+    // --- FIX DE SEGURIDAD PARA COURIERS ---
+    // Si es Courier, filtramos para que SOLO exporte sus paquetes y no toda la carga.
+    if (isCourier) {
+        packagesForExport = packagesForExport.filter(p => 
+            p.courier === user.courier && 
+            String(p.codigo || "").toUpperCase().startsWith(pref)
+        );
+    }
+    // --------------------------------------
 
     const headerPacking = ["Courier", "Casilla", "Código de paquete", "Fecha", "Empresa de envío", "Nombre y apellido", "CI/RUC", "Tracking", "Remitente", "Peso real", "Peso facturable", "Medidas", "Peso volumétrico", "Exceso de volumen", "Descripción", "Precio (EUR)"].map(th);
     const bodyPacking = packagesForExport.map(p => [

@@ -325,7 +325,7 @@ export function boxLabelHTML({ courier, boxNumber, pesoKg, medidasTxt, fecha, ca
           <div class="label">
             <div class="header">
               <div class="courier">${deaccent(courier || "").toUpperCase()}</div>
-              <div class="box-title">CAJA ${boxNumber}</div>
+              <div class="box-title">${boxNumber}</div>
             </div>
             <div class="content">
               <div class="detail-group">

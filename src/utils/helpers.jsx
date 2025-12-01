@@ -67,8 +67,9 @@ export const CASILLA_PREFIX_MAP = {
 export function courierPrefix(name) { return limpiar(name || ""); }
 
 export function tabsForRole(role) {
-    // <-- CAMBIO AQUÍ: "Buscador" -> "Buscador de paquetes"
     if (role === "COURIER") return ["Dashboard", "Buscador de paquetes", "Paquetes sin casilla", "Paquetes en bodega", "Cargas enviadas", "Proformas"];
+    // NUEVO ROL: COURIER_CS (Atención al Cliente) - Solo pestañas de consulta
+    if (role === "COURIER_CS") return ["Buscador de paquetes", "Paquetes en bodega", "Cargas enviadas"];
     return ["Dashboard", "Recepción", "Buscador de paquetes", "Paquetes sin casilla", "Pendientes", "Paquetes en bodega", "Armado de cajas", "Cargas enviadas", "Gestión de cargas", "Proformas", "Usuarios", "Extras"];
 }
 

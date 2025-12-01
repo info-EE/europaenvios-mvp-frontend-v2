@@ -35,7 +35,8 @@ export function CargasEnviadas({ packages, flights, user }) {
   const [q, setQ] = useState(""); // Estado de búsqueda global
   
   const isAdmin = user.role === 'ADMIN';
-  const isCourier = user.role === 'COURIER';
+  // Modificación para incluir COURIER_CS
+  const isCourier = ["COURIER", "COURIER_CS"].includes(user.role);
   const isGlobalSearchActive = !!q.trim(); // Controla si la búsqueda global está activa
 
   // Obtiene los IDs de las cargas en las que participó el courier
@@ -60,7 +61,7 @@ export function CargasEnviadas({ packages, flights, user }) {
     .sort((a, b) => (b.fecha_salida || "").localeCompare(a.fecha_salida || ""));
 
   const flight = flights.find(f => f.id === flightId);
-  const pref = user.role === "COURIER" ? limpiar(user.courier) : null;
+  const pref = isCourier ? limpiar(user.courier) : null;
 
   // Paquetes a mostrar en la tabla (displayedPackages)
   const displayedPackages = useMemo(() => {
@@ -74,7 +75,7 @@ export function CargasEnviadas({ packages, flights, user }) {
     let pkgs = packages.filter(p => allSentFlightsMap.has(p.flight_id));
     
     // 2. Aplicar filtro por Rol/Courier (siempre)
-    pkgs = pkgs.filter(p => user.role !== "COURIER" || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref)));
+    pkgs = pkgs.filter(p => user.role !== "COURIER" && user.role !== "COURIER_CS" || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref)));
 
     // 3. Agregar el código y estado de carga a cada paquete para facilitar el uso
     pkgs = pkgs.map(p => {
@@ -132,7 +133,7 @@ export function CargasEnviadas({ packages, flights, user }) {
     // Obtener solo los paquetes que están visibles por rol (Admin ve todos)
     const visibleIds = new Set(packages
       .filter(p => p.flight_id === flightId)
-      .filter(p => user.role !== "COURIER" || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref)))
+      .filter(p => user.role !== "COURIER" && user.role !== "COURIER_CS" || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref)))
       .map(p => p.id));
       
     return (flight.cajas || []).map((c, i) => {

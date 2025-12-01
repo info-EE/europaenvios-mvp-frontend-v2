@@ -14,7 +14,8 @@ export function BuscadorMaestro({ packages, flights, sinCasillaItems, user }) {
   const [viewerImages, setViewerImages] = useState([]); 
   const [detailsPackage, setDetailsPackage] = useState(null); // Estado para el paquete seleccionado
   
-  const isCourier = user?.role === "COURIER";
+  // Modificación para incluir COURIER_CS
+  const isCourier = ["COURIER", "COURIER_CS"].includes(user?.role);
   const courierName = user?.courier;
 
   // Lógica de búsqueda unificada

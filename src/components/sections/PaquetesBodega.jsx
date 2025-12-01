@@ -62,7 +62,10 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setTo] = useState("");
   const [sort, setSort] = useState({ key: 'createdAt', dir: 'desc' });
-  const isCourier = user.role === "COURIER";
+  
+  // Modificación para incluir COURIER_CS
+  const isCourier = ["COURIER", "COURIER_CS"].includes(user.role);
+  
   const [editingCiRucPackage, setEditingCiRucPackage] = useState(null);
   const [isSavingCiRuc, setIsSavingCiRuc] = useState(false);
 
@@ -73,7 +76,7 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
     setSort(s => s.key === key ? { key, dir: (s.dir === "asc" ? "desc" : "asc") } : { key, dir: "asc" });
   };
 
-  const pref = user.role === "COURIER" ? limpiar(user.courier) : null;
+  const pref = isCourier ? limpiar(user.courier) : null;
 
   const courierFlights = useMemo(() => {
     const flightsInBodega = flights.filter(f => f.estado === 'En bodega');
@@ -102,8 +105,8 @@ export function PaquetesBodega({ packages, flights, user, onUpdate, onDelete, on
       .filter(p => !dateFrom || (p.fecha || "") >= dateFrom)
       .filter(p => !dateTo || (p.fecha || "") <= dateTo)
       .filter(p => (p.codigo + p.casilla + p.tracking + p.nombre_apellido + p.courier).toLowerCase().includes(q.toLowerCase()))
-      .filter(p => user.role !== "COURIER" || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref)));
-  }, [packages, flights, flightId, dateFrom, dateTo, q, user, pref]);
+      .filter(p => !isCourier || (p.courier === user.courier && String(p.codigo || "").toUpperCase().startsWith(pref)));
+  }, [packages, flights, flightId, dateFrom, dateTo, q, user, pref, isCourier]);
 
   const getSortVal = (p, key) => {
     switch(key){

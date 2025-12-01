@@ -312,7 +312,7 @@ function App() {
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
               <p className="text-sm font-semibold text-slate-700">{currentUser.email}</p>
-              <p className="text-xs text-slate-500">{currentUser.role}{currentUser.role === 'COURIER' && ` (${currentUser.courier})`}</p>
+              <p className="text-xs text-slate-500">{currentUser.role}{['COURIER', 'COURIER_CS'].includes(currentUser.role) && ` (${currentUser.courier})`}</p>
             </div>
             <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-slate-100 transition-colors duration-200 text-slate-500" title="Cerrar sesión">
               {Iconos.logout}
